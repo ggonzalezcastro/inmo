@@ -406,9 +406,20 @@ Solo JSON válido."""
                 logger.info(f"[LLM] Response received from Gemini API")
                 logger.debug(f"[LLM] Response type: {type(response).__name__}, Has candidates: {hasattr(response, 'candidates')}")
                 
+                # Log finish reason to detect if response was cut off
+                if hasattr(response, 'candidates') and response.candidates:
+                    candidate = response.candidates[0]
+                    finish_reason = getattr(candidate, 'finish_reason', None)
+                    if finish_reason:
+                        logger.info(f"[LLM] Finish reason: {finish_reason}")
+                        if finish_reason == "MAX_TOKENS":
+                            logger.warning("[LLM] ⚠️ Response was cut off due to MAX_TOKENS limit!")
+                        elif finish_reason == "STOP":
+                            logger.debug("[LLM] Response completed normally (STOP)")
+                
                 # Check for function calls in response
                 function_calls_in_response = []
-                text_response = None
+                text_parts = []  # Collect all text parts to concatenate
                 
                 if hasattr(response, 'candidates') and response.candidates:
                     candidate = response.candidates[0]
@@ -426,9 +437,12 @@ Solo JSON válido."""
                                         "args": func_args
                                     })
                             
-                            # Check for text response
+                            # Check for text response - collect ALL text parts
                             if hasattr(part, 'text') and part.text and part.text.strip():
-                                text_response = part.text.strip()
+                                text_parts.append(part.text.strip())
+                
+                # Concatenate all text parts
+                text_response = " ".join(text_parts) if text_parts else None
                 
                 # If no function calls, return text response
                 if not function_calls_in_response:
