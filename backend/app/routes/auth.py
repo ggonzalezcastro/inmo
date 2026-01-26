@@ -14,6 +14,7 @@ from app.middleware.auth import (
 )
 from app.models.user import User, UserRole
 from app.config import settings
+from app.services.broker_init_service import BrokerInitService
 
 
 router = APIRouter()
@@ -57,13 +58,26 @@ async def register(user_data: UserRegister, db: AsyncSession = Depends(get_db)):
         email=user_data.email,
         hashed_password=hashed_password,
         name=user_data.broker_name,  # Mapear broker_name a name
-        role=UserRole.AGENT,  # Usar el enum correcto
+        role=UserRole.AGENT,  # Temporal, se cambiará a ADMIN después
         is_active=True
     )
     
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
+    
+    # Initialize broker and configurations automatically
+    try:
+        broker = await BrokerInitService.initialize_broker_for_user(
+            db=db,
+            user=new_user,
+            broker_name=user_data.broker_name
+        )
+        logger.info(f"Broker initialized for user {new_user.email}: {broker.id if broker else 'None'}")
+    except Exception as e:
+        logger.error(f"Error initializing broker for user {new_user.email}: {e}")
+        # Continue anyway - user is created but without broker config
+        # They can configure it later
     
     # Create token with role and broker_id
     token_data = {
@@ -84,11 +98,13 @@ async def register(user_data: UserRegister, db: AsyncSession = Depends(get_db)):
     return {"access_token": access_token, "token_type": "bearer"}
 
 
+import logging
+logger = logging.getLogger(__name__)
+
+
 @router.post("/login", response_model=Token)
 async def login(user_data: UserLogin, db: AsyncSession = Depends(get_db)):
     """Login user"""
-    import logging
-    logger = logging.getLogger(__name__)
     
     logger.info(f"Login attempt for email: {user_data.email}")
     
