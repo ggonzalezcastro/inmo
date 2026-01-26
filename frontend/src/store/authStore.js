@@ -60,29 +60,38 @@ export const useAuthStore = create((set, get) => ({
       localStorage.setItem('token', access_token);
       set({ token: access_token, loading: false });
       
-      // Decode token immediately to get user info
+      // After registration, fetch user info from API to get updated broker_id and role
+      // The backend creates the broker automatically, so we need fresh data
       try {
-        const base64Url = access_token.split('.')[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-        }).join(''));
-        const payload = JSON.parse(jsonPayload);
-        
-        const user = {
-          id: parseInt(payload.sub),
-          email: payload.email || email,
-          role: payload.role ? payload.role.toLowerCase() : 'agent',
-          broker_id: payload.broker_id || null
-        };
-        
-        console.log('Register - Decoded user from token:', user);
-        localStorage.setItem('user', JSON.stringify(user));
-        set({ user });
-      } catch (decodeError) {
-        console.error('Error decoding token after register:', decodeError);
-        // Try to fetch from API as fallback
-        await get().fetchUser();
+        const user = await get().fetchUser();
+        if (user) {
+          console.log('Register - User info after registration:', user);
+          console.log('✅ Broker creado automáticamente. Broker ID:', user.broker_id);
+          console.log('✅ Rol asignado:', user.role);
+        }
+      } catch (fetchError) {
+        console.error('Error fetching user after register:', fetchError);
+        // Fallback to token decode
+        try {
+          const base64Url = access_token.split('.')[1];
+          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+          const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+          }).join(''));
+          const payload = JSON.parse(jsonPayload);
+          
+          const user = {
+            id: parseInt(payload.sub),
+            email: payload.email || email,
+            role: payload.role ? payload.role.toLowerCase() : 'agent',
+            broker_id: payload.broker_id || null
+          };
+          
+          localStorage.setItem('user', JSON.stringify(user));
+          set({ user });
+        } catch (decodeError) {
+          console.error('Error decoding token after register:', decodeError);
+        }
       }
       
       return true;

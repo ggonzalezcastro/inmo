@@ -79,17 +79,20 @@ async def register(user_data: UserRegister, db: AsyncSession = Depends(get_db)):
         # Continue anyway - user is created but without broker config
         # They can configure it later
     
-    # Create token with role and broker_id
+    # Refresh user to get updated broker_id and role after broker initialization
+    await db.refresh(new_user)
+    
+    # Create token with role and broker_id (now updated)
     token_data = {
         "sub": str(new_user.id),
         "email": new_user.email
     }
     
-    # Add role if available
+    # Add role if available (should be ADMIN after initialization)
     if hasattr(new_user, 'role') and new_user.role:
         token_data["role"] = new_user.role.value if hasattr(new_user.role, 'value') else str(new_user.role)
     
-    # Add broker_id if available
+    # Add broker_id if available (should be set after initialization)
     if hasattr(new_user, 'broker_id') and new_user.broker_id:
         token_data["broker_id"] = new_user.broker_id
     
