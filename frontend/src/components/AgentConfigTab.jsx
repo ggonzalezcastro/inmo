@@ -71,10 +71,9 @@ export default function AgentConfigTab({ config, onSave }) {
             identity_prompt: formData.identity_prompt || null,
             business_context: formData.business_context || null,
             agent_objective: formData.agent_objective || null,
-            data_collection_prompt: formData.data_collection_prompt || null,
+            // data_collection_prompt y tools_instructions no se envían porque son readonly
             behavior_rules: formData.behavior_rules || null,
             restrictions: formData.restrictions || null,
-            tools_instructions: formData.tools_instructions || null,
             enable_appointment_booking: formData.enable_appointment_booking,
             // Limpiar full_custom_prompt para que use las secciones
             full_custom_prompt: null
@@ -232,13 +231,17 @@ export default function AgentConfigTab({ config, onSave }) {
           {/* Datos a Recopilar */}
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-3">4️⃣ Datos a Recopilar</h2>
-            <textarea
-              value={formData.data_collection_prompt}
-              onChange={e => setFormData({...formData, data_collection_prompt: e.target.value})}
-              placeholder="Lista los datos que el agente debe recopilar...&#10;&#10;Ej:&#10;1. NOMBRE COMPLETO&#10;2. TELÉFONO (+569...)&#10;3. EMAIL (Requerido para enviar link)&#10;4. UBICACIÓN PREFERIDA&#10;5. CAPACIDAD FINANCIERA (renta líquida mensual)"
-              rows={6}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            <div className="bg-gray-50 border border-gray-300 rounded-md p-3">
+              <textarea
+                value={formData.data_collection_prompt || "1. NOMBRE COMPLETO\n2. TELÉFONO (+569...)\n3. EMAIL (Requerido para enviar link)\n4. UBICACIÓN PREFERIDA\n5. CAPACIDAD FINANCIERA (renta líquida mensual)"}
+                readOnly
+                rows={6}
+                className="w-full bg-transparent border-none px-0 py-0 font-mono text-sm text-gray-700 cursor-not-allowed resize-none focus:outline-none"
+              />
+            </div>
+            <p className="text-sm text-gray-500 mt-2">
+              ℹ️ Este campo es informativo y no se puede modificar. Los datos a recopilar están definidos por el sistema.
+            </p>
           </section>
           
           {/* Reglas */}
@@ -283,15 +286,19 @@ export default function AgentConfigTab({ config, onSave }) {
             {formData.enable_appointment_booking && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Instrucciones de Herramientas (Opcional)
+                  Instrucciones de Herramientas
                 </label>
-                <textarea
-                  value={formData.tools_instructions}
-                  onChange={e => setFormData({...formData, tools_instructions: e.target.value})}
-                  placeholder="Instrucciones adicionales sobre cómo usar las herramientas de agendamiento...&#10;&#10;Ej: 'Solo agenda reuniones virtuales (Google Meet), no presenciales.'"
-                  rows={3}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <div className="bg-gray-50 border border-gray-300 rounded-md p-3">
+                  <textarea
+                    value={formData.tools_instructions || "HERRAMIENTAS DISPONIBLES:\n- get_available_appointment_slots: Usa esto cuando el cliente quiera agendar una cita\n- create_appointment: Usa esto SOLO cuando el cliente confirme explícitamente un horario específico"}
+                    readOnly
+                    rows={4}
+                    className="w-full bg-transparent border-none px-0 py-0 text-sm text-gray-700 cursor-not-allowed resize-none focus:outline-none"
+                  />
+                </div>
+                <p className="text-sm text-gray-500 mt-2">
+                  ℹ️ Las herramientas disponibles están definidas por el sistema y no se pueden modificar.
+                </p>
               </div>
             )}
           </section>
