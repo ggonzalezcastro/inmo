@@ -12,7 +12,7 @@ from app.middleware.auth import (
     create_access_token,
     get_current_user
 )
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.config import settings
 
 
@@ -22,7 +22,7 @@ router = APIRouter()
 class UserRegister(BaseModel):
     email: EmailStr
     password: str
-    broker_name: str
+    broker_name: str  # Se mantiene en el schema pero se mapea a 'name'
 
 
 class UserLogin(BaseModel):
@@ -56,8 +56,9 @@ async def register(user_data: UserRegister, db: AsyncSession = Depends(get_db)):
     new_user = User(
         email=user_data.email,
         hashed_password=hashed_password,
-        broker_name=user_data.broker_name,
-        role="broker"
+        name=user_data.broker_name,  # Mapear broker_name a name
+        role=UserRole.AGENT,  # Usar el enum correcto
+        is_active=True
     )
     
     db.add(new_user)
