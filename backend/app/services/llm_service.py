@@ -807,6 +807,6 @@ Solo JSON válido."""
         summary = "\n\n".join(summary_parts)
         
         if new_message:
-            summary += f"\n\nMENSAJE ACTUAL:\n{new_message}\n\nTU RESPUESTA (máximo 2 oraciones, NO pidas info ya recopilada, NO preguntes por interés si ya fue confirmado):"
+            summary += f"\n\n📬 MENSAJE ACTUAL DEL USUARIO:\n{new_message}\n\n⚡ INSTRUCCIONES FINALES:\n- Responde de forma natural y conversacional\n- Máximo 2-3 oraciones por mensaje\n- NO repitas preguntas si ya tienes la información\n- NO preguntes por interés si ya fue confirmado\n- Responde SOLO con tu mensaje, sin etiquetas ni prefijos"
         
         return summary
