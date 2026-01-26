@@ -233,10 +233,10 @@ export default function AgentConfigTab({ config, onSave }) {
             <h2 className="text-lg font-semibold text-gray-900 mb-3">4️⃣ Datos a Recopilar</h2>
             <div className="bg-gray-50 border border-gray-300 rounded-md p-3">
               <textarea
-                value={formData.data_collection_prompt || "1. NOMBRE COMPLETO\n2. TELÉFONO (+569...)\n3. EMAIL (Requerido para enviar link)\n4. UBICACIÓN PREFERIDA\n5. CAPACIDAD FINANCIERA (renta líquida mensual)"}
+                value={formData.data_collection_prompt || "1. NOMBRE COMPLETO\n   - Campo: lead.name\n   - Validación: No vacío\n\n2. TELÉFONO\n   - Campo: lead.phone\n   - Formato: +56912345678 o 912345678\n   - Validación: 9 dígitos para celular chileno\n\n3. EMAIL\n   - Campo: lead.email\n   - Validación: Formato email válido\n   - IMPORTANTE: Requerido para enviar link de Google Meet\n\n4. UBICACIÓN PREFERIDA\n   - Campo: lead.metadata.location\n   - Ejemplo: \"Las Condes\", \"Providencia y alrededores\"\n\n5. CAPACIDAD FINANCIERA (Renta Líquida Mensual)\n   - Campo: lead.metadata.monthly_income\n   - IMPORTANTE: SOLO PREGUNTAR RENTA/SUELDO, NO PRESUPUESTO\n   - Formato: Número (ej: 1500000, 2 millones = 2000000)\n   - Rangos válidos:\n     * 500000-1000000 (Bajo)\n     * 1000000-2000000 (Medio)\n     * 2000000-4000000 (Alto)\n     * 4000000+ (Muy Alto)\n\n6. SITUACIÓN CREDITICIA (DICOM)\n   - Campo: lead.metadata.dicom_status (valores: \"clean\", \"has_debt\", \"unknown\")\n   - Campo: lead.metadata.morosidad_amount (si aplica)\n   - Pregunta directa: \"¿Actualmente estás en DICOM o tienes deudas morosas?\"\n   - \"No\" → dicom_status = \"clean\" (EXCELENTE, NO está en DICOM)\n   - \"Sí\" → dicom_status = \"has_debt\" (Preguntar monto)\n   - \"No sé\" → dicom_status = \"unknown\""}
                 readOnly
-                rows={6}
-                className="w-full bg-transparent border-none px-0 py-0 font-mono text-sm text-gray-700 cursor-not-allowed resize-none focus:outline-none"
+                rows={24}
+                className="w-full bg-transparent border-none px-0 py-0 font-mono text-xs text-gray-700 cursor-not-allowed resize-none focus:outline-none"
               />
             </div>
             <p className="text-sm text-gray-500 mt-2">
