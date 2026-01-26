@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { brokerAPI } from '../services/api';
 
 const FIELD_LABELS = {
@@ -19,8 +19,11 @@ export default function LeadConfigTab({ config, onSave }) {
     name: 10, phone: 15, email: 10, location: 15, 
     monthly_income: 25, dicom_status: 20, budget: 10
   });
-  const [thresholds, setThresholds] = useState(config?.thresholds || {
-    cold_max: 20, warm_max: 50, hot_min: 50, qualified_min: 75
+  const [thresholds, setThresholds] = useState({
+    cold_max: config?.cold_max_score || 20,
+    warm_max: config?.warm_max_score || 50,
+    hot_min: config?.hot_min_score || 50,
+    qualified_min: config?.qualified_min_score || 75
   });
   
   // ⭐ Rangos de ingresos configurables
@@ -61,6 +64,31 @@ export default function LeadConfigTab({ config, onSave }) {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
   
+  // Update form data when config prop changes
+  useEffect(() => {
+    if (config) {
+      setWeights(config.field_weights || {
+        name: 10, phone: 15, email: 10, location: 15, 
+        monthly_income: 25, dicom_status: 20, budget: 10
+      });
+      setThresholds({
+        cold_max: config.cold_max_score || 20,
+        warm_max: config.warm_max_score || 50,
+        hot_min: config.hot_min_score || 50,
+        qualified_min: config.qualified_min_score || 75
+      });
+      setPriority(config.field_priority || [
+        'name', 'phone', 'email', 'location', 'monthly_income', 'dicom_status', 'budget'
+      ]);
+      if (config.income_ranges) {
+        setIncomeRanges(config.income_ranges);
+      }
+      if (config.qualification_criteria) {
+        setQualificationCriteria(config.qualification_criteria);
+      }
+    }
+  }, [config]);
+  
   const handleSave = async () => {
     setSaving(true);
     setError(null);
@@ -73,8 +101,9 @@ export default function LeadConfigTab({ config, onSave }) {
         hot_min_score: thresholds.hot_min,
         qualified_min_score: thresholds.qualified_min,
         field_priority: priority,
-        income_ranges: incomeRanges,  // ⭐ NUEVO
-        qualification_criteria: qualificationCriteria,  // ⭐ NUEVO
+        income_ranges: incomeRanges,
+        qualification_criteria: qualificationCriteria,
+        max_acceptable_debt: qualificationCriteria.potencial.max_debt_amount
       });
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);

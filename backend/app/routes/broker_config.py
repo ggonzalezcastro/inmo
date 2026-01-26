@@ -105,9 +105,10 @@ async def get_broker_config(
                 try:
                     result2 = await db.execute(
                         text("""
-                            SELECT business_context, agent_objective, data_collection_prompt, 
-                                   behavior_rules, restrictions, situation_handlers, output_format, 
-                                   full_custom_prompt, tools_instructions
+                            SELECT identity_prompt, business_context, agent_objective, 
+                                   data_collection_prompt, behavior_rules, restrictions, 
+                                   situation_handlers, output_format, full_custom_prompt, 
+                                   tools_instructions
                             FROM broker_prompt_configs 
                             WHERE broker_id = :broker_id
                             LIMIT 1
@@ -132,7 +133,8 @@ async def get_broker_config(
                 text("""
                     SELECT broker_id, field_weights, cold_max_score, warm_max_score, 
                            hot_min_score, qualified_min_score, field_priority, 
-                           alert_on_hot_lead, alert_score_threshold, alert_email,
+                           income_ranges, qualification_criteria, max_acceptable_debt,
+                           alert_on_hot_lead, alert_on_qualified, alert_score_threshold, alert_email,
                            id, created_at, updated_at
                     FROM broker_lead_configs 
                     WHERE broker_id = :broker_id
@@ -165,9 +167,9 @@ async def get_broker_config(
                 "is_active": broker.is_active
             },
             "prompt_config": {
-                "agent_name": safe_get(prompt_config_data, 'agent_name', None),
-                "agent_role": safe_get(prompt_config_data, 'agent_role', None),
-                "identity_prompt": None,  # Column may not exist in DB yet
+                "agent_name": safe_get(prompt_config_data, 'agent_name', 'Sofía'),
+                "agent_role": safe_get(prompt_config_data, 'agent_role', 'asesora inmobiliaria'),
+                "identity_prompt": safe_get(prompt_config_data, 'identity_prompt', None),
                 "business_context": safe_get(prompt_config_data, 'business_context', None),
                 "agent_objective": safe_get(prompt_config_data, 'agent_objective', None),
                 "data_collection_prompt": safe_get(prompt_config_data, 'data_collection_prompt', None),
@@ -180,13 +182,22 @@ async def get_broker_config(
                 "tools_instructions": safe_get(prompt_config_data, 'tools_instructions', None)
             },
             "lead_config": {
-                "field_weights": safe_get(lead_config_data, 'field_weights', None),
+                "field_weights": safe_get(lead_config_data, 'field_weights', {
+                    "name": 10, "phone": 15, "email": 10, "location": 15, 
+                    "monthly_income": 25, "dicom_status": 20, "budget": 10
+                }),
                 "cold_max_score": safe_get(lead_config_data, 'cold_max_score', 20),
                 "warm_max_score": safe_get(lead_config_data, 'warm_max_score', 50),
                 "hot_min_score": safe_get(lead_config_data, 'hot_min_score', 50),
                 "qualified_min_score": safe_get(lead_config_data, 'qualified_min_score', 75),
-                "field_priority": safe_get(lead_config_data, 'field_priority', None),
+                "field_priority": safe_get(lead_config_data, 'field_priority', [
+                    'name', 'phone', 'email', 'location', 'monthly_income', 'dicom_status', 'budget'
+                ]),
+                "income_ranges": safe_get(lead_config_data, 'income_ranges', None),
+                "qualification_criteria": safe_get(lead_config_data, 'qualification_criteria', None),
+                "max_acceptable_debt": safe_get(lead_config_data, 'max_acceptable_debt', 500000),
                 "alert_on_hot_lead": safe_get(lead_config_data, 'alert_on_hot_lead', True),
+                "alert_on_qualified": safe_get(lead_config_data, 'alert_on_qualified', True),
                 "alert_score_threshold": safe_get(lead_config_data, 'alert_score_threshold', 70),
                 "alert_email": safe_get(lead_config_data, 'alert_email', None)
             }
@@ -333,32 +344,22 @@ async def preview_prompt(
 
 @router.get("/config/defaults")
 async def get_default_config(
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """Get default configuration values"""
+    
+    # Use the service to get defaults
+    defaults = await BrokerConfigService.get_default_config(db)
     
     return {
         "prompt": {
             "agent_name": "Sofía",
             "agent_role": "asesora inmobiliaria",
-            "enable_appointment_booking": True
+            "enable_appointment_booking": True,
+            "default_system_prompt": BrokerConfigService.DEFAULT_SYSTEM_PROMPT
         },
-        "leads": {
-            "field_weights": {
-                "name": 10,
-                "phone": 15,
-                "email": 10,
-                "location": 15,
-                "budget": 20
-            },
-            "cold_max_score": 20,
-            "warm_max_score": 50,
-            "hot_min_score": 50,
-            "qualified_min_score": 75,
-            "field_priority": ["name", "phone", "email", "location", "budget"],
-            "alert_on_hot_lead": True,
-            "alert_score_threshold": 70
-        }
+        "leads": defaults
     }
 
 
