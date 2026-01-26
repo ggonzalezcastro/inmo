@@ -108,7 +108,7 @@ export default function AgentConfigTab({ config, onSave }) {
       {/* Success/Error Messages */}
       {success && (
         <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-md">
-          ✅ Configuración guardada correctamente
+          ✅ Configuración guardada correctamente. Los cambios se aplicarán inmediatamente en el próximo mensaje del chat.
         </div>
       )}
       {error && (

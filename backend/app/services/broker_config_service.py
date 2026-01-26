@@ -362,11 +362,14 @@ class BrokerConfigService:
         # If full custom prompt exists, use it
         full_custom = safe_get(prompt_config_data, 'full_custom_prompt')
         if full_custom:
-            logger.info(f"Using full custom prompt for broker {broker_id}")
+            logger.info(f"Using full custom prompt for broker {broker_id} (length: {len(full_custom)} chars)")
             return full_custom
         
         # Build prompt from sections
         sections = []
+        
+        # Log that we're building from sections (not custom)
+        logger.info(f"Building prompt from sections for broker {broker_id}")
         
         # 1. Identidad/Rol
         identity_prompt = safe_get(prompt_config_data, 'identity_prompt')

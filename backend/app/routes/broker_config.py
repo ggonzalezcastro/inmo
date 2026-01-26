@@ -244,6 +244,8 @@ async def update_prompt_config(
     await db.commit()
     await db.refresh(prompt_config)
     
+    logger.info(f"Prompt config updated for broker {broker_id} - Changes will be applied immediately in next chat message")
+    
     return {
         "message": "Prompt configuration updated successfully",
         "config": {
@@ -284,6 +286,8 @@ async def update_lead_config(
     
     await db.commit()
     await db.refresh(lead_config)
+    
+    logger.info(f"Lead config updated for broker {broker_id} - Changes will be applied immediately in next chat message")
     
     return {
         "message": "Lead configuration updated successfully",
