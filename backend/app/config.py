@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # Google Gemini
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = "gemini-2.5-flash"  # Try newer model that might have quota
-    GEMINI_MAX_TOKENS: int = 400  # Aumentado para permitir respuestas completas (2-3 oraciones)
+    GEMINI_MAX_TOKENS: int = 600  # Aumentado para permitir respuestas completas incluso cuando se confirman citas
     GEMINI_TEMPERATURE: float = 0.7
     
     # Telegram

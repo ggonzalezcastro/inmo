@@ -409,13 +409,25 @@ Solo JSON válido."""
                 # Log finish reason to detect if response was cut off
                 if hasattr(response, 'candidates') and response.candidates:
                     candidate = response.candidates[0]
-                    finish_reason = getattr(candidate, 'finish_reason', None)
+                    # Try different ways to get finish_reason (API might vary)
+                    finish_reason = None
+                    if hasattr(candidate, 'finish_reason'):
+                        finish_reason = candidate.finish_reason
+                    elif hasattr(candidate, 'finishReason'):
+                        finish_reason = candidate.finishReason
+                    elif hasattr(candidate, 'stop_reason'):
+                        finish_reason = candidate.stop_reason
+                    
                     if finish_reason:
                         logger.info(f"[LLM] Finish reason: {finish_reason}")
-                        if finish_reason == "MAX_TOKENS":
+                        if finish_reason in ["MAX_TOKENS", "max_tokens", "MAX_TOKENS_REACHED"]:
                             logger.warning("[LLM] ⚠️ Response was cut off due to MAX_TOKENS limit!")
-                        elif finish_reason == "STOP":
+                        elif finish_reason in ["STOP", "stop", "STOP_REASON_UNSPECIFIED"]:
                             logger.debug("[LLM] Response completed normally (STOP)")
+                        else:
+                            logger.info(f"[LLM] Finish reason: {finish_reason} (unknown)")
+                    else:
+                        logger.debug("[LLM] Finish reason not available in response")
                 
                 # Check for function calls in response
                 function_calls_in_response = []
@@ -821,6 +833,6 @@ Solo JSON válido."""
         summary = "\n\n".join(summary_parts)
         
         if new_message:
-            summary += f"\n\n📬 MENSAJE ACTUAL DEL USUARIO:\n{new_message}\n\n⚡ INSTRUCCIONES FINALES:\n- Responde de forma natural y conversacional\n- Máximo 2-3 oraciones por mensaje\n- NO repitas preguntas si ya tienes la información\n- NO preguntes por interés si ya fue confirmado\n- Responde SOLO con tu mensaje, sin etiquetas ni prefijos"
+            summary += f"\n\n📬 MENSAJE ACTUAL DEL USUARIO:\n{new_message}\n\n⚡ INSTRUCCIONES FINALES:\n- Responde de forma natural y conversacional\n- Mantén respuestas concisas (2-4 oraciones normalmente)\n- Si necesitas confirmar una cita o dar información importante, puedes ser más extenso\n- NO repitas preguntas si ya tienes la información\n- NO preguntes por interés si ya fue confirmado\n- COMPLETA siempre tu respuesta - no la dejes a medias\n- Responde SOLO con tu mensaje, sin etiquetas ni prefijos"
         
         return summary
