@@ -1,7 +1,7 @@
 ---
 title: Estrategia de Testing
-version: 1.0.0
-date: 2026-02-21
+version: 1.1.0
+date: 2026-02-22
 author: Equipo Inmo
 ---
 
@@ -11,8 +11,9 @@ author: Equipo Inmo
 
 | Nivel | Herramienta | Cobertura Actual | Objetivo |
 |-------|------------|-----------------|----------|
-| Unit Tests | pytest + pytest-asyncio | Parcial | 80% servicios |
-| Integration Tests | pytest + httpx | Mínima | 60% rutas |
+| Unit Tests | pytest + pytest-asyncio | Buena (agentes, voz, auth) | 80% servicios |
+| Eval Tests | deepeval + métricas custom | 51 conversaciones, 26 tests | Regresión de calidad |
+| Integration Tests | pytest + httpx | Parcial | 60% rutas |
 | E2E Tests | [TODO: Playwright/Cypress] | Ninguna | Flujos críticos |
 
 ## Pirámide de Tests
