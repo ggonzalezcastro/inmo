@@ -35,15 +35,28 @@ flowchart TB
 
 ### Unit Tests de Servicios
 
-| Archivo | Cobertura |
-|---------|-----------|
-| `tests/services/test_voice_providers.py` | Providers de voz, factory, webhook handling |
-| `tests/test_auth.py` | Autenticación y JWT |
-| `tests/test_chat.py` | Servicio de chat |
+| Archivo | Tests | Descripción |
+|---------|-------|-------------|
+| `tests/services/test_multi_agent.py` | 27 | Multi-agente: contexto, routing, handoffs, supervisor |
+| `tests/services/test_voice_providers.py` | 9 | Providers de voz, factory, webhook handling |
+| `tests/test_auth.py` | — | Autenticación y JWT |
+| `tests/test_chat.py` | — | Servicio de chat |
+
+### Eval Tests de Calidad (TASK-025)
+
+Tests en `tests/evals/` — corren **sin** llamadas LLM externas:
+
+| Clase | Tests | Descripción |
+|-------|-------|-------------|
+| `TestDatasetIntegrity` | 5 | Valida estructura del dataset de 51 conversaciones |
+| `TestDicomRuleAdherence` | 8 | Detecta las 10 violaciones DICOM del dataset; verifica 0 falsos positivos |
+| `TestTaskCompletion` | 8 | Verifica cumplimiento de acciones esperadas por conversación |
+| `TestAnswerRelevancy` | 2 | Requiere `EVAL_LLM_ENABLED=true` (deepeval) |
+| `TestFaithfulness` | 3 | 1 determinista + 2 requieren `EVAL_LLM_ENABLED=true` |
+
+Baselines registrados: `docs/testing/eval_baseline.md`
 
 ### Test de Voice Providers
-
-Tests implementados en `tests/services/test_voice_providers.py`:
 
 | Test | Descripción |
 |------|-------------|
@@ -65,18 +78,26 @@ cd backend
 # Instalar dependencias de test
 pip install -r requirements-test.txt
 
-# Todos los tests
-pytest -v
+# Todos los tests (requiere PostgreSQL + Redis corriendo)
+.venv/bin/python -m pytest -v
 
-# Solo un módulo
-pytest tests/services/test_voice_providers.py -v
+# Tests de un módulo sin dependencias de BD
+.venv/bin/python -m pytest tests/services/test_multi_agent.py -v --noconftest
+
+# Framework de evaluación (determinista, sin API key)
+.venv/bin/python -m pytest tests/evals/ -v --noconftest
+
+# Framework de evaluación con LLM-judge
+EVAL_LLM_ENABLED=true .venv/bin/python -m pytest tests/evals/ -v --noconftest
 
 # Con cobertura
-pytest --cov=app --cov-report=html --cov-report=term-missing
+.venv/bin/python -m pytest --cov=app --cov-report=html --cov-report=term-missing
 
 # Solo tests async
-pytest -m asyncio -v
+.venv/bin/python -m pytest -m asyncio -v
 ```
+
+> **Nota:** `--noconftest` es necesario para tests que no requieren BD porque `tests/conftest.py` importa la app completa (PostgreSQL + pgvector requeridos).
 
 ## Configuración
 

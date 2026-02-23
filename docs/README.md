@@ -1,7 +1,7 @@
 ---
 title: AI Lead Agent Pro - Documentación
-version: 1.0.0
-date: 2026-02-21
+version: 1.1.0
+date: 2026-02-22
 author: Equipo Inmo
 ---
 
@@ -20,6 +20,7 @@ CRM inmobiliario multi-tenant con inteligencia artificial para calificación de 
 | Sección | Descripción |
 |---------|-------------|
 | [Arquitectura](architecture/overview.md) | Descripción de la arquitectura general del sistema |
+| [Multi-Agente](architecture/multi_agent.md) | Sistema multi-agente especializado (Qualifier, Scheduler, FollowUp) |
 | [Diagramas](architecture/diagrams.md) | Diagramas de arquitectura, ERD, flujo de datos y componentes |
 | [Decisiones](architecture/decisions.md) | Architecture Decision Records (ADRs) |
 | [Requerimientos Funcionales](requirements/functional.md) | Funcionalidades del sistema |
@@ -27,10 +28,13 @@ CRM inmobiliario multi-tenant con inteligencia artificial para calificación de 
 | [Casos de Uso](use-cases/overview.md) | Listado y detalle de casos de uso |
 | [API - Overview](api/overview.md) | Descripción general de la API REST |
 | [API - Endpoints](api/endpoints.md) | Documentación detallada de endpoints |
+| [API - Webhooks](api/webhooks.md) | Payloads de webhooks (Telegram, WhatsApp, VAPI) |
 | [Guía de Inicio](guides/getting-started.md) | Instalación y configuración |
 | [Guía de Desarrollo](guides/development.md) | Guía para desarrolladores |
 | [Guía de Despliegue](guides/deployment.md) | Despliegue en producción |
 | [Estrategia de Testing](testing/strategy.md) | Plan y cobertura de pruebas |
+| [Eval Baseline](testing/eval_baseline.md) | Baselines de calidad del agente IA |
+| [Roadmap](status/ROADMAP_PROGRESS.md) | Estado de sprints y pendientes |
 | [Changelog](changelog/CHANGELOG.md) | Historial de versiones |
 
 ## Stack Tecnológico
@@ -39,13 +43,18 @@ CRM inmobiliario multi-tenant con inteligencia artificial para calificación de 
 |------|-----------|
 | Backend | FastAPI (Python 3.11+), async/await |
 | Frontend | React + Vite, Zustand |
-| Base de Datos | PostgreSQL 15 + SQLAlchemy 2.0 (async) |
-| Cache | Redis |
-| Colas | Celery + Redis |
-| LLM | Gemini, Claude, OpenAI (Strategy Pattern) |
+| Base de Datos | PostgreSQL 15 + pgvector + SQLAlchemy 2.0 (async) |
+| Cache | Redis (sesiones, semántico, DLQ, prompt cache) |
+| Colas | Celery + Redis (con Dead Letter Queue) |
+| LLM | Gemini, Claude, OpenAI (Strategy + Router de failover) |
+| Agente IA | Sistema multi-agente: QualifierAgent, SchedulerAgent, FollowUpAgent |
+| Herramientas IA | MCP Server (Model Context Protocol) |
+| RAG | pgvector + Gemini embeddings |
+| Eval | deepeval + métricas deterministas custom |
 | Voz | VAPI, Bland AI (Strategy Pattern) |
 | Chat | Telegram, WhatsApp (Strategy Pattern) |
 | Calendario | Google Calendar API |
+| Tiempo Real | WebSocket por broker |
 | Auth | JWT + bcrypt |
 | Infraestructura | Docker Compose |
 

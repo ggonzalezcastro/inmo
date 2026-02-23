@@ -1,223 +1,111 @@
-# Roadmap Progress: CAMPAÑAS + PIPELINE + LLAMADAS IA
+# Roadmap Progress — AI Lead Agent Pro
 
-**Fecha de Inicio**: 2025-01-27  
-**Última Actualización**: 2025-01-27
-
----
-
-## 📊 Estado General del Roadmap
-
-### ✅ COMPLETADO
-
-#### Phase 1: Database Models & Campaigns ✅
-
-- ✅ **B1.1**: Campaign Models creados
-  - ✅ Campaign, CampaignStep, CampaignLog
-  - ✅ Todos los enums definidos
-  - ✅ Relaciones configuradas
-  - ✅ Índices para rendimiento
-
-- ✅ **B1.2**: Message Template Models creados
-  - ✅ MessageTemplate con variables dinámicas
-  - ✅ Soporte multi-canal
-  - ✅ Asociación con tipo de agente
-
-- ✅ **B1.3**: Voice Call Models creados
-  - ✅ VoiceCall con transcripción
-  - ✅ CallTranscript línea por línea
-  - ✅ Estados completos de llamada
-
-- ✅ **B1.4**: Lead Model actualizado
-  - ✅ Pipeline fields agregados
-  - ✅ Sistema de asignación
-  - ✅ Treatment types
-
-- ✅ **Migración de Base de Datos**
-  - ✅ Migración completa creada (e5f6g7a8h9i0)
-  - ✅ Todos los enums PostgreSQL
-  - ✅ Todas las tablas creadas
-  - ✅ Índices configurados
-
-#### Phase 2: Campaign Management Services ✅
-
-- ✅ **B2.1**: Campaign Service
-  - ✅ create_campaign, add_step, get_campaign
-  - ✅ list_campaigns con filtros
-  - ✅ apply_campaign_to_lead
-  - ✅ get_campaign_stats
-  - ✅ check_trigger_conditions
-  - ✅ update_campaign_status, delete_campaign
-
-- ✅ **B2.2**: Template Service
-  - ✅ create_template, render_template
-  - ✅ get_templates_by_type
-  - ✅ list_templates con filtros
-  - ✅ Variable extraction automática
-  - ✅ Variable replacement engine
-
-- ✅ **B2.3**: Pipeline Service
-  - ✅ move_lead_to_stage
-  - ✅ auto_advance_stage
-  - ✅ get_leads_by_stage
-  - ✅ get_stage_metrics
-  - ✅ get_leads_inactive_in_stage
-  - ✅ Trigger automático de campañas en cambio de etapa
-
-- ✅ **B5.1**: Campaign Executor (Tasks)
-  - ✅ execute_campaign_for_lead task
-  - ✅ check_trigger_campaigns task
-  - ✅ Soporte para send_message, make_call, schedule_meeting, update_stage
-  - ✅ Registrado en Celery beat (cada hora)
-
-- ✅ **B5.2**: Campaign Routes
-  - ✅ CRUD completo de campañas
-  - ✅ Gestión de steps
-  - ✅ Aplicar campaña manualmente
-  - ✅ Obtener logs y estadísticas
-
-- ✅ **Pipeline Routes**
-  - ✅ Mover lead a etapa
-  - ✅ Auto-avance de etapa
-  - ✅ Obtener leads por etapa
-  - ✅ Métricas de pipeline
-  - ✅ Leads inactivos
+**Última Actualización:** 2026-02-22
 
 ---
 
-### ⏳ EN PROGRESO / PENDIENTE
+## Estado General
 
-#### Phase 3: Voice Call Integration
-
-- ⏳ **B3.1**: Setup Voice Provider Integration
-  - ⏳ VoiceProvider abstract class
-  - ⏳ TwilioProvider o TelnyxProvider
-  - ⏳ Webhook handlers
-
-- ⏳ **B3.2**: Voice Call Service
-  - ⏳ initiate_call
-  - ⏳ handle_call_webhook
-  - ⏳ log_call
-
-- ⏳ **B3.3**: Voice Call Routes
-  - ⏳ POST /api/v1/calls/initiate
-  - ⏳ POST /api/v1/webhooks/voice
-  - ⏳ GET /api/v1/calls/{lead_id}
-
-#### Phase 4: AI Agent for Calls
-
-- ⏳ **B4.1**: Call Agent Service
-  - ⏳ build_call_prompt
-  - ⏳ generate_call_script
-  - ⏳ process_call_turn (ReAct pattern)
-  - ⏳ generate_call_summary
-
-- ⏳ **B4.2**: STT/TTS Integration
-  - ⏳ Speech-to-Text integration
-  - ⏳ Text-to-Speech integration
-
-#### Phase 5: Campaign Execution Engine
-
-- ✅ **B5.1**: Campaign Executor ✅
-- ✅ **B5.2**: Campaign Routes ✅
-
-- ⏳ **B5.3**: Update Telegram Task for Pipeline Integration
-  - ⏳ Auto-advance stage after message
-  - ⏳ Log campaign that sent template
-
-#### Phase 6: Advanced Scoring with Pipeline
-
-- ⏳ **B6.1**: Update Scoring Service for Pipeline Context
-  - ⏳ Stage-specific scoring multipliers
-  - ⏳ Update calculate_lead_score
-
-- ⏳ **B6.2**: Add Inactivity-based Campaign Triggers
-  - ⏳ Track days in stage
-  - ⏳ Automatic reactivation campaigns
-
-#### Phase 7: Multi-Broker & Isolation
-
-- ⏳ **B7.1**: Add Broker Isolation
-  - ⏳ Validate broker_id in all endpoints
-  - ⏳ Filter queries by broker_id
-
-- ⏳ **B7.2**: Add Audit Logging
-  - ⏳ AuditLog model
-  - ⏳ Log all changes
+| Sprint | Periodo | Estado |
+|--------|---------|--------|
+| Sprint 1 | Ene 2025 | ✅ Completado |
+| Sprint 2 | Feb 2026 (semana 1-2) | ✅ Completado |
+| Sprint 3 / Backlog | Feb 2026 (semana 3-4) | ✅ Completado |
 
 ---
 
-## 📁 Archivos Creados
+## Sprint 1 — Base del Sistema ✅
 
-### Modelos
-- ✅ `backend/app/models/campaign.py`
-- ✅ `backend/app/models/template.py`
-- ✅ `backend/app/models/voice_call.py`
-- ✅ `backend/app/models/lead.py` (modificado)
-
-### Servicios
-- ✅ `backend/app/services/campaign_service.py`
-- ✅ `backend/app/services/template_service.py`
-- ✅ `backend/app/services/pipeline_service.py`
-
-### Rutas
-- ✅ `backend/app/routes/campaigns.py`
-- ✅ `backend/app/routes/pipeline.py`
-
-### Tasks
-- ✅ `backend/app/tasks/campaign_executor.py`
-
-### Schemas
-- ✅ `backend/app/schemas/campaign.py`
-
-### Migraciones
-- ✅ `backend/migrations/versions/e5f6g7a8h9i0_add_campaigns_pipeline_voice.py`
+- ✅ FastAPI async + SQLAlchemy 2.0
+- ✅ PostgreSQL + Redis + Celery
+- ✅ JWT multi-tenant por broker
+- ✅ CRUD de leads
+- ✅ Integración Telegram Bot
+- ✅ Integración Google Gemini
+- ✅ Pipeline de ventas con 8 etapas
+- ✅ Sistema de scoring (base + comportamiento + engagement)
+- ✅ Docker Compose para desarrollo
 
 ---
 
-## 📝 Notas Importantes
+## Sprint 2 — Calidad y Extensibilidad ✅
 
-### Completado y Funcional
-1. ✅ Sistema completo de campañas con pasos secuenciales
-2. ✅ Triggers automáticos (lead_score, stage_change, inactivity)
-3. ✅ Pipeline de leads con 8 etapas
-4. ✅ Plantillas de mensajes con variables
-5. ✅ Auto-avance de etapas basado en condiciones
-6. ✅ Tasks de Celery para ejecución asíncrona
-7. ✅ API REST completa para campañas y pipeline
-
-### Pendiente de Implementar
-1. ⏳ Integración con proveedores de voz (Twilio/Telnyx)
-2. ⏳ Agente IA para llamadas (ReAct pattern)
-3. ⏳ STT/TTS para conversaciones de voz
-4. ⏳ Actualización de scoring basado en pipeline
-5. ⏳ Aislamiento multi-broker completo
-6. ⏳ Audit logging
+| Task | Descripción |
+|------|-------------|
+| TASK-006 | Tabla de llamadas LLM con costos |
+| TASK-010 | Temperaturas por tipo de llamada LLM |
+| TASK-012 | Tests de voice providers |
+| TASK-013 | Lockfile con uv |
+| TASK-015 | Versionado de prompts por broker |
+| TASK-016 | Few-shot examples en prompts |
+| TASK-019 | CI/CD (pendiente de configurar) |
+| TASK-023 | Dashboard de costos LLM |
+| TASK-024 | RAG con pgvector |
+| TASK-027 | WebSocket tiempo real |
+| TASK-028 | Gemini prompt caching |
+| TASK-029 | Dead Letter Queue Celery |
 
 ---
 
-## 🚀 Próximos Pasos Recomendados
+## Sprint 3 / Backlog — IA Avanzada ✅
 
-1. **Probar migración**: Ejecutar la migración y verificar que todas las tablas se crean correctamente
-2. **Testear campañas**: Crear una campaña de prueba y verificar que se aplica a leads
-3. **Implementar Phase 3**: Integrar proveedor de voz (Twilio recomendado)
-4. **Implementar Phase 4**: Crear agente IA para llamadas
-5. **Completar integraciones**: STT/TTS, scoring avanzado, multi-broker
-
----
-
-## ✅ Métricas de Progreso
-
-- **Modelos**: 6/6 (100%) ✅
-- **Servicios**: 3/3 (100%) ✅
-- **Rutas**: 2/2 (100%) ✅
-- **Tasks**: 2/2 (100%) ✅
-- **Migraciones**: 1/1 (100%) ✅
-
-**Progreso Total Phase 1-2**: ~60% del roadmap completo
+| Task | Descripción | Entregables clave |
+|------|-------------|-------------------|
+| **TASK-024** | Base de conocimiento RAG con pgvector | `models/knowledge_base.py`, `routes/knowledge_base.py`, migración `m4h5...` |
+| **TASK-025** | Eval framework con deepeval | `tests/evals/` — 51 conversaciones, `DicomRuleMetric`, `TaskCompletionMetric`, 26 tests, baselines |
+| **TASK-026** | Arquitectura multi-agente | `services/agents/` — 4 agentes, supervisor, 27 tests, `docs/architecture/multi_agent.md` |
+| **TASK-027** | WebSocket actualizaciones tiempo real | `core/websocket_manager.py`, `routes/ws.py`, broadcast en pipeline |
+| **TASK-028** | Gemini Context Cache (prompt caching) | `services/llm/prompt_cache.py`, ~75% ahorro tokens sistema |
+| **TASK-029** | Dead Letter Queue para Celery | `tasks/dlq.py`, `tasks/base.py` (DLQTask), endpoints admin |
+| **TASK-030** | Documentación API completa | 16 OpenAPI tags, Postman collection, webhooks.md |
 
 ---
 
-**Siguiente fase recomendada**: Phase 3 - Voice Call Integration
+## Componentes Completados
 
+### Backend
+- ✅ Multi-tenancy por broker (auth, leads, config, RAG, WebSocket)
+- ✅ LLM multi-provider: Gemini → Claude → OpenAI (con router de failover automático)
+- ✅ Caché semántico Redis (coseno, excluye PII)
+- ✅ Gemini Context Cache para system prompts de broker
+- ✅ MCP Server (herramientas de agendamiento vía Model Context Protocol)
+- ✅ Sistema multi-agente: QualifierAgent, SchedulerAgent, FollowUpAgent, AgentSupervisor
+- ✅ Circuit breakers (LLM, Calendar, Telegram)
+- ✅ Dead Letter Queue para fallos de Celery
+- ✅ Knowledge base RAG con pgvector
+- ✅ WebSocket por broker para eventos en tiempo real
+- ✅ Voz multi-provider: VAPI, Bland AI
+- ✅ Google Calendar con Google Meet automático
+- ✅ Campañas automatizadas con Celery
+- ✅ Pipeline con auto-avance y broadcasts WebSocket
+- ✅ Dashboard de costos LLM
+- ✅ Versionado de prompts por broker
+- ✅ Rate limiting por IP y endpoint
 
+### Frontend
+- ✅ Dashboard con métricas
+- ✅ Kanban del pipeline (drag & drop)
+- ✅ Interfaz de chat
+- ✅ Gestión de leads, campañas, templates
+- ✅ Configuración de broker (IA, voz, scoring)
+- ✅ Gestión de usuarios y brokers (SUPERADMIN)
+- ✅ Dashboard de costos LLM
 
+### Testing
+- ✅ Tests unitarios: agentes, voice providers, auth, chat
+- ✅ Eval framework determinista (sin API key): DicomRuleMetric, TaskCompletionMetric
+- ✅ Dataset de 51 conversaciones etiquetadas
+- ✅ Baselines registrados (2026-02-22)
+
+---
+
+## Pendiente / Próximas Iteraciones
+
+| Área | Descripción |
+|------|-------------|
+| CI/CD | Configurar GitHub Actions con PostgreSQL + Redis (TASK-019) |
+| E2E Tests | Playwright para flujos críticos (register → lead → chat) |
+| Multi-agente producción | Migración gradual con `MULTI_AGENT_ENABLED` por broker |
+| RAG avanzado | Chunking semántico, re-ranking, fuentes múltiples |
+| Scoring pipeline | Multiplicadores por etapa, triggers de reactivación |
+| Audit logging | Modelo `AuditLog` para cambios críticos |
