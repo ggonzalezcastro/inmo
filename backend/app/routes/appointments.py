@@ -6,7 +6,7 @@ from typing import Optional, List
 from datetime import datetime, date, timedelta
 from app.database import get_db
 from app.middleware.auth import get_current_user
-from app.services.appointment_service import AppointmentService
+from app.services.appointments import AppointmentService
 from app.schemas.appointment import (
     AppointmentCreate,
     AppointmentUpdate,
@@ -51,7 +51,7 @@ async def create_appointment(
                 detail="agent_id is required. Please specify which agent will handle this appointment."
             )
         
-        # Verify agent exists
+        # Verify agent exists and has valid email
         agent_result = await db.execute(
             select(User).where(User.id == appointment_data.agent_id)
         )
@@ -59,6 +59,14 @@ async def create_appointment(
         
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
+        
+        if not agent.email or not agent.email.strip():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Agent {appointment_data.agent_id} does not have a valid email address. Email is required for Google Calendar integration."
+            )
+        
+        logger.info(f"Creating appointment for lead {appointment_data.lead_id} assigned to agent {agent.email} (ID: {appointment_data.agent_id})")
         
         # Use appointment type from request, default to VIRTUAL_MEETING if not specified
         apt_type = appointment_data.appointment_type
@@ -224,6 +232,29 @@ async def update_appointment(
     """Update an appointment"""
     
     try:
+        # Check if agent_id is being updated and validate agent email
+        update_dict = appointment_update.dict(exclude_unset=True) if hasattr(appointment_update, 'dict') else {}
+        
+        if 'agent_id' in update_dict and update_dict['agent_id'] is not None:
+            new_agent_id = update_dict['agent_id']
+            
+            # Verify new agent exists and has valid email
+            agent_result = await db.execute(
+                select(User).where(User.id == new_agent_id)
+            )
+            agent = agent_result.scalars().first()
+            
+            if not agent:
+                raise HTTPException(status_code=404, detail=f"Agent {new_agent_id} not found")
+            
+            if not agent.email or not agent.email.strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Agent {new_agent_id} does not have a valid email address. Email is required for Google Calendar integration."
+                )
+            
+            logger.info(f"Updating appointment {appointment_id}: agent changed to {agent.email} (ID: {new_agent_id})")
+        
         # Use service method to handle update and Google Calendar sync
         appointment = await AppointmentService.update_appointment(
             db=db,
@@ -233,6 +264,8 @@ async def update_appointment(
         
         return appointment
         
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

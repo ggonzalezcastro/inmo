@@ -11,6 +11,7 @@ import json
 import pickle
 from app.config import settings
 import pytz
+from app.core.circuit_breakers import calendar_breaker
 
 logger = logging.getLogger(__name__)
 
@@ -160,11 +161,12 @@ class GoogleCalendarService:
                 event['location'] = location
             
             # Crear el evento
-            created_event = self.service.events().insert(
+            _req = self.service.events().insert(
                 calendarId=settings.GOOGLE_CALENDAR_ID,
                 body=event,
                 conferenceDataVersion=1  # Importante: esto crea el Meet link
-            ).execute()
+            )
+            created_event = calendar_breaker.call(_req.execute)
             
             # Extraer el link de Google Meet
             meet_url = None
@@ -206,10 +208,11 @@ class GoogleCalendarService:
         
         try:
             # Obtener el evento existente
-            event = self.service.events().get(
+            _get_req = self.service.events().get(
                 calendarId=settings.GOOGLE_CALENDAR_ID,
                 eventId=event_id
-            ).execute()
+            )
+            event = calendar_breaker.call(_get_req.execute)
             
             # Actualizar campos
             if title:
@@ -234,11 +237,12 @@ class GoogleCalendarService:
                 }
             
             # Actualizar el evento
-            updated_event = self.service.events().update(
+            _upd_req = self.service.events().update(
                 calendarId=settings.GOOGLE_CALENDAR_ID,
                 eventId=event_id,
                 body=event
-            ).execute()
+            )
+            updated_event = calendar_breaker.call(_upd_req.execute)
             
             logger.info(f"Google Calendar event updated: {event_id}")
             return updated_event
@@ -256,10 +260,11 @@ class GoogleCalendarService:
             return False
         
         try:
-            self.service.events().delete(
+            _del_req = self.service.events().delete(
                 calendarId=settings.GOOGLE_CALENDAR_ID,
                 eventId=event_id
-            ).execute()
+            )
+            calendar_breaker.call(_del_req.execute)
             
             logger.info(f"Google Calendar event deleted: {event_id}")
             return True
@@ -281,6 +286,4 @@ def get_google_calendar_service() -> GoogleCalendarService:
     if _google_calendar_service is None:
         _google_calendar_service = GoogleCalendarService()
     return _google_calendar_service
-
-
 

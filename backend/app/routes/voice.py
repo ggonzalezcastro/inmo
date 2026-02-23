@@ -7,7 +7,7 @@ from typing import Optional
 from pydantic import BaseModel
 from app.database import get_db
 from app.middleware.auth import get_current_user
-from app.services.voice_call_service import VoiceCallService
+from app.services.voice import VoiceCallService
 from app.schemas.voice_call import (
     VoiceCallResponse,
     VoiceCallListResponse,
@@ -47,71 +47,101 @@ async def initiate_call(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/webhooks/voice/{provider_name}")
+async def voice_webhook_by_provider(
+    provider_name: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Webhook endpoint for voice callbacks by provider (vapi, bland, retell).
+    """
+    try:
+        payload = await request.json()
+        from app.services.voice.factory import get_voice_provider as get_provider_async
+        provider = await get_provider_async(provider_type=provider_name, db=db)
+        raw_event = await provider.handle_webhook(payload, headers=dict(request.headers))
+
+        if not raw_event.external_call_id:
+            logger.warning("Webhook received without call_id")
+            return {"ok": True}
+
+        await VoiceCallService.handle_normalized_event(db, raw_event)
+
+        from app.services.voice.types import CallEventType
+        if raw_event.event_type == CallEventType.CALL_ENDED:
+            from app.tasks.voice_tasks import generate_call_transcript_and_summary
+            from app.models.voice_call import VoiceCall
+            from sqlalchemy.future import select
+            result = await db.execute(
+                select(VoiceCall).where(VoiceCall.external_call_id == raw_event.external_call_id)
+            )
+            voice_call = result.scalars().first()
+            if voice_call:
+                if raw_event.transcript:
+                    voice_call.transcript = raw_event.transcript
+                if raw_event.summary:
+                    voice_call.summary = raw_event.summary
+                await db.commit()
+                generate_call_transcript_and_summary.delay(voice_call.id)
+
+        if raw_event.event_type == CallEventType.FUNCTION_CALL:
+            fn = (raw_event.raw_data.get("message") or {}).get("functionCall", {}).get("name")
+            logger.info("Function call received: %s", fn)
+            return {"result": {"success": True, "message": f"Function {fn} acknowledged"}}
+
+        return {"ok": True}
+    except Exception as e:
+        logger.error("Error handling voice webhook: %s", str(e), exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
 @router.post("/webhooks/voice")
 async def voice_webhook(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Webhook endpoint for voice provider callbacks
-    
-    This endpoint receives call status updates from Twilio/Telnyx.
-    IP whitelist should be configured at provider level.
+    Webhook endpoint for voice callbacks (default provider: vapi).
+    Use POST /webhooks/voice/{provider} for explicit provider routing.
     """
-    
     try:
-        # Get webhook payload (form data for Twilio, JSON for others)
-        content_type = request.headers.get("Content-Type", "")
-        
-        if "application/x-www-form-urlencoded" in content_type:
-            # Twilio sends form data
-            form_data = await request.form()
-            payload = dict(form_data)
-        else:
-            # JSON payload
-            payload = await request.json()
-        
-        # Get provider and parse webhook
-        from app.services.voice_provider import get_voice_provider
-        
+        payload = await request.json()
+        from app.services.voice import get_voice_provider
         provider = get_voice_provider()
-        event_data = await provider.handle_webhook(payload)
-        
-        external_call_id = event_data.get("call_id")
-        event_type = event_data.get("event_type")
-        
-        if not external_call_id:
+        raw_event = await provider.handle_webhook(payload)
+
+        if not raw_event.external_call_id:
             logger.warning("Webhook received without call_id")
             return {"ok": True}
-        
-        # Update voice call in database
-        await VoiceCallService.handle_call_webhook(
-            db=db,
-            external_call_id=external_call_id,
-            event=event_type or "unknown",
-            metadata=event_data
-        )
-        
-        # If call completed, enqueue transcript/summary generation
-        if event_type == "completed":
+
+        await VoiceCallService.handle_normalized_event(db, raw_event)
+
+        from app.services.voice.types import CallEventType
+        if raw_event.event_type == CallEventType.CALL_ENDED:
             from app.tasks.voice_tasks import generate_call_transcript_and_summary
-            # Get voice_call_id from database
             from app.models.voice_call import VoiceCall
             from sqlalchemy.future import select
-            
             result = await db.execute(
-                select(VoiceCall).where(VoiceCall.external_call_id == external_call_id)
+                select(VoiceCall).where(VoiceCall.external_call_id == raw_event.external_call_id)
             )
             voice_call = result.scalars().first()
-            
             if voice_call:
+                if raw_event.transcript:
+                    voice_call.transcript = raw_event.transcript
+                if raw_event.summary:
+                    voice_call.summary = raw_event.summary
+                await db.commit()
                 generate_call_transcript_and_summary.delay(voice_call.id)
-        
+
+        if raw_event.event_type == CallEventType.FUNCTION_CALL:
+            fn = (raw_event.raw_data.get("message") or {}).get("functionCall", {}).get("name")
+            logger.info("Function call received: %s", fn)
+            return {"result": {"success": True, "message": f"Function {fn} acknowledged"}}
+
         return {"ok": True}
-        
     except Exception as e:
-        logger.error(f"Error handling voice webhook: {str(e)}", exc_info=True)
-        # Return 200 to avoid provider retries for our errors
+        logger.error("Error handling voice webhook: %s", str(e), exc_info=True)
         return {"ok": False, "error": str(e)}
 
 

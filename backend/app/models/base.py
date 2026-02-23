@@ -2,10 +2,9 @@ from datetime import datetime
 from sqlalchemy import Column, Integer, DateTime, func
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.ext.declarative import declared_attr
-
+from sqlalchemy.sql.functions import now
 
 Base = declarative_base()
-
 
 class TimestampMixin:
     """Mixin that adds created_at and updated_at timestamps"""
@@ -14,7 +13,7 @@ class TimestampMixin:
     def created_at(cls):
         return Column(
             DateTime(timezone=True),
-            server_default=func.now(),
+            server_default=now(),
             nullable=False
         )
     
@@ -22,8 +21,8 @@ class TimestampMixin:
     def updated_at(cls):
         return Column(
             DateTime(timezone=True),
-            server_default=func.now(),
-            onupdate=func.now(),
+            server_default=now(),
+            onupdate=now(),
             nullable=False
         )
 

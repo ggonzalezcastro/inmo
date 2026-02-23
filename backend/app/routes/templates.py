@@ -7,7 +7,7 @@ from typing import Optional, List
 from pydantic import BaseModel
 from app.database import get_db
 from app.middleware.auth import get_current_user
-from app.services.template_service import TemplateService
+from app.services.shared import TemplateService
 from app.models.template import TemplateChannel, AgentType
 from app.schemas.template import (
     TemplateCreate,

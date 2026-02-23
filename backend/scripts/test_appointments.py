@@ -17,8 +17,8 @@ from app.database import AsyncSessionLocal
 from app.models.lead import Lead, LeadStatus
 from app.models.user import User
 from app.models.appointment import Appointment, AppointmentStatus, AppointmentType
-from app.services.appointment_service import AppointmentService
-from app.services.lead_service import LeadService
+from app.services.appointments import AppointmentService
+from app.services.leads import LeadService
 from app.schemas.lead import LeadCreate
 import hashlib
 

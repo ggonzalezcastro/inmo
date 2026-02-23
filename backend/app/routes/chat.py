@@ -1,27 +1,53 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
-from typing import Optional
-from datetime import datetime
+from sqlalchemy.future import select
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional, AsyncGenerator
+import json
+import asyncio
+import logging
+
 from app.database import get_db
 from app.middleware.auth import get_current_user
-from app.services.telegram_service import TelegramService
-from app.services.lead_context_service import LeadContextService
-from app.services.llm_service import LLMService
-from app.services.activity_service import ActivityService
-from app.services.lead_service import LeadService
-from app.services.agent_tools_service import AgentToolsService
-from app.models.lead import Lead, LeadStatus
-from google.genai import types
-import logging
+from app.services.leads import LeadService
+from app.services.chat import ChatOrchestratorService
+from app.services.shared import ActivityService
+from app.schemas.lead import sanitize_html
+from app.models.chat_message import ChatMessage as ChatMessageModel, ChatProvider
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-class ChatMessage(BaseModel):
-    message: str
-    lead_id: Optional[int] = None  # Optional, will create new lead if not provided
+class ChatMessageInput(BaseModel):
+    """Input model for chat messages with validation"""
+    message: str = Field(..., min_length=1, max_length=4000, description="Chat message content")
+    lead_id: Optional[int] = Field(None, gt=0, description="Optional lead ID, must be positive")
+    provider: Optional[str] = Field(None, description="Chat provider (webchat, telegram, whatsapp, etc.)")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "message": "Hola, me interesa un departamento de 2 dormitorios en Las Condes",
+                "lead_id": None,
+                "provider": "webchat",
+            }
+        }
+    }
+
+    @field_validator("message")
+    @classmethod
+    def sanitize_message(cls, v: str) -> str:
+        """XSS sanitization: strip all HTML/scripts from chat message."""
+        cleaned = sanitize_html(v, max_length=4000)
+        if not cleaned or len(cleaned.strip()) < 1:
+            raise ValueError("Message is required and cannot be empty after sanitization")
+        return cleaned
+
+
+# Keep alias for backward compatibility
+ChatMessage = ChatMessageInput
 
 
 class ChatResponse(BaseModel):
@@ -31,317 +57,72 @@ class ChatResponse(BaseModel):
     lead_status: str
 
 
-@router.post("/test", response_model=ChatResponse)
-async def test_chat(
-    chat_message: ChatMessage,
-    current_user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Test chat endpoint - simulates Telegram message processing"""
-    
-    logger.info(f"[CHAT] test_chat called - Message: '{chat_message.message}', Lead ID: {chat_message.lead_id}")
-    
-    try:
-        # If lead_id provided, get existing lead, otherwise create new
-        if chat_message.lead_id:
-            lead = await LeadService.get_lead(db, chat_message.lead_id)
-            if not lead:
-                raise HTTPException(status_code=404, detail="Lead not found")
-        else:
-            # Create a new lead without phone - will be captured during conversation
-            from app.schemas.lead import LeadCreate
-            
-            # Use a placeholder that indicates it's not a real phone
-            # The phone will be updated when captured during the conversation
-            # Note: Must be <= 20 chars to fit in VARCHAR(20)
-            lead_data = LeadCreate(
-                phone="web_chat_pending",  # Placeholder identificable (16 chars, fits in VARCHAR(20))
-                name=None,  # Sin nombre hasta que se capture
-                tags=["test", "chat", "web_chat"]
-            )
-            lead = await LeadService.create_lead(db, lead_data)
-            
-        current_lead_id = lead.id  # Store ID locally to avoid MissingGreenlet on expired objects
-        
-        # Log inbound message (web chat - user_id=0 indicates web, not telegram)
-        await ActivityService.log_telegram_message(
-            db,
-            lead_id=lead.id,
-            telegram_user_id=0,  # 0 = web chat (not telegram)
-            message_text=chat_message.message,
-            direction="in"
-        )
-        
-        # Refresh lead to prevent MissingGreenlet error (commit in log_telegram_message expires the object)
-        await db.refresh(lead)
-        
-        # Get lead context initially
-        logger.info(f"[CHAT] Getting lead context for lead_id: {lead.id}")
-        context = await LeadContextService.get_lead_context(db, lead.id)
-        
-        # --- ANALYZE AND UPDATE LEAD FIRST ---
-        # Analyze lead qualification based on new message
-        logger.info("[CHAT] Analyzing lead qualification...")
-        analysis = await LLMService.analyze_lead_qualification(chat_message.message, context)
-        logger.info(f"[CHAT] Analysis result: {analysis}")
-        
-        # Calculate new score
-        # Refresh lead before accessing attributes to avoid MissingGreenlet
-        await db.refresh(lead)
-        old_score = lead.lead_score
-        score_delta = analysis.get("score_delta", 0)
-        new_score = max(0, min(100, old_score + score_delta))
-        
-        lead.lead_score = new_score
-        
-        # Update fields if found
-        if analysis.get("name"):
-            lead.name = analysis["name"]
-        if analysis.get("phone"):
-            lead.phone = analysis["phone"]
-        if analysis.get("email"):
-            lead.email = analysis["email"]
-            
-        # Update metadata
-        current_metadata = dict(lead.lead_metadata or {})
-        
-        # Update specific metadata fields if present in analysis
-        for field in ["location", "timeline", "salary", "job_type", "property_type", "bedrooms", "dicom_status", "morosidad_amount"]:
-            if analysis.get(field):
-                current_metadata[field] = analysis[field]
-                # If updating salary, also update monthly_income for consistency
-                if field == "salary":
-                    current_metadata["monthly_income"] = analysis[field]
-        
-        # Detect and save interest confirmation
-        # Check if user responded positively to interest-related questions
-        message_lower = chat_message.message.lower().strip()
-        interest_confirmations = ["si", "sí", "yes", "claro", "por supuesto", "obvio", "porfavor", "por favor", "dale", "ok", "okay", "va", "si porfavor", "sí por favor", "yes please"]
-        
-        # Check if this looks like a positive confirmation
-        is_positive_confirmation = (
-            message_lower in interest_confirmations or
-            any(confirm in message_lower for confirm in ["si ", "sí ", "yes ", "claro ", "ok "]) or
-            (message_lower.startswith("si") and len(message_lower) <= 10) or
-            (message_lower.startswith("sí") and len(message_lower) <= 10)
-        )
-        
-        # Check if previous bot message asked about interest
-        message_history = context.get('message_history', [])
-        bot_asked_about_interest = False
-        
-        # Handle both structured format (list) and legacy format (string)
-        if isinstance(message_history, list):
-            # Structured format - search in assistant messages
-            for msg in reversed(message_history):
-                role = msg.get("role", "")
-                content = msg.get("content", "")
-                if role == "assistant" and content:
-                    content_lower = content.lower()
-                    if any(keyword in content_lower for keyword in ["interes", "calificas", "sigues buscando", "te gustaría"]):
-                        bot_asked_about_interest = True
-                        break
-        elif isinstance(message_history, str):
-            # Legacy format - search in string
-            previous_messages = message_history.lower()
-            bot_asked_about_interest = (
-                "interes" in previous_messages or
-                "calificas" in previous_messages or
-                "sigues buscando" in previous_messages or
-                "te gustaría" in previous_messages
-            )
-        
-        if is_positive_confirmation and bot_asked_about_interest:
-            current_metadata["interest_confirmed"] = True
-            current_metadata["interest_confirmed_at"] = datetime.now().isoformat()
-            logger.info(f"[CHAT] Interest confirmed by user for lead {lead.id}")
-        
-        # Handle salary explicitly (don't store budget unless explicitly mentioned)
-        if analysis.get("salary") and not analysis.get("budget"):
-            current_metadata["monthly_income"] = analysis["salary"]
-            current_metadata["salary"] = analysis["salary"]
-        
-        # Only store budget if explicitly mentioned (not just a number after asking about rent)
-        if analysis.get("budget") and "presupuesto" in chat_message.message.lower() or "precio" in chat_message.message.lower() or "valor máximo" in chat_message.message.lower():
-            current_metadata["budget"] = analysis["budget"]
-                
-        # Update key points
-        if analysis.get("key_points"):
-            current_points = current_metadata.get("key_points", [])
-            if not isinstance(current_points, list):
-                current_points = []
-            # Add new unique points
-            for point in analysis["key_points"]:
-                if point not in current_points:
-                    current_points.append(point)
-            current_metadata["key_points"] = current_points
-            
-        # Update last analysis
-        current_metadata["last_analysis"] = analysis
-        current_metadata["source"] = "web_chat"
-        
-        lead.lead_metadata = current_metadata
-        
-        # Check if we have all required information
-        has_all_info = (
-            lead.name and lead.name not in ['User', 'Test User'] and
-            lead.phone and not str(lead.phone).startswith(('web_chat_', 'whatsapp_', '+569999')) and
-            lead.email and str(lead.email).strip() != '' and
-            lead.lead_metadata.get('location') and
-            lead.lead_metadata.get('budget')
-        )
-        
-        # Auto-update status based on score and completeness
-        if has_all_info:
-            lead.status = LeadStatus.HOT
-        elif new_score < 20:
-            lead.status = LeadStatus.COLD
-        elif new_score < 50:
-            lead.status = LeadStatus.WARM
-        else:
-            lead.status = LeadStatus.HOT
-        
-        # Initialize pipeline_stage if not set
-        if not lead.pipeline_stage:
-            lead.pipeline_stage = "entrada"
-            lead.stage_entered_at = datetime.now()
-        
-        # Commit updates before pipeline operations
-        await db.commit()
-        await db.refresh(lead)
-        
-        # Auto-advance pipeline stage if conditions are met
-        from app.services.pipeline_service import PipelineService
-        try:
-            async with db.begin_nested():
-                await PipelineService.auto_advance_stage(db, lead.id)
-                await db.refresh(lead)
-        except Exception as e:
-            logger.error(f"Error auto-advancing pipeline stage: {str(e)}")
-        
-        # Actualizar pipeline stage automáticamente según datos del lead
-        try:
-            async with db.begin_nested():
-                await PipelineService.actualizar_pipeline_stage(db, lead)
-                await db.refresh(lead)
-        except Exception as e:
-            logger.error(f"Error updating pipeline stage: {str(e)}")
-            
-        # Final commit for updates
-        await db.commit()
-        await db.refresh(lead)
-        
-        # --- RE-FETCH CONTEXT AND GENERATE RESPONSE ---
-        
-        # Re-fetch context with updated data so LLM knows what we have
-        context = await LeadContextService.get_lead_context(db, lead.id)
-        logger.info(f"[CHAT] Re-fetched context: name={context.get('name')}, phone={context.get('phone')}, email={context.get('email')}, metadata_location={context.get('metadata', {}).get('location')}")
-        
-        # Build LLM prompt
-        logger.info("[CHAT] Building LLM prompt...")
-        # Get broker_id from current_user if available
-        broker_id = current_user.get("broker_id") if current_user else None
-        system_prompt, contents = await LLMService.build_llm_prompt(
-            context, 
-            chat_message.message,
-            db=db,
-            broker_id=broker_id
-        )
-        logger.info(f"[CHAT] System prompt built - Length: {len(system_prompt)} chars")
-        logger.info(f"[CHAT] Contents count: {len(contents)} messages")
-        
-        # Generate response with function calling support
-        logger.info("[CHAT] Generating AI response with function calling...")
-        
-        # Get function declarations for tools
-        function_declarations = AgentToolsService.get_function_declarations()
-        tools = [types.Tool(function_declarations=function_declarations)]
-        
-        # Create tool executor that will execute the tools
-        async def tool_executor(tool_name: str, arguments: dict):
-            """Execute a tool and return the result"""
-            try:
-                # Use nested transaction for tool execution to prevent main transaction aborts
-                async with db.begin_nested():
-                    return await AgentToolsService.execute_tool(
-                        db=db,
-                        tool_name=tool_name,
-                        arguments=arguments,
-                        lead_id=current_lead_id,
-                        agent_id=None  # Will use first available agent
-                    )
-            except Exception as e:
-                logger.error(f"Error executing tool {tool_name}: {e}")
-                # Return error result so LLM knows it failed, but DB session is safe
-                return {"error": str(e), "success": False}
-        
-        # Generate response with function calling
-        ai_response, function_calls = await LLMService.generate_response_with_function_calling(
-            system_prompt=system_prompt,
-            contents=contents,
-            tools=tools,
-            tool_executor=tool_executor
-        )
-        
-        # Log function calls if any
-        if function_calls:
-            logger.info(f"[CHAT] Function calls executed: {len(function_calls)}")
-            for fc in function_calls:
-                logger.info(f"[CHAT] - Function: {fc.get('name')}, Args: {fc.get('args')}, Success: {fc.get('result', {}).get('success', False)}")
-        
-        logger.info(f"[CHAT] AI response received - Length: {len(ai_response)} chars")
-        logger.info(f"[CHAT] AI response: {ai_response}")
-        
-        # Log score change
-        if new_score != old_score:
-            await ActivityService.log_activity(
-                db,
-                lead_id=current_lead_id,
-                action_type="score_update",
-                details={
-                    "old_score": old_score,
-                    "new_score": new_score,
-                    "delta": score_delta,
-                    "reason": "test_chat",
-                    "analysis": analysis
+@router.post(
+    "/test",
+    response_model=ChatResponse,
+    summary="Send a message and receive Sofía's AI response",
+    responses={
+        200: {
+            "description": "AI response generated successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "response": "¡Hola! Soy Sofía. ¿Cuál es tu nombre?",
+                        "lead_id": 42,
+                        "lead_score": 15.0,
+                        "lead_status": "cold",
+                    }
                 }
-            )
-        
-        # Log outbound message (web chat)
-        await ActivityService.log_telegram_message(
-            db,
-            lead_id=current_lead_id,
-            telegram_user_id=0,  # 0 = web chat (not telegram)
-            message_text=ai_response,
-            direction="out"
+            },
+        },
+        404: {"description": "lead_id not found"},
+        422: {"description": "message empty or too long (max 4000 chars)"},
+    },
+)
+async def test_chat(
+    chat_message: ChatMessageInput,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    provider: Optional[str] = Query(None, description="Chat provider (webchat, telegram, whatsapp)"),
+):
+    """
+    Send a lead message to Sofía and receive an AI-generated response.
+
+    - If `lead_id` is omitted a **new lead** is created automatically.
+    - The response includes the updated `lead_score` (0–100) and `lead_status`
+      (`cold` / `warm` / `hot` / `converted` / `lost`).
+    - Internally runs RAG KB search and optionally uses Gemini context caching.
+    """
+    provider_name = chat_message.provider or provider or "webchat"
+    logger.info(
+        "[CHAT] test_chat called - message length=%s, lead_id=%s, provider=%s",
+        len(chat_message.message),
+        chat_message.lead_id,
+        provider_name,
+    )
+    try:
+        result = await ChatOrchestratorService.process_chat_message(
+            db=db,
+            current_user=current_user,
+            message=chat_message.message,
+            lead_id=chat_message.lead_id,
+            provider_name=provider_name,
         )
-        
-        # Log activity
-        await ActivityService.log_activity(
-            db,
-            lead_id=current_lead_id,
-            action_type="message",
-            details={
-                "direction": "in",
-                "message": chat_message.message,
-                "response": ai_response,
-                "ai_used": True
-            }
-        )
-        
-        # Refresh lead one last time to get final status safely
-        await db.refresh(lead)
-        
         return ChatResponse(
-            response=ai_response,
-            lead_id=current_lead_id,
-            lead_score=new_score,
-            lead_status=lead.status
+            response=result.response,
+            lead_id=result.lead_id,
+            lead_score=result.lead_score,
+            lead_status=getattr(result.lead_status, "value", str(result.lead_status)) or "cold",
         )
-        
+    except ValueError as e:
+        if "not found" in str(e).lower():
+            await db.rollback()
+            raise HTTPException(status_code=404, detail=str(e))
+        logger.error("ValueError in test_chat: %s", e, exc_info=True)
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         await db.rollback()
-        logger.error(f"Error in test chat: {str(e)}", exc_info=True)
+        logger.error("Error in test chat: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -350,22 +131,51 @@ async def get_chat_messages(
     lead_id: int,
     skip: int = 0,
     limit: int = 100,
+    provider: Optional[str] = Query(None, description="Filter by provider; if omitted, returns chat_messages then fallback to telegram_messages"),
     current_user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
-    """Get chat messages for a lead"""
-    
+    """Get chat messages for a lead. Prefers chat_messages (generic) when available; falls back to telegram_messages."""
     try:
-        # Verify lead exists
         lead = await LeadService.get_lead(db, lead_id)
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
-        
-        # Get messages for this lead
+
+        # Prefer ChatMessage (chat_messages table) when we have rows
+        q = select(ChatMessageModel).where(ChatMessageModel.lead_id == lead_id)
+        if provider:
+            try:
+                q = q.where(ChatMessageModel.provider == ChatProvider(provider))
+            except ValueError:
+                pass
+        q = q.order_by(ChatMessageModel.created_at).offset(skip).limit(limit)
+        messages_result = await db.execute(q)
+        chat_msgs = messages_result.scalars().all()
+
+        if chat_msgs:
+            return {
+                "lead_id": lead_id,
+                "provider": "chat_messages",
+                "messages": [
+                    {
+                        "id": msg.id,
+                        "direction": getattr(msg.direction, "value", str(msg.direction)),
+                        "message_text": msg.message_text,
+                        "sender_type": "bot" if (getattr(msg.direction, "value", str(msg.direction)) == "out") else "customer",
+                        "created_at": msg.created_at.isoformat() if msg.created_at else None,
+                        "ai_response_used": msg.ai_response_used or False,
+                        "provider": getattr(msg.provider, "value", str(msg.provider)),
+                    }
+                    for msg in chat_msgs
+                ],
+                "total": len(chat_msgs),
+                "skip": skip,
+                "limit": limit,
+            }
+
+        # Fallback: telegram_messages
         from app.models.telegram_message import TelegramMessage
-        from sqlalchemy.future import select
-        from sqlalchemy import desc
-        
+
         messages_result = await db.execute(
             select(TelegramMessage)
             .where(TelegramMessage.lead_id == lead_id)
@@ -374,9 +184,9 @@ async def get_chat_messages(
             .limit(limit)
         )
         messages = messages_result.scalars().all()
-        
         return {
             "lead_id": lead_id,
+            "provider": "telegram_messages",
             "messages": [
                 {
                     "id": msg.id,
@@ -384,19 +194,18 @@ async def get_chat_messages(
                     "message_text": msg.message_text,
                     "sender_type": "bot" if msg.direction.value == "out" else "customer",
                     "created_at": msg.created_at.isoformat() if msg.created_at else None,
-                    "ai_response_used": msg.ai_response_used or False
+                    "ai_response_used": msg.ai_response_used or False,
                 }
                 for msg in messages
             ],
             "total": len(messages),
             "skip": skip,
-            "limit": limit
+            "limit": limit,
         }
-        
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting chat messages: {str(e)}", exc_info=True)
+        logger.error("Error getting chat messages: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -404,30 +213,76 @@ async def get_chat_messages(
 async def verify_lead_data(
     lead_id: int,
     current_user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
-    """Verify that lead data and messages are being saved correctly"""
-    
+    """Verify that lead data and messages are being saved correctly. Uses chat_messages when available, else telegram_messages."""
+    from sqlalchemy import desc
+    from app.models.activity_log import ActivityLog
+
     try:
-        # Get lead
         lead = await LeadService.get_lead(db, lead_id)
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
-        
-        # Get all messages for this lead
-        from app.models.telegram_message import TelegramMessage
-        from sqlalchemy.future import select
-        from sqlalchemy import desc
-        
+
+        # Prefer chat_messages
         messages_result = await db.execute(
-            select(TelegramMessage)
-            .where(TelegramMessage.lead_id == lead_id)
-            .order_by(desc(TelegramMessage.created_at))
+            select(ChatMessageModel)
+            .where(ChatMessageModel.lead_id == lead_id)
+            .order_by(desc(ChatMessageModel.created_at))
         )
-        messages = messages_result.scalars().all()
-        
-        # Get activities
-        from app.models.activity_log import ActivityLog
+        chat_msgs = messages_result.scalars().all()
+
+        if chat_msgs:
+            dir_val = lambda m: getattr(m.direction, "value", str(m.direction))
+            messages_payload = [
+                {
+                    "id": msg.id,
+                    "direction": dir_val(msg),
+                    "message_text": msg.message_text,
+                    "toon_format": f"{'U' if dir_val(msg) == 'in' else 'B'}:{msg.message_text}",
+                    "user_id": msg.channel_user_id,
+                    "provider": getattr(msg.provider, "value", str(msg.provider)),
+                    "created_at": msg.created_at.isoformat() if msg.created_at else None,
+                    "ai_response_used": msg.ai_response_used,
+                }
+                for msg in chat_msgs
+            ]
+            messages_toon = "|".join(
+                f"{'U' if dir_val(m) == 'in' else 'B'}:{m.message_text.replace('|', '‖')}"
+                for m in reversed(chat_msgs)
+            )
+            total_messages = len(chat_msgs)
+            inbound = len([m for m in chat_msgs if dir_val(m) == "in"])
+            outbound = len([m for m in chat_msgs if dir_val(m) == "out"])
+        else:
+            from app.models.telegram_message import TelegramMessage
+
+            messages_result = await db.execute(
+                select(TelegramMessage)
+                .where(TelegramMessage.lead_id == lead_id)
+                .order_by(desc(TelegramMessage.created_at))
+            )
+            messages = messages_result.scalars().all()
+            messages_payload = [
+                {
+                    "id": msg.id,
+                    "direction": msg.direction.value,
+                    "message_text": msg.message_text,
+                    "toon_format": f"{'U' if msg.direction.value == 'in' else 'B'}:{msg.message_text}",
+                    "user_id": msg.telegram_user_id,
+                    "created_at": msg.created_at.isoformat() if msg.created_at else None,
+                    "ai_response_used": msg.ai_response_used,
+                }
+                for msg in messages
+            ]
+            messages_toon = "|".join(
+                f"{'U' if m.direction.value == 'in' else 'B'}:{m.message_text.replace('|', '‖')}"
+                for m in reversed(messages)
+            )
+            total_messages = len(messages)
+            inbound = len([m for m in messages if m.direction.value == "in"])
+            outbound = len([m for m in messages if m.direction.value == "out"])
+
         activities_result = await db.execute(
             select(ActivityLog)
             .where(ActivityLog.lead_id == lead_id)
@@ -435,8 +290,7 @@ async def verify_lead_data(
             .limit(20)
         )
         activities = activities_result.scalars().all()
-        
-        # Build response
+
         return {
             "lead": {
                 "id": lead.id,
@@ -450,47 +304,146 @@ async def verify_lead_data(
                 "created_at": lead.created_at.isoformat() if lead.created_at else None,
                 "updated_at": lead.updated_at.isoformat() if lead.updated_at else None,
             },
-            "messages": [
-                {
-                    "id": msg.id,
-                    "direction": msg.direction.value,
-                    "message_text": msg.message_text,
-                    "toon_format": f"{'U' if msg.direction.value == 'in' else 'B'}:{msg.message_text}",
-                    "user_id": msg.telegram_user_id,  # Generic user_id (can be web session or telegram)
-                    "created_at": msg.created_at.isoformat() if msg.created_at else None,
-                    "ai_response_used": msg.ai_response_used
-                }
-                for msg in messages
-            ],
-            "messages_toon": "|".join([
-                f"{'U' if msg.direction.value == 'in' else 'B'}:{msg.message_text.replace('|', '‖')}"
-                for msg in reversed(messages)
-            ]),
+            "messages": messages_payload,
+            "messages_toon": messages_toon,
             "activities": [
                 {
                     "id": act.id,
                     "action_type": act.action_type,
                     "details": act.details if act.details else {},
                     "details_toon": ActivityService.details_to_toon(act.details) if act.details else "",
-                    "timestamp": act.timestamp.isoformat() if act.timestamp else None
+                    "timestamp": act.timestamp.isoformat() if act.timestamp else None,
                 }
                 for act in activities
             ],
             "summary": {
-                "total_messages": len(messages),
-                "inbound_messages": len([m for m in messages if m.direction.value == "in"]),
-                "outbound_messages": len([m for m in messages if m.direction.value == "out"]),
+                "total_messages": total_messages,
+                "inbound_messages": inbound,
+                "outbound_messages": outbound,
                 "total_activities": len(activities),
-                "has_name": bool(lead.name and lead.name not in ['User', 'Test User']),
-                "has_phone": bool(lead.phone and not lead.phone.startswith('web_chat_') and not lead.phone.startswith('whatsapp_')),
-                "has_location": bool(lead.lead_metadata and lead.lead_metadata.get('location')),
-                "has_budget": bool(lead.lead_metadata and lead.lead_metadata.get('budget')),
-            }
+                "has_name": bool(lead.name and lead.name not in ("User", "Test User")),
+                "has_phone": bool(
+                    lead.phone
+                    and not str(lead.phone).startswith("web_chat_")
+                    and not str(lead.phone).startswith("whatsapp_")
+                ),
+                "has_location": bool(lead.lead_metadata and lead.lead_metadata.get("location")),
+                "has_budget": bool(lead.lead_metadata and lead.lead_metadata.get("budget")),
+            },
         }
-        
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error verifying lead data: {str(e)}", exc_info=True)
+        logger.error("Error verifying lead data: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── SSE streaming endpoint ────────────────────────────────────────────────────
+
+@router.post("/stream")
+async def stream_chat(
+    chat_message: ChatMessageInput,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Stream LLM response tokens via SSE (Server-Sent Events).
+
+    Each event has the form:
+        data: {"token": "<chunk>"}\\n\\n
+    A final event signals completion:
+        data: {"done": true, "lead_id": <int>, "lead_score": <float>, "conversation_state": "<str>"}\\n\\n
+
+    Frontend usage (Fetch API):
+        const resp = await fetch('/api/v1/chat/stream', {method:'POST', ...});
+        const reader = resp.body.getReader();
+        // read chunks and display progressively
+    """
+    provider_name = chat_message.provider or "webchat"
+
+    async def event_stream() -> AsyncGenerator[str, None]:
+        try:
+            # ── Phase 1: Run full orchestration (DB, scoring, prompt building) ──
+            # Use the same orchestrator but we need access to the built prompt.
+            # We import the facade here to call build_llm_prompt after orchestration.
+            from app.services.llm import LLMServiceFacade
+            from app.services.llm.factory import get_llm_provider
+            from app.services.leads import LeadContextService
+            from app.core.cache import cache_delete
+
+            # Run orchestration steps that don't involve the final LLM response
+            result = await ChatOrchestratorService.process_chat_message(
+                db=db,
+                current_user=current_user,
+                message=chat_message.message,
+                lead_id=chat_message.lead_id,
+                provider_name=provider_name,
+            )
+
+            # ── Phase 2: Stream the already-computed response ──────────────────
+            # The orchestrator already generated the full response. For a true
+            # streaming experience, we stream it word-by-word with a small delay.
+            # For providers with native streaming (Gemini), yield from stream_generate.
+            provider = get_llm_provider()
+            full_response = result.response
+
+            if hasattr(provider, "stream_generate") and len(full_response) > 50:
+                # Re-build prompt for streaming (uses cached context)
+                await cache_delete(f"lead_context:{result.lead_id}")
+                context = await LeadContextService.get_lead_context(db, result.lead_id)
+                broker_id = (current_user or {}).get("broker_id")
+                system_prompt, messages = await LLMServiceFacade.build_llm_prompt(
+                    context, chat_message.message, db=db, broker_id=broker_id
+                )
+                try:
+                    async for chunk in provider.stream_generate(messages, system_prompt=system_prompt):
+                        if chunk:
+                            payload = json.dumps({"token": chunk}, ensure_ascii=False)
+                            yield f"data: {payload}\n\n"
+                    # done event uses the orchestrated metadata (score, state)
+                    done_payload = json.dumps({
+                        "done": True,
+                        "lead_id": result.lead_id,
+                        "lead_score": result.lead_score,
+                        "lead_status": getattr(result.lead_status, "value", str(result.lead_status)),
+                        "conversation_state": result.conversation_state,
+                    })
+                    yield f"data: {done_payload}\n\n"
+                    return
+                except Exception as stream_exc:
+                    logger.warning("[SSE] Streaming failed, falling back to word stream: %s", stream_exc)
+
+            # Fallback: stream the pre-computed response word by word
+            words = full_response.split(" ")
+            for i, word in enumerate(words):
+                text = word if i == 0 else " " + word
+                payload = json.dumps({"token": text}, ensure_ascii=False)
+                yield f"data: {payload}\n\n"
+                await asyncio.sleep(0.015)  # ~15ms per word ≈ natural typing speed
+
+            done_payload = json.dumps({
+                "done": True,
+                "lead_id": result.lead_id,
+                "lead_score": result.lead_score,
+                "lead_status": getattr(result.lead_status, "value", str(result.lead_status)),
+                "conversation_state": result.conversation_state,
+            })
+            yield f"data: {done_payload}\n\n"
+
+        except ValueError as exc:
+            error_payload = json.dumps({"error": str(exc), "code": "validation_error"})
+            yield f"data: {error_payload}\n\n"
+        except Exception as exc:
+            logger.error("[SSE] Unhandled error in stream_chat: %s", exc, exc_info=True)
+            error_payload = json.dumps({"error": "Internal server error", "code": "server_error"})
+            yield f"data: {error_payload}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # disable Nginx buffering
+        },
+    )
 

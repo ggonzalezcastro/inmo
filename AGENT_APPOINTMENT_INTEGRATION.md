@@ -274,5 +274,3 @@ GOOGLE_CALENDAR_ID=primary
 - [Gemini Function Calling Docs](https://ai.google.dev/gemini-api/docs/function-calling)
 - Context7: Google Gemini API function calling examples
 
-
-

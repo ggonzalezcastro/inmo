@@ -142,4 +142,3 @@ type PipelineStage =
 
 **El frontend está 100% integrado con el backend!** 🎉
 
-

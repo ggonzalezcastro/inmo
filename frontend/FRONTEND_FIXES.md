@@ -40,4 +40,3 @@
 
 **El frontend está listo para usar!** 🚀
 
-

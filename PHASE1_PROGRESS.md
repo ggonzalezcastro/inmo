@@ -221,5 +221,3 @@ Todos los modelos que requieren aislamiento tienen `broker_id`:
 
 **Próxima fase**: Crear migración de base de datos y comenzar Phase 2 con los servicios de gestión.
 
-
-

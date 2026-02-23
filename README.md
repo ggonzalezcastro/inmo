@@ -19,21 +19,35 @@ Sistema de gestión de leads inmobiliarios con inteligencia artificial integrada
 inmo/
 ├── backend/
 │   ├── app/
+│   │   ├── core/            # Config, database, cache (app.core.config, app.core.database)
+│   │   ├── shared/          # Exceptions, constants, utils
+│   │   ├── features/        # Feature modules (auth, leads, campaigns, etc.)
 │   │   ├── models/          # Modelos de base de datos
 │   │   ├── schemas/         # Schemas Pydantic
 │   │   ├── routes/          # Endpoints de la API
 │   │   ├── services/        # Lógica de negocio
 │   │   ├── tasks/           # Tareas de Celery
 │   │   ├── middleware/      # Middleware (auth, etc)
-│   │   ├── config.py        # Configuración
-│   │   ├── database.py      # Configuración de DB
+│   │   ├── config.py        # Re-export from core (compat)
+│   │   ├── database.py      # Re-export from core (compat)
 │   │   ├── main.py          # Aplicación FastAPI
 │   │   └── celery_app.py    # Configuración Celery
-│   ├── migrations/           # Migraciones Alembic
+│   ├── migrations/          # Migraciones Alembic
 │   ├── requirements.txt
 │   └── Dockerfile
-├── frontend/                 # Frontend (pendiente)
-├── docker-compose.yml
+├── frontend/
+│   └── src/
+│       ├── shared/          # Componentes UI, hooks, utils
+│       ├── components/      # Componentes por página
+│       ├── pages/
+│       ├── store/
+│       └── services/
+├── docs/                    # Documentación (api, deployment, guides, architecture)
+├── config/                  # Configuración (docker, deployment)
+│   ├── docker/              # docker-compose.yml
+│   └── deployment/          # vercel, railway, render, Procfile
+├── scripts/                 # Scripts globales (check_security.sh)
+├── vercel.json              # Vercel (raíz para que Vercel lo detecte)
 └── README.md
 ```
 
@@ -56,16 +70,18 @@ inmo/
    cp .env.example .env
    ```
 
-   Edita `.env` con tus valores:
-   - `SECRET_KEY`: Clave secreta para JWT (mínimo 32 caracteres)
-   - `OPENAI_API_KEY`: Tu API key de OpenAI
+   Edita `.env` con tus valores (nunca hagas commit de `.env`; ver [docs/security/SECRETS_MANAGEMENT.md](docs/security/SECRETS_MANAGEMENT.md)):
+   - `SECRET_KEY`: Clave secreta para JWT (mínimo 32 caracteres; generar con `openssl rand -hex 32`)
+   - `GEMINI_API_KEY` / `OPENAI_API_KEY`: API keys de LLM
    - `TELEGRAM_TOKEN`: Token de tu bot de Telegram
 
 3. **Iniciar servicios con Docker Compose**
 
    ```bash
-   docker-compose up -d
+   docker-compose -f config/docker/docker-compose.yml up -d
    ```
+
+   (O desde la raíz del repo; el compose está en `config/docker/`.)
 
    Esto iniciará:
    - PostgreSQL en puerto 5432
@@ -77,7 +93,7 @@ inmo/
 4. **Ejecutar migraciones**
 
    ```bash
-   docker-compose exec backend alembic upgrade head
+   docker-compose -f config/docker/docker-compose.yml exec backend alembic upgrade head
    ```
 
 ## Desarrollo Local

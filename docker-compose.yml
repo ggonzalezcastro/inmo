@@ -1,8 +1,6 @@
-version: '3.8'
-
 services:
   db:
-    image: postgres:15-alpine
+    image: pgvector/pgvector:pg15  # includes pgvector extension (TASK-024)
     environment:
       POSTGRES_USER: lead_user
       POSTGRES_PASSWORD: lead_pass_123
@@ -30,6 +28,41 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── MCP Tool Server ────────────────────────────────────────────────────────
+  # Runs as a standalone HTTP microservice so the backend never spawns subprocesses.
+  # All LLM providers call tools by making HTTP requests to this service.
+  mcp-server:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: python -m app.mcp.server
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./backend:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MCP_TRANSPORT=http
+      - MCP_SERVER_HOST=0.0.0.0
+      - MCP_SERVER_PORT=8001
+      - DATABASE_URL=postgresql+asyncpg://lead_user:lead_pass_123@db:5432/lead_agent
+      - REDIS_URL=redis://redis:6379/0
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GOOGLE_REFRESH_TOKEN=${GOOGLE_REFRESH_TOKEN:-}
+      - GOOGLE_CALENDAR_ID=${GOOGLE_CALENDAR_ID:-primary}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/sse')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   backend:
     build:
       context: ./backend
@@ -46,10 +79,18 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
       - SECRET_KEY=${SECRET_KEY}
+      - MCP_TRANSPORT=http
+      - MCP_SERVER_URL=http://mcp-server:8001
+      - LLM_FALLBACK_PROVIDER=${LLM_FALLBACK_PROVIDER:-claude}
+      - OTEL_ENABLED=${OTEL_ENABLED:-false}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-ai-lead-agent}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
     depends_on:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      mcp-server:
         condition: service_healthy
 
   celery:
@@ -66,10 +107,13 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - MCP_TRANSPORT=http
+      - MCP_SERVER_URL=http://mcp-server:8001
     depends_on:
       - db
       - redis
       - backend
+      - mcp-server
 
   celery-beat:
     build:
@@ -85,6 +129,19 @@ services:
     depends_on:
       - db
       - redis
+
+  # ── Jaeger — distributed tracing (dev only) ────────────────────────────────
+  # Enable tracing: set OTEL_ENABLED=true in backend service environment.
+  # UI: http://localhost:16686
+  jaeger:
+    image: jaegertracing/all-in-one:1.58
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4318:4318"     # OTLP/HTTP receiver
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    profiles:
+      - observability   # start with: docker compose --profile observability up
 
 volumes:
   postgres_data:

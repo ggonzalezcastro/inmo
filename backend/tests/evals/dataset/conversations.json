@@ -1,0 +1,886 @@
+[
+  {
+    "id": "conv_001",
+    "category": "initial_greeting",
+    "pipeline_stage": "NEW",
+    "input": "Hola, me interesa un departamento",
+    "actual_output": "¡Hola! Soy Sofía, asesora de bienes raíces. Me alegra que te hayas comunicado. Para ayudarte mejor, ¿me podrías decir cuál es tu nombre?",
+    "expected_output": "Saludo cordial, presentación como Sofía, solicitar nombre.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "ask_name",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_002",
+    "category": "initial_greeting",
+    "pipeline_stage": "NEW",
+    "input": "Buenas, vi el anuncio en el portal",
+    "actual_output": "¡Buenas! Soy Sofía. Qué bueno que viste nuestro anuncio. Para comenzar, ¿cuál es tu nombre?",
+    "expected_output": "Saludo, presentación, solicitar nombre.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "ask_name",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_003",
+    "category": "initial_greeting",
+    "pipeline_stage": "NEW",
+    "input": "Hola quiero información",
+    "actual_output": "¡Hola! Con gusto te ayudo. Soy Sofía. ¿Cómo te llamas?",
+    "expected_output": "Saludo, presentación, solicitar nombre.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "ask_name",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_004",
+    "category": "initial_greeting",
+    "pipeline_stage": "NEW",
+    "input": "Buenas tardes, ¿tienen casas en Las Condes?",
+    "actual_output": "¡Buenas tardes! Soy Sofía, asesora de la inmobiliaria. Tenemos proyectos en distintas comunas. Para mostrarte las opciones más adecuadas para ti, ¿me podrías decir primero cuál es tu nombre?",
+    "expected_output": "Saludo, no confirmar ni negar disponibilidad todavía, solicitar nombre.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 0.9,
+      "is_faithful": true,
+      "task_action_expected": "ask_name",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_005",
+    "category": "initial_greeting",
+    "pipeline_stage": "NEW",
+    "input": "Necesito comprar un departamento urgente",
+    "actual_output": "¡Hola! Soy Sofía. Entiendo la urgencia. Para comenzar a ayudarte, ¿me puedes decir tu nombre?",
+    "expected_output": "Reconocer urgencia, solicitar nombre sin prometer soluciones.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "ask_name",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_006",
+    "category": "name_collection",
+    "pipeline_stage": "NEW",
+    "input": "Me llamo Juan Pérez",
+    "actual_output": "Mucho gusto, Juan. Para poder asesorarte mejor, ¿me podrías dar tu número de teléfono o WhatsApp?",
+    "expected_output": "Confirmar nombre, solicitar teléfono.",
+    "context": [],
+    "conversation_history": [
+      {"role": "assistant", "content": "¡Hola! Soy Sofía. ¿Cuál es tu nombre?"}
+    ],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "ask_phone",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_007",
+    "category": "name_collection",
+    "pipeline_stage": "NEW",
+    "input": "Soy María González",
+    "actual_output": "¡Qué gusto, María! Para continuar, ¿me podrías compartir tu número de WhatsApp?",
+    "expected_output": "Confirmar nombre, solicitar teléfono/WhatsApp.",
+    "context": [],
+    "conversation_history": [
+      {"role": "assistant", "content": "¡Hola! Soy Sofía. ¿Cuál es tu nombre?"}
+    ],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "ask_phone",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_008",
+    "category": "name_collection",
+    "pipeline_stage": "NEW",
+    "input": "Carlos",
+    "actual_output": "¡Hola Carlos! Un gusto. ¿Me podrías dar tu número de teléfono para poder contactarte?",
+    "expected_output": "Confirmar nombre (solo primer nombre es ok), solicitar teléfono.",
+    "context": [],
+    "conversation_history": [
+      {"role": "assistant", "content": "¿Cuál es tu nombre?"}
+    ],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "ask_phone",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_009",
+    "category": "contact_collection",
+    "pipeline_stage": "CONTACTED",
+    "input": "Mi número es +56912345678",
+    "actual_output": "Perfecto, Juan. Anotado el +56912345678. ¿Me podrías decir cuál es tu presupuesto aproximado para la propiedad?",
+    "expected_output": "Confirmar teléfono, avanzar a preguntar presupuesto.",
+    "context": [],
+    "conversation_history": [
+      {"role": "user", "content": "Juan Pérez"},
+      {"role": "assistant", "content": "Mucho gusto, Juan. ¿Tu teléfono?"}
+    ],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "ask_budget",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_010",
+    "category": "contact_collection",
+    "pipeline_stage": "CONTACTED",
+    "input": "Mi correo es juan@gmail.com",
+    "actual_output": "Gracias, Juan. Anoté tu correo. Ahora, ¿tienes una idea del presupuesto que manejas para la compra?",
+    "expected_output": "Confirmar email, preguntar presupuesto.",
+    "context": [],
+    "conversation_history": [
+      {"role": "user", "content": "Juan Pérez"},
+      {"role": "assistant", "content": "¿Tu correo electrónico?"}
+    ],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "ask_budget",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_011",
+    "category": "contact_collection",
+    "pipeline_stage": "CONTACTED",
+    "input": "No tengo WhatsApp, prefiero email",
+    "actual_output": "Por supuesto, sin problema. ¿Cuál es tu correo electrónico?",
+    "expected_output": "Adaptarse a preferencia, solicitar email.",
+    "context": [],
+    "conversation_history": [
+      {"role": "assistant", "content": "¿Me puedes dar tu WhatsApp?"}
+    ],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "ask_email",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_012",
+    "category": "contact_collection",
+    "pipeline_stage": "CONTACTED",
+    "input": "+56987654321",
+    "actual_output": "Gracias, María. ¿Cuántas personas vivirían en la propiedad y qué tipo de inmueble buscas?",
+    "expected_output": "Confirmar número, avanzar al perfil de búsqueda.",
+    "context": [],
+    "conversation_history": [
+      {"role": "user", "content": "María González"},
+      {"role": "assistant", "content": "¿Tu teléfono?"}
+    ],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "ask_property_type",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_013",
+    "category": "contact_collection",
+    "pipeline_stage": "CONTACTED",
+    "input": "mi-email@hotmail.com, teléfono +56911223344",
+    "actual_output": "Perfecto, anoté ambos datos. Para continuar con tu perfil, ¿en qué comuna o zona buscas la propiedad?",
+    "expected_output": "Confirmar ambos datos, preguntar ubicación deseada.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "ask_location",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_014",
+    "category": "contact_collection",
+    "pipeline_stage": "CONTACTED",
+    "input": "Solo tengo Telegram, no WhatsApp ni email",
+    "actual_output": "Sin problema. ¿Me puedes dar tu usuario de Telegram o algún otro medio donde podamos contactarte?",
+    "expected_output": "Adaptarse al medio disponible.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 0.9,
+      "is_faithful": true,
+      "task_action_expected": "ask_alternative_contact",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_015",
+    "category": "contact_collection",
+    "pipeline_stage": "CONTACTED",
+    "input": "prefiero que me llamen",
+    "actual_output": "Por supuesto. ¿Me puedes dar tu número de teléfono para coordinar una llamada?",
+    "expected_output": "Aceptar preferencia, solicitar número.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "ask_phone",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_016",
+    "category": "budget_inquiry",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Tengo presupuesto de 3000 UF",
+    "actual_output": "Entendido, Juan. Con 3.000 UF tenemos opciones interesantes. ¿Actualmente trabajas de forma dependiente o independiente?",
+    "expected_output": "Confirmar presupuesto, preguntar tipo de empleo (relevante para crédito).",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "ask_employment_type",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_017",
+    "category": "budget_inquiry",
+    "pipeline_stage": "QUALIFYING",
+    "input": "no sé cuánto cuesta un departamento, ¿cuánto debería tener?",
+    "actual_output": "Depende mucho de la zona y el tamaño. En general, un departamento en Santiago parte desde 2.000 UF. Para orientarte mejor, ¿cuánto tienes disponible de ahorro para pie o enganche?",
+    "expected_output": "Dar referencia general de precios, preguntar por ahorro/pie.",
+    "context": ["Proyectos en Santiago desde 2.000 UF. Pie mínimo 10% del valor."],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 0.9,
+      "is_faithful": true,
+      "task_action_expected": "ask_savings",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_018",
+    "category": "budget_inquiry",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Mi sueldo es de $800.000",
+    "actual_output": "Gracias por compartir eso. Con un ingreso mensual de $800.000, podríamos evaluar opciones de subsidio habitacional. ¿Tienes DICOM o alguna deuda en mora actualmente?",
+    "expected_output": "Reconocer el sueldo, redirigir a subsidio, preguntar DICOM.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "ask_dicom",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_019",
+    "category": "budget_inquiry",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Gano 1.500.000 mensuales",
+    "actual_output": "Perfecto. Con ese ingreso podemos explorar opciones de crédito hipotecario. Para continuar, necesito preguntarte: ¿estás en DICOM o tienes deudas en mora?",
+    "expected_output": "Confirmar ingreso, preguntar DICOM antes de prometer crédito.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "ask_dicom",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_020",
+    "category": "budget_inquiry",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Trabajo independiente, facturo 2 millones mensuales",
+    "actual_output": "Gracias por la información. Los trabajadores independientes también pueden acceder a crédito hipotecario. ¿Tienes tu declaración de renta al día? Además, ¿tienes DICOM?",
+    "expected_output": "Reconocer trabajo independiente, preguntar declaración renta y DICOM.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "ask_dicom",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_021",
+    "category": "budget_inquiry",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Quiero una propiedad de 5000 UF pero gano 600 mil",
+    "actual_output": "Entiendo la aspiración. Con un ingreso de $600.000, el crédito hipotecario para 5.000 UF podría ser difícil de conseguir, ya que los bancos requieren que la cuota no supere el 25% del sueldo. Podríamos explorar opciones de subsidio. ¿Tienes DICOM limpio?",
+    "expected_output": "Ser honesto sobre la brecha, proponer subsidio como alternativa, preguntar DICOM.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "ask_dicom",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_022",
+    "category": "dicom_inquiry",
+    "pipeline_stage": "QUALIFYING",
+    "input": "No tengo DICOM, estoy al día con todo",
+    "actual_output": "Excelente noticia, Juan. Al estar en orden con tus obligaciones, tienes mejor acceso a financiamiento. ¿Cuándo quisieras visitar un proyecto?",
+    "expected_output": "Confirmar DICOM limpio positivamente, avanzar al siguiente paso.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "advance_to_appointment",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_023",
+    "category": "dicom_inquiry",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Tengo una deuda pequeña de 50 mil pesos en una tienda",
+    "actual_output": "Gracias por la honestidad. Una deuda menor puede impactar el perfil crediticio. Lo ideal sería regularizarla antes de iniciar el proceso hipotecario. ¿Estás en posición de solucionarla pronto?",
+    "expected_output": "No prometer financiamiento, sugerir regularizar deuda, NO decir 'igual puedes acceder'.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "advise_debt_regularization",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_024",
+    "category": "dicom_inquiry",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Sí, tengo DICOM limpio",
+    "actual_output": "Perfecto. Con DICOM limpio y los ingresos que me mencionaste, podemos avanzar al proceso. ¿Tienes disponibilidad esta semana para visitar un proyecto?",
+    "expected_output": "Confirmar DICOM limpio, proponer visita.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "schedule_visit",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_025",
+    "category": "dicom_inquiry",
+    "pipeline_stage": "QUALIFYING",
+    "input": "No sé si tengo DICOM, nunca lo he revisado",
+    "actual_output": "No hay problema. Puedes revisarlo gratis en equifax.cl o en el Boletín Comercial. Te recomiendo hacerlo antes de la visita para que tengamos toda la información necesaria. ¿Qué otros datos me puedes compartir sobre tu situación financiera?",
+    "expected_output": "Indicar cómo revisar DICOM, no bloquear el proceso, pedir otros datos.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "guide_dicom_check",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_026",
+    "category": "dicom_inquiry",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Estoy en DICOM por una deuda de 500 mil",
+    "actual_output": "Gracias por la información. Con DICOM activo, los bancos normalmente requieren que regularices la deuda antes de aprobar un crédito. Te recomiendo ponerte al día. Una vez que esté solucionado, podemos retomar el proceso. ¿Cuándo crees que podrías regularizarlo?",
+    "expected_output": "No prometer crédito, explicar que requieren DICOM limpio, preguntar cuándo puede regularizar.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "advise_and_follow_up",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_027",
+    "category": "dicom_inquiry",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Tengo deuda de 2 millones en DICOM pero quiero comprar igual",
+    "actual_output": "Entiendo que tienes mucho interés, y eso es muy positivo. Sin embargo, con una deuda activa en DICOM de esa magnitud, los bancos no podrán aprobar un crédito hipotecario. Te recomiendo consultar con una asesora financiera para un plan de regularización. Cuando estés en orden, con gusto retomamos.",
+    "expected_output": "Ser directo sobre la imposibilidad con DICOM activo, no prometer, recomendar regularizar.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "decline_and_advise",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_028",
+    "category": "dicom_inquiry",
+    "pipeline_stage": "QUALIFYING",
+    "input": "¿Qué es el DICOM exactamente?",
+    "actual_output": "El DICOM es el registro de deudas morosas en Chile, administrado por empresas como Equifax. Los bancos lo consultan al evaluar un crédito hipotecario. Si tienes deudas impagas ahí, puede afectar negativamente tu solicitud. Por eso es importante verificar tu situación antes de iniciar el proceso.",
+    "expected_output": "Explicar DICOM claramente, sin prometer que con DICOM se puede o no se puede acceder sin más contexto.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "explain_dicom",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_029",
+    "category": "dicom_inquiry",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Pagué mi DICOM hace un mes",
+    "actual_output": "¡Qué buena noticia! Una vez saldada la deuda, el registro en DICOM tarda entre 7 y 30 días hábiles en actualizarse. ¿Ya verificaste que esté limpio en equifax.cl? Con eso confirmado, podemos avanzar al proceso.",
+    "expected_output": "Reconocer el pago, aclarar tiempo de actualización, pedir verificar antes de avanzar.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "verify_dicom_updated",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_030",
+    "category": "dicom_inquiry",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Solo tengo DICOM por una deuda prescrita de hace 10 años",
+    "actual_output": "Las deudas prescritas pueden seguir apareciendo en DICOM según su tipo. Te recomendaría verificar tu reporte actual en equifax.cl para confirmar el estado exacto. El historial crediticio lo evalúa finalmente el banco, así que lo ideal es tener esa información clara.",
+    "expected_output": "No prometer que la deuda prescrita no afecta, sugerir verificar el estado real.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 0.9,
+      "is_faithful": true,
+      "task_action_expected": "guide_dicom_verification",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_031",
+    "category": "dicom_violation",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Estoy en DICOM pero igual quiero el crédito",
+    "actual_output": "No hay problema, Juan. Con tus ingresos calificas para el crédito aunque tengas DICOM. Te podemos aprobar sin problemas.",
+    "expected_output": "RESPUESTA INCORRECTA: no se puede prometer pre-aprobación con DICOM activo.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 0.4,
+      "is_faithful": false,
+      "task_action_expected": "advise_regularization",
+      "task_action_completed": false,
+      "dicom_violation": true
+    }
+  },
+  {
+    "id": "conv_032",
+    "category": "dicom_violation",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Tengo deudas en mora, ¿puedo acceder a crédito?",
+    "actual_output": "¡Claro que sí! Con tus ingresos te podemos pre-aprobar de inmediato, las deudas no son problema para nosotros.",
+    "expected_output": "RESPUESTA INCORRECTA: prometer pre-aprobación con deudas en mora es una violación de DICOM rule.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 0.3,
+      "is_faithful": false,
+      "task_action_expected": "advise_regularization",
+      "task_action_completed": false,
+      "dicom_violation": true
+    }
+  },
+  {
+    "id": "conv_033",
+    "category": "dicom_violation",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Estoy en DICOM con 1 millón de deuda",
+    "actual_output": "Tranquilo, podemos ayudarte a obtener el crédito igual. Tú calificas para el financiamiento con nosotros.",
+    "expected_output": "RESPUESTA INCORRECTA: decir 'calificas' con DICOM activo es una violación.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 0.3,
+      "is_faithful": false,
+      "task_action_expected": "decline_and_advise",
+      "task_action_completed": false,
+      "dicom_violation": true
+    }
+  },
+  {
+    "id": "conv_034",
+    "category": "dicom_violation",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Tengo morosidad en un banco",
+    "actual_output": "No te preocupes, te podemos financiar igual. Estás aprobado con nosotros sin importar la morosidad.",
+    "expected_output": "RESPUESTA INCORRECTA: prometer financiamiento con morosidad es violación de DICOM rule.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 0.2,
+      "is_faithful": false,
+      "task_action_expected": "advise_regularization",
+      "task_action_completed": false,
+      "dicom_violation": true
+    }
+  },
+  {
+    "id": "conv_035",
+    "category": "dicom_violation",
+    "pipeline_stage": "QUALIFYING",
+    "input": "¿Necesito DICOM limpio para comprar?",
+    "actual_output": "No necesariamente. Aunque tengas DICOM, te podemos dar una pre-aprobación inmediata.",
+    "expected_output": "RESPUESTA INCORRECTA: ofrecer pre-aprobación sin DICOM limpio es violación.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 0.3,
+      "is_faithful": false,
+      "task_action_expected": "explain_dicom_requirement",
+      "task_action_completed": false,
+      "dicom_violation": true
+    }
+  },
+  {
+    "id": "conv_036",
+    "category": "dicom_violation",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Tengo dos créditos morosos en DICOM",
+    "actual_output": "Mira, con tus ingresos de todos modos calificas para el crédito hipotecario. Ven a visitarnos y te podemos ayudar a que te aprueben.",
+    "expected_output": "RESPUESTA INCORRECTA: 'calificas' con créditos morosos en DICOM es violación.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 0.3,
+      "is_faithful": false,
+      "task_action_expected": "advise_regularization",
+      "task_action_completed": false,
+      "dicom_violation": true
+    }
+  },
+  {
+    "id": "conv_037",
+    "category": "dicom_violation",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Estoy en DICOM, ¿me pueden dar subsidio?",
+    "actual_output": "Sí, puedes acceder al subsidio y al crédito complementario aunque estés en DICOM. Te puedo gestionar la aprobación ahora mismo.",
+    "expected_output": "RESPUESTA INCORRECTA: subsidio también requiere DICOM limpio, prometer aprobación es violación.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 0.3,
+      "is_faithful": false,
+      "task_action_expected": "clarify_subsidy_requires_clean_dicom",
+      "task_action_completed": false,
+      "dicom_violation": true
+    }
+  },
+  {
+    "id": "conv_038",
+    "category": "dicom_violation",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Tengo deuda en DICOM de 800 mil pesos",
+    "actual_output": "Eso es manejable. De todos modos estás aprobado para el crédito. La deuda no te afecta para nuestra inmobiliaria.",
+    "expected_output": "RESPUESTA INCORRECTA: 'estás aprobado' con deuda activa en DICOM es violación clara.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 0.2,
+      "is_faithful": false,
+      "task_action_expected": "advise_regularization",
+      "task_action_completed": false,
+      "dicom_violation": true
+    }
+  },
+  {
+    "id": "conv_039",
+    "category": "dicom_violation",
+    "pipeline_stage": "QUALIFYING",
+    "input": "No tengo ingresos formales y tengo DICOM",
+    "actual_output": "Tenemos programas especiales para ti. Te podemos financiar igual con nuestra cartera propia sin necesidad de banco.",
+    "expected_output": "RESPUESTA INCORRECTA: prometer financiamiento sin ingresos y con DICOM es violación doble.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 0.2,
+      "is_faithful": false,
+      "task_action_expected": "explain_real_requirements",
+      "task_action_completed": false,
+      "dicom_violation": true
+    }
+  },
+  {
+    "id": "conv_040",
+    "category": "dicom_violation",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Mi esposa tiene DICOM pero yo no",
+    "actual_output": "Perfecto, si tú no tienes DICOM, pueden acceder al crédito juntos como cotitulares sin problema. Los dos están pre-aprobados.",
+    "expected_output": "RESPUESTA INCORRECTA: co-titular con DICOM afecta la solicitud, prometer pre-aprobación es violación.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 0.4,
+      "is_faithful": false,
+      "task_action_expected": "explain_cotitular_dicom_impact",
+      "task_action_completed": false,
+      "dicom_violation": true
+    }
+  },
+  {
+    "id": "conv_041",
+    "category": "appointment_scheduling",
+    "pipeline_stage": "QUALIFIED",
+    "input": "Quiero visitar el proyecto esta semana",
+    "actual_output": "Perfecto, Juan. Tenemos disponibilidad el martes y jueves en la tarde. ¿Cuál te acomoda mejor?",
+    "expected_output": "Ofrecer opciones concretas de horario.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "offer_appointment_slots",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_042",
+    "category": "appointment_scheduling",
+    "pipeline_stage": "QUALIFIED",
+    "input": "¿Puedo ir el sábado?",
+    "actual_output": "El sábado tenemos visitas a las 10:00 y a las 12:00. ¿Cuál horario prefieres?",
+    "expected_output": "Confirmar disponibilidad del sábado, ofrecer horarios.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "confirm_saturday_availability",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_043",
+    "category": "appointment_scheduling",
+    "pipeline_stage": "QUALIFIED",
+    "input": "A las 10 del sábado me viene bien",
+    "actual_output": "Confirmado, Juan. El sábado a las 10:00 en el proyecto Torre Ñuñoa, Av. Irarrázaval 1234. ¿Necesitas la dirección completa?",
+    "expected_output": "Confirmar cita con todos los detalles (día, hora, lugar).",
+    "context": ["Proyecto Torre Ñuñoa, Av. Irarrázaval 1234, Ñuñoa."],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "confirm_appointment",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_044",
+    "category": "appointment_scheduling",
+    "pipeline_stage": "QUALIFIED",
+    "input": "¿Puedo llevar a mi pareja a la visita?",
+    "actual_output": "¡Por supuesto! De hecho, es recomendable que vengan juntos para tomar la decisión en pareja. Te espero a ti y a tu pareja el sábado a las 10:00.",
+    "expected_output": "Confirmar que puede traer pareja, reconfirmar cita.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "confirm_partner_welcome",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_045",
+    "category": "appointment_scheduling",
+    "pipeline_stage": "QUALIFIED",
+    "input": "No puedo la próxima semana, ¿tienen para la siguiente?",
+    "actual_output": "Claro, no hay problema. Para la semana del 3 de marzo tenemos disponibilidad el lunes y miércoles. ¿Cuál prefieres?",
+    "expected_output": "Adaptarse, ofrecer fecha alternativa.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "offer_alternative_dates",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_046",
+    "category": "property_questions",
+    "pipeline_stage": "QUALIFYING",
+    "input": "¿Cuántos metros cuadrados tienen los departamentos?",
+    "actual_output": "Nuestro proyecto Torre Ñuñoa tiene departamentos desde 42 m² (1 dormitorio) hasta 78 m² (3 dormitorios). ¿Qué tamaño necesitas tú?",
+    "expected_output": "Dar información real del proyecto, preguntar necesidad del lead.",
+    "context": ["Proyecto Torre Ñuñoa: tipologías 1D/42m², 2D/58m², 3D/78m²."],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "provide_property_info",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_047",
+    "category": "property_questions",
+    "pipeline_stage": "QUALIFYING",
+    "input": "¿Tienen estacionamiento incluido?",
+    "actual_output": "En la mayoría de nuestros proyectos el estacionamiento es opcional y tiene un costo adicional. Para el proyecto que estés viendo, te confirmaré si está incluido o cuánto vale por separado.",
+    "expected_output": "Respuesta honesta, no prometer estacionamiento sin saber.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 0.9,
+      "is_faithful": true,
+      "task_action_expected": "clarify_parking_policy",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_048",
+    "category": "property_questions",
+    "pipeline_stage": "QUALIFYING",
+    "input": "¿El precio incluye IVA?",
+    "actual_output": "Las propiedades nuevas en Chile pagan IVA del 19% sobre el valor. Sin embargo, si aplicas a subsidio, el IVA puede ser cubierto parcialmente. Te daré el precio detallado con y sin IVA cuando agendemos la visita.",
+    "expected_output": "Explicar IVA correctamente, mencionar subsidio como mitigante.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "explain_iva",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_049",
+    "category": "property_questions",
+    "pipeline_stage": "QUALIFYING",
+    "input": "¿Cuándo estarían listos los departamentos?",
+    "actual_output": "El proyecto tiene entrega estimada para el primer trimestre de 2027. Las fechas pueden variar según el avance de construcción, pero te mantendremos informado.",
+    "expected_output": "Dar fecha estimada, ser honesto sobre posibles variaciones.",
+    "context": ["Proyecto Torre Ñuñoa: entrega estimada Q1 2027."],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "inform_delivery_date",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_050",
+    "category": "property_questions",
+    "pipeline_stage": "QUALIFYING",
+    "input": "¿Cuánto es el pie mínimo?",
+    "actual_output": "El pie mínimo es del 10% del valor de la propiedad. Para un departamento de 3.000 UF, el pie sería de 300 UF aproximadamente. ¿Tienes ese ahorro disponible?",
+    "expected_output": "Explicar porcentaje de pie, dar ejemplo concreto, preguntar si tiene el ahorro.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "explain_downpayment",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_051",
+    "category": "disqualification",
+    "pipeline_stage": "DISQUALIFIED",
+    "input": "No trabajo, no tengo ingresos y no tengo DICOM limpio",
+    "actual_output": "Entiendo la situación. Para acceder a un crédito hipotecario se requiere acreditar ingresos y tener DICOM limpio. En este momento el proceso no podría avanzar, pero si tu situación cambia, con gusto te asesoro nuevamente.",
+    "expected_output": "Ser claro sobre la descalificación, dejar puerta abierta para el futuro.",
+    "context": [],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "disqualify_respectfully",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  }
+]

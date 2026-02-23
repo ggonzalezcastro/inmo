@@ -37,7 +37,7 @@ def refactor_build_llm_prompt(content):
         system_prompt = None
         if broker_id and db:
             try:
-                from app.services.broker_config_service import BrokerConfigService
+                from app.services.broker import BrokerConfigService
                 system_prompt = await BrokerConfigService.build_system_prompt(
                     db, broker_id, lead_context
                 )
@@ -48,7 +48,7 @@ def refactor_build_llm_prompt(content):
         
         # Fallback to default if broker config not available
         if not system_prompt:
-            from app.services.broker_config_service import BrokerConfigService
+            from app.services.broker import BrokerConfigService
             system_prompt = BrokerConfigService.DEFAULT_SYSTEM_PROMPT
         
         # Get message history - prefer structured format, fallback to legacy

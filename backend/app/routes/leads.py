@@ -8,9 +8,8 @@ import io
 from app.database import get_db
 from app.middleware.auth import get_current_user
 from app.middleware.permissions import Permissions
-from app.services.lead_service import LeadService
-from app.services.pipeline_service import PipelineService
-from app.services.scoring_service import ScoringService
+from app.services.leads import LeadService, ScoringService
+from app.services.pipeline import PipelineService
 from app.schemas.lead import LeadCreate, LeadUpdate, LeadResponse, LeadDetailResponse
 from sqlalchemy.future import select
 from app.models.lead import Lead
@@ -332,7 +331,7 @@ async def assign_lead(
     await db.refresh(lead)
     
     # Log activity
-    from app.services.activity_service import ActivityService
+    from app.services.shared import ActivityService
     await ActivityService.log_activity(
         db,
         lead_id=lead_id,

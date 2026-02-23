@@ -9,7 +9,7 @@ from typing import Optional, List
 from pydantic import BaseModel
 from app.database import get_db
 from app.middleware.auth import get_current_user
-from app.services.campaign_service import CampaignService
+from app.services.campaigns import CampaignService
 from app.models.campaign import CampaignStatus, CampaignChannel, CampaignTrigger
 from app.schemas.campaign import (
     CampaignCreate,

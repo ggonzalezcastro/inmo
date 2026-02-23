@@ -19,6 +19,16 @@ celery_app.conf.task_track_started = True
 celery_app.conf.task_time_limit = 30 * 60  # 30 minutes
 celery_app.conf.task_soft_time_limit = 25 * 60  # 25 minutes
 
+# ── TASK-029: Reliability settings ───────────────────────────────────────────
+# Acknowledge tasks only AFTER they complete (not on delivery).
+# This ensures a task is re-queued if the worker dies mid-execution.
+celery_app.conf.task_acks_late = True
+# Reject (not re-queue) tasks that were in progress when the worker was lost,
+# so they don't loop forever; they will be caught by DLQ on_failure.
+celery_app.conf.task_reject_on_worker_lost = True
+# Default retry policy: 3 retries with exponential backoff (2^n seconds)
+celery_app.conf.task_max_retries = 3
+
 
 # Beat schedule for periodic tasks
 celery_app.conf.beat_schedule = {
@@ -29,6 +39,11 @@ celery_app.conf.beat_schedule = {
     "check-trigger-campaigns": {
         "task": "app.tasks.campaign_executor.check_trigger_campaigns",
         "schedule": crontab(minute=0),  # Every hour
+    },
+    # ── TASK-029: DLQ alert check (every 15 min) ──────────────────────────
+    "dlq-alert-check": {
+        "task": "app.tasks.dlq_tasks.dlq_alert_check",
+        "schedule": crontab(minute="*/15"),
     },
 }
 

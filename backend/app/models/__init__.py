@@ -4,6 +4,14 @@ from app.models.telegram_message import TelegramMessage, MessageDirection, Messa
 from app.models.activity_log import ActivityLog
 from app.models.user import User, UserRole
 from app.models.broker import Broker, BrokerPromptConfig, BrokerLeadConfig
+from app.models.broker_voice_config import BrokerVoiceConfig
+from app.models.broker_chat_config import BrokerChatConfig
+from app.models.chat_message import (
+    ChatMessage,
+    ChatProvider,
+    MessageDirection as ChatMessageDirection,
+    MessageStatus as ChatMessageStatus,
+)
 from app.models.appointment import (
     Appointment,
     AppointmentStatus,
@@ -36,6 +44,9 @@ from app.models.lead import (
     TreatmentType
 )
 from app.models.audit_log import AuditLog
+from app.models.llm_call import LLMCall
+from app.models.prompt_version import PromptVersion
+from app.models.knowledge_base import KnowledgeBase
 
 __all__ = [
     "Base",
@@ -70,9 +81,18 @@ __all__ = [
     "CallTranscript",
     "SpeakerType",
     "AuditLog",
+    "LLMCall",
+    "PromptVersion",
+    "KnowledgeBase",
     "Broker",
     "BrokerPromptConfig",
     "BrokerLeadConfig",
+    "BrokerVoiceConfig",
+    "BrokerChatConfig",
+    "ChatMessage",
+    "ChatProvider",
+    "ChatMessageDirection",
+    "ChatMessageStatus",
     "UserRole",
 ]
 

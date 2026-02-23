@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from app.database import get_db
 from app.middleware.auth import get_current_user
-from app.services.pipeline_service import PipelineService
+from app.services.pipeline import PipelineService
 from pydantic import BaseModel
 import logging
 

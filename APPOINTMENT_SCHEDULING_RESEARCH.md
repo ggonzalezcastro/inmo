@@ -239,5 +239,3 @@ if "agendar" in message or "cita" in message or "visita" in message:
 - [FastAPI Best Practices](https://fastapi.tiangolo.com/tutorial/)
 
 
-
-

@@ -85,6 +85,11 @@ class Lead(Base, IdMixin, TimestampMixin):
         back_populates="lead",
         cascade="all, delete-orphan"
     )
+    chat_messages = relationship(
+        "ChatMessage",
+        back_populates="lead",
+        cascade="all, delete-orphan"
+    )
     activities = relationship(
         "ActivityLog",
         back_populates="lead",

@@ -6,20 +6,23 @@ export const useAuthStore = create((set, get) => ({
   user: JSON.parse(localStorage.getItem('user') || 'null'),
   token: localStorage.getItem('token') || null,
   loading: false,
+  userLoading: false, // true while fetching /auth/me
   error: null,
   
   isLoggedIn: () => !!localStorage.getItem('token'),
   
   // Fetch current user info
   fetchUser: async () => {
+    set({ userLoading: true });
     try {
       // Try to get user from /auth/me endpoint
       const response = await authAPI.getCurrentUser();
       const user = response.data;
       localStorage.setItem('user', JSON.stringify(user));
-      set({ user });
+      set({ user, userLoading: false });
       return user;
     } catch (error) {
+      set({ userLoading: false });
       console.error('Error fetching user from /auth/me:', error);
       // If endpoint doesn't exist, decode JWT token to get user info
       try {
@@ -48,6 +51,8 @@ export const useAuthStore = create((set, get) => ({
         console.error('Error decoding token:', decodeError);
       }
       return null;
+    } finally {
+      set({ userLoading: false });
     }
   },
   

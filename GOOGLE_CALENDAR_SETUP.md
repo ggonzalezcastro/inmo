@@ -116,5 +116,3 @@ Si la configuración es correcta, verás URLs reales de Google Meet en las citas
 - Verifica que las credenciales no hayan expirado
 - Para OAuth2, regenera el refresh token si es necesario
 
-
-

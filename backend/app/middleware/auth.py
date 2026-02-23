@@ -52,6 +52,18 @@ def create_access_token(
     return encoded_jwt
 
 
+def decode_access_token(token: str) -> Optional[dict]:
+    """
+    Decode a JWT and return the payload dict, or None if invalid/expired.
+    Used for non-HTTP contexts such as WebSocket authentication.
+    """
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        return payload
+    except JWTError:
+        return None
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db)

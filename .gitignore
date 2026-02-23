@@ -22,8 +22,6 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-.env
-.venv
 *.log
 .pytest_cache/
 .coverage
@@ -31,6 +29,50 @@ htmlcov/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# Environment files (COMPREHENSIVE)
+.env
+.env.*
+.env.local
+.env.*.local
+!.env.example
+!.env.production.example
+*.env.bak
+.env.bak
+*.env.backup
+.env.backup
+*.env.old
+.env.old
+.venv
+
+# Secrets and credentials
+credentials.json
+*-credentials.json
+service-account-*.json
+token.pickle
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+secret.*
+secrets.*
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Cache and temporary files
+.cache/
+*.cache
+tmp/
+temp/
 
 # Node
 node_modules/

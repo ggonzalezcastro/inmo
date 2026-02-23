@@ -6,8 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List, Optional
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from app.database import get_db
+from app.schemas.user import validate_password_strength
 from app.middleware.auth import get_current_user
 from app.middleware.permissions import Permissions
 from app.models.user import User, UserRole
@@ -25,6 +26,11 @@ class CreateUserRequest(BaseModel):
     name: str
     role: str = "agent"  # "admin" or "agent"
     broker_id: Optional[int] = None  # Optional: required for superadmin, ignored for admin (uses their broker_id)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        return validate_password_strength(v)
 
 
 class UpdateUserRequest(BaseModel):

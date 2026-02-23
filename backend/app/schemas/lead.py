@@ -1,7 +1,24 @@
+import re
+import bleach
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from typing import Optional, List, Any
 from datetime import datetime
 from enum import Enum
+
+
+# Allowed characters for name: letters (incl. accented), spaces, hyphens, apostrophes
+NAME_SAFE_PATTERN = re.compile(r"^[\w\s\-'.áéíóúñÁÉÍÓÚÑ]+$", re.UNICODE)
+
+
+def sanitize_html(value: Optional[str], max_length: int = 500) -> Optional[str]:
+    """Strip all HTML/scripts and limit length. Returns None if input is None."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return str(value)[:max_length] if value else None
+    # Strip all tags; allow no HTML
+    cleaned = bleach.clean(value.strip(), tags=[], strip=True)
+    return cleaned[:max_length] if cleaned else None
 
 
 class LeadStatusEnum(str, Enum):
@@ -13,15 +30,43 @@ class LeadStatusEnum(str, Enum):
 
 
 class LeadBase(BaseModel):
-    phone: str
-    name: Optional[str] = None
-    email: Optional[EmailStr] = None
-    tags: List[str] = []
-    metadata: dict = {}
+    """Base schema for Lead with input validation"""
+    phone: str = Field(..., min_length=1, max_length=20, description="Phone number")
+    name: Optional[str] = Field(None, max_length=100, description="Lead name")
+    email: Optional[EmailStr] = Field(None, description="Email address")
+    tags: List[str] = Field(default_factory=list, max_length=20, description="Tags (max 20)")
+    metadata: dict = Field(default_factory=dict, description="Additional metadata")
+    
+    @field_validator('name')
+    @classmethod
+    def sanitize_name(cls, v):
+        """XSS sanitization: strip all HTML/scripts; allow only safe name characters."""
+        if v is None:
+            return v
+        clean = sanitize_html(v, max_length=100)
+        if not clean:
+            return None
+        # Optionally enforce safe pattern (letters, spaces, hyphens, apostrophes)
+        if not NAME_SAFE_PATTERN.match(clean):
+            # Fallback: keep only safe chars
+            clean = "".join(c for c in clean if c.isalnum() or c in " -'.")
+        return clean[:100]
 
 
 class LeadCreate(LeadBase):
-    pass
+    """Schema for creating a new lead"""
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "phone": "+56912345678",
+                "name": "Juan Pérez",
+                "email": "juan.perez@gmail.com",
+                "tags": ["interesado", "las-condes"],
+                "metadata": {"source": "portal-inmobiliario", "utm_campaign": "verano-2026"},
+            }
+        }
+    }
 
 
 class LeadUpdate(BaseModel):
@@ -30,6 +75,16 @@ class LeadUpdate(BaseModel):
     status: Optional[LeadStatusEnum] = None
     tags: Optional[List[str]] = None
     metadata: Optional[dict] = None
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "name": "Juan Pérez",
+                "status": "warm",
+                "tags": ["interesado", "financiado"],
+            }
+        }
+    }
 
 
 class LeadResponse(LeadBase):

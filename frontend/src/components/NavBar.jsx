@@ -26,6 +26,7 @@ export default function NavBar() {
     { path: '/chat', label: 'Chat', roles: ['admin', 'agent', 'superadmin'] },
     { path: '/settings', label: 'Configuración', roles: ['admin', 'superadmin'] },
     { path: '/users', label: 'Usuarios', roles: ['admin', 'superadmin'] },
+    { path: '/costs', label: 'Costos LLM', roles: ['admin', 'superadmin'] },
     { path: '/brokers', label: 'Brokers', roles: ['superadmin'] }, // Solo superadmin
   ];
 

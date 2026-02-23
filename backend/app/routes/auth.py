@@ -1,10 +1,10 @@
 from fastapi import APIRouter, HTTPException, status, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from datetime import timedelta
 
-
+from app.schemas.user import validate_password_strength
 from app.database import get_db
 from app.middleware.auth import (
     hash_password,
@@ -14,7 +14,7 @@ from app.middleware.auth import (
 )
 from app.models.user import User, UserRole
 from app.config import settings
-from app.services.broker_init_service import BrokerInitService
+from app.services.broker import BrokerInitService
 
 
 router = APIRouter()
@@ -25,20 +25,69 @@ class UserRegister(BaseModel):
     password: str
     broker_name: str  # Se mantiene en el schema pero se mapea a 'name'
 
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "email": "admin@inmobiliaria-activa.cl",
+                "password": "Seguro123!",
+                "broker_name": "Inmobiliaria Activa",
+            }
+        }
+    }
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        return validate_password_strength(v)
+
 
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "email": "admin@inmobiliaria-activa.cl",
+                "password": "Seguro123!",
+            }
+        }
+    }
 
 
 class Token(BaseModel):
     access_token: str
     token_type: str
 
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                "token_type": "bearer",
+            }
+        }
+    }
 
-@router.post("/register", response_model=Token)
+
+@router.post(
+    "/register",
+    response_model=Token,
+    summary="Register a new broker",
+    responses={
+        200: {"description": "Broker created, returns JWT access token"},
+        400: {"description": "Email already registered"},
+        422: {"description": "Validation error (password too weak, invalid email)"},
+    },
+)
 async def register(user_data: UserRegister, db: AsyncSession = Depends(get_db)):
-    """Register new broker"""
+    """
+    Register a new broker account.
+
+    Creates a user with role **ADMIN**, initialises a broker entity, and returns
+    a signed JWT token ready for use in subsequent requests.
+
+    **Password requirements:** min 8 chars, at least one digit and one special character.
+    """
     
     # Check if user exists
     result = await db.execute(
@@ -105,9 +154,22 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-@router.post("/login", response_model=Token)
+@router.post(
+    "/login",
+    response_model=Token,
+    summary="Login and obtain JWT token",
+    responses={
+        200: {"description": "Successful login, returns JWT access token"},
+        401: {"description": "Invalid credentials"},
+    },
+)
 async def login(user_data: UserLogin, db: AsyncSession = Depends(get_db)):
-    """Login user"""
+    """
+    Authenticate with email and password, receive a JWT Bearer token.
+
+    The token expires after `ACCESS_TOKEN_EXPIRE_MINUTES` (default 60 min).
+    Pass it as `Authorization: Bearer <token>` in all subsequent requests.
+    """
     
     logger.info(f"Login attempt for email: {user_data.email}")
     
@@ -156,12 +218,33 @@ async def login(user_data: UserLogin, db: AsyncSession = Depends(get_db)):
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.get("/me")
+@router.get(
+    "/me",
+    summary="Get current user profile",
+    responses={
+        200: {
+            "description": "Current user details",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "id": 1,
+                        "email": "admin@inmobiliaria-activa.cl",
+                        "name": "Inmobiliaria Activa",
+                        "role": "ADMIN",
+                        "broker_id": 1,
+                        "is_active": True,
+                    }
+                }
+            },
+        },
+        401: {"description": "Invalid or expired token"},
+    },
+)
 async def get_current_user_info(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get current authenticated user information"""
+    """Return the profile of the currently authenticated user."""
     
     user_id = current_user.get("user_id") or current_user.get("sub")
     if not user_id:

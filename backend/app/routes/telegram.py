@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from app.database import get_db
 from app.middleware.auth import get_current_user
-from app.services.telegram_service import TelegramService
+from app.services.shared import TelegramService
 from app.config import settings
 
 

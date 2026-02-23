@@ -4,11 +4,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 
 
 from app.config import settings
-from app.services.telegram_service import TelegramService
-from app.services.lead_context_service import LeadContextService
-from app.services.llm_service import LLMService
-from app.services.activity_service import ActivityService
-from app.services.lead_service import LeadService
+from app.services.shared import TelegramService, ActivityService
+from app.services.leads import LeadContextService, LeadService
+from app.services.llm import LLMServiceFacade
 from app.models.lead import Lead
 
 
@@ -54,7 +52,7 @@ def process_telegram_message(
                 context = await LeadContextService.get_lead_context(db, lead.id)
                 
                 # Build LLM prompt (now returns system_prompt and contents)
-                system_prompt, contents = await LLMService.build_llm_prompt(context, message_text)
+                system_prompt, contents = await LLMServiceFacade.build_llm_prompt(context, message_text)
                 
                 # Generate response using structured format
                 # For telegram, we use simple generate_response which still accepts string
@@ -62,10 +60,10 @@ def process_telegram_message(
                 # Extract last message (user's new message) for the prompt
                 last_message = message_text  # Already included in contents
                 combined_prompt = f"{system_prompt}\n\nMENSAJE ACTUAL: {last_message}"
-                ai_response = await LLMService.generate_response(combined_prompt)
+                ai_response = await LLMServiceFacade.generate_response(combined_prompt)
                 
                 # Analyze lead qualification
-                analysis = await LLMService.analyze_lead_qualification(message_text, context)
+                analysis = await LLMServiceFacade.analyze_lead_qualification(message_text, context)
                 
                 # Calculate new score
                 old_score = lead.lead_score
@@ -90,7 +88,7 @@ def process_telegram_message(
                     lead.status = LeadStatus.HOT
                 
                 # Auto-advance pipeline stage if conditions met
-                from app.services.pipeline_service import PipelineService
+                from app.services.pipeline import PipelineService
                 try:
                     await PipelineService.auto_advance_stage(db, lead.id)
                 except Exception as e:

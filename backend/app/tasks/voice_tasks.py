@@ -8,9 +8,8 @@ from datetime import datetime
 import logging
 from app.config import settings
 from app.models.voice_call import VoiceCall
-from app.services.call_agent_service import CallAgentService
-from app.services.voice_call_service import VoiceCallService
-from app.services.pipeline_service import PipelineService
+from app.services.voice import CallAgentService, VoiceCallService
+from app.services.pipeline import PipelineService
 
 logger = logging.getLogger(__name__)
 

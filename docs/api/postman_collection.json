@@ -1,0 +1,526 @@
+{
+  "info": {
+    "name": "AI Lead Agent Pro",
+    "description": "Complete API collection for AI Lead Agent Pro — real estate lead management powered by Sofía AI.\n\n## Setup\n1. Import this collection into Postman\n2. Set the `BASE_URL` variable (default: `http://localhost:8000`)\n3. Run `POST /auth/login` and copy the `access_token` into the `TOKEN` variable\n4. All protected endpoints will use `{{TOKEN}}` automatically",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "BASE_URL", "value": "http://localhost:8000", "type": "string"},
+    {"key": "TOKEN", "value": "", "type": "string"},
+    {"key": "BROKER_ID", "value": "1", "type": "string"},
+    {"key": "LEAD_ID", "value": "1", "type": "string"}
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{"key": "token", "value": "{{TOKEN}}", "type": "string"}]
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register broker",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{BASE_URL}}/auth/register", "host": ["{{BASE_URL}}"], "path": ["auth", "register"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@inmobiliaria-activa.cl\",\n  \"password\": \"Seguro123!\",\n  \"broker_name\": \"Inmobiliaria Activa\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "pm.collectionVariables.set('TOKEN', json.access_token);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{BASE_URL}}/auth/login", "host": ["{{BASE_URL}}"], "path": ["auth", "login"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@inmobiliaria-activa.cl\",\n  \"password\": \"Seguro123!\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get current user",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "{{BASE_URL}}/auth/me", "host": ["{{BASE_URL}}"], "path": ["auth", "me"]}
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Leads",
+      "item": [
+        {
+          "name": "List leads",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/leads?skip=0&limit=20&status=warm",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "leads"],
+              "query": [
+                {"key": "skip", "value": "0"},
+                {"key": "limit", "value": "20"},
+                {"key": "status", "value": "warm", "disabled": true},
+                {"key": "search", "value": "Juan", "disabled": true}
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get lead",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "{{BASE_URL}}/api/v1/leads/{{LEAD_ID}}", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "leads", "{{LEAD_ID}}"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Create lead",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{BASE_URL}}/api/v1/leads", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "leads"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"+56912345678\",\n  \"name\": \"Juan Pérez\",\n  \"email\": \"juan.perez@gmail.com\",\n  \"tags\": [\"interesado\", \"las-condes\"],\n  \"metadata\": {\"source\": \"portal-inmobiliario\"}\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update lead",
+          "request": {
+            "method": "PUT",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{BASE_URL}}/api/v1/leads/{{LEAD_ID}}", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "leads", "{{LEAD_ID}}"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"warm\",\n  \"tags\": [\"interesado\", \"financiado\"]\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete lead",
+          "request": {
+            "method": "DELETE",
+            "url": {"raw": "{{BASE_URL}}/api/v1/leads/{{LEAD_ID}}", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "leads", "{{LEAD_ID}}"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Move to pipeline stage",
+          "request": {
+            "method": "PUT",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{BASE_URL}}/api/v1/leads/{{LEAD_ID}}/pipeline", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "leads", "{{LEAD_ID}}", "pipeline"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"stage\": \"QUALIFYING\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Recalculate lead score",
+          "request": {
+            "method": "POST",
+            "url": {"raw": "{{BASE_URL}}/api/v1/leads/{{LEAD_ID}}/recalculate", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "leads", "{{LEAD_ID}}", "recalculate"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Bulk import CSV",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {"raw": "{{BASE_URL}}/api/v1/leads/bulk-import", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "leads", "bulk-import"]},
+            "body": {
+              "mode": "formdata",
+              "formdata": [{"key": "file", "type": "file", "src": "leads.csv", "description": "CSV with columns: phone, name, email, tags"}]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Chat",
+      "item": [
+        {
+          "name": "Send message (Sofía)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{BASE_URL}}/api/v1/chat/test", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "chat", "test"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Hola, me interesa un departamento de 2 dormitorios en Las Condes\",\n  \"lead_id\": null,\n  \"provider\": \"webchat\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Send message (continue conversation)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{BASE_URL}}/api/v1/chat/test", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "chat", "test"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Me llamo Juan Pérez, mi teléfono es +56912345678\",\n  \"lead_id\": {{LEAD_ID}},\n  \"provider\": \"webchat\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get chat history",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/chat/{{LEAD_ID}}/messages?skip=0&limit=50",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "chat", "{{LEAD_ID}}", "messages"],
+              "query": [{"key": "skip", "value": "0"}, {"key": "limit", "value": "50"}]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Stream response (SSE)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Accept", "value": "text/event-stream"}
+            ],
+            "url": {"raw": "{{BASE_URL}}/api/v1/chat/stream", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "chat", "stream"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"¿Qué proyectos tienen en Ñuñoa?\",\n  \"lead_id\": {{LEAD_ID}}\n}"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Appointments",
+      "item": [
+        {
+          "name": "List appointments",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/appointments?skip=0&limit=20",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "appointments"],
+              "query": [{"key": "skip", "value": "0"}, {"key": "limit", "value": "20"}]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create appointment",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{BASE_URL}}/api/v1/appointments", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "appointments"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lead_id\": {{LEAD_ID}},\n  \"scheduled_at\": \"2026-03-01T10:00:00\",\n  \"location\": \"Torre Ñuñoa, Av. Irarrázaval 1234\",\n  \"notes\": \"Interesado en 2D, presupuesto 3000 UF\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Confirm appointment",
+          "request": {
+            "method": "POST",
+            "url": {"raw": "{{BASE_URL}}/api/v1/appointments/1/confirm", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "appointments", "1", "confirm"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel appointment",
+          "request": {
+            "method": "POST",
+            "url": {"raw": "{{BASE_URL}}/api/v1/appointments/1/cancel", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "appointments", "1", "cancel"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Get available slots",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/appointments/available/slots?start_date=2026-03-01&days=7",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "appointments", "available", "slots"],
+              "query": [{"key": "start_date", "value": "2026-03-01"}, {"key": "days", "value": "7"}]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Pipeline",
+      "item": [
+        {
+          "name": "Pipeline metrics",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "{{BASE_URL}}/api/v1/pipeline/metrics", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "pipeline", "metrics"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Leads in stage",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/pipeline/stages/QUALIFYING/leads",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "pipeline", "stages", "QUALIFYING", "leads"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Move lead stage",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{BASE_URL}}/api/v1/pipeline/leads/{{LEAD_ID}}/move-stage", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "pipeline", "leads", "{{LEAD_ID}}", "move-stage"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"new_stage\": \"QUALIFIED\",\n  \"reason\": \"Lead confirmed DICOM clean and has budget\"\n}"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Knowledge Base",
+      "item": [
+        {
+          "name": "List documents",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/kb?offset=0&limit=20",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "kb"],
+              "query": [{"key": "offset", "value": "0"}, {"key": "limit", "value": "20"}]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add document",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{BASE_URL}}/api/v1/kb", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "kb"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Torre Ñuñoa — Precios y disponibilidad\",\n  \"content\": \"Departamentos desde 42 m² (1D) hasta 78 m² (3D). Precios: 1D desde 2.800 UF, 2D desde 3.400 UF, 3D desde 4.500 UF. Entrega Q1 2027. Estacionamiento opcional +280 UF. Bodega opcional +90 UF.\",\n  \"source_type\": \"property\",\n  \"metadata\": {\"project\": \"torre-nunoa\", \"comuna\": \"Ñuñoa\"}\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Semantic search",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/kb/search?q=departamentos+Nunoa+precio&top_k=3",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "kb", "search"],
+              "query": [{"key": "q", "value": "departamentos Nunoa precio"}, {"key": "top_k", "value": "3"}]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update document",
+          "request": {
+            "method": "PUT",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{BASE_URL}}/api/v1/kb/1", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "kb", "1"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Precios actualizados marzo 2026: 1D desde 2.950 UF, 2D desde 3.600 UF.\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete document",
+          "request": {
+            "method": "DELETE",
+            "url": {"raw": "{{BASE_URL}}/api/v1/kb/1", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "kb", "1"]}
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Costs (Admin)",
+      "item": [
+        {
+          "name": "Cost summary",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/admin/costs/summary?period=30d",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "admin", "costs", "summary"],
+              "query": [{"key": "period", "value": "30d"}]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Daily cost chart",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/admin/costs/daily?period=7d",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "admin", "costs", "daily"],
+              "query": [{"key": "period", "value": "7d"}]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Export CSV",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/admin/costs/export?period=30d",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "admin", "costs", "export"],
+              "query": [{"key": "period", "value": "30d"}]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Dead Letter Queue (Admin)",
+      "item": [
+        {
+          "name": "List failed tasks",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/admin/tasks/failed?offset=0&limit=20",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "admin", "tasks", "failed"],
+              "query": [{"key": "offset", "value": "0"}, {"key": "limit", "value": "20"}]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Retry failed task",
+          "request": {
+            "method": "POST",
+            "url": {"raw": "{{BASE_URL}}/api/v1/admin/tasks/abc123/retry", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "admin", "tasks", "abc123", "retry"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Discard failed task",
+          "request": {
+            "method": "DELETE",
+            "url": {"raw": "{{BASE_URL}}/api/v1/admin/tasks/abc123", "host": ["{{BASE_URL}}"], "path": ["api", "v1", "admin", "tasks", "abc123"]}
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Broker Config",
+      "item": [
+        {
+          "name": "Get full config",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "{{BASE_URL}}/api/broker/config", "host": ["{{BASE_URL}}"], "path": ["api", "broker", "config"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Update prompt config",
+          "request": {
+            "method": "PUT",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "url": {"raw": "{{BASE_URL}}/api/broker/config/prompt", "host": ["{{BASE_URL}}"], "path": ["api", "broker", "config", "prompt"]},
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"agent_name\": \"Sofía\",\n  \"broker_description\": \"Inmobiliaria Activa — especialistas en Santiago\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Preview system prompt",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "{{BASE_URL}}/api/broker/config/prompt/preview", "host": ["{{BASE_URL}}"], "path": ["api", "broker", "config", "prompt", "preview"]}
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "{{BASE_URL}}/health", "host": ["{{BASE_URL}}"], "path": ["health"]}
+          },
+          "response": []
+        },
+        {
+          "name": "Root",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "{{BASE_URL}}/", "host": ["{{BASE_URL}}"], "path": [""]}
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

@@ -32,7 +32,12 @@ class Broker(Base, IdMixin, TimestampMixin):
     users = relationship("User", back_populates="broker", cascade="all, delete-orphan")
     prompt_config = relationship("BrokerPromptConfig", back_populates="broker", uselist=False, cascade="all, delete-orphan")
     lead_config = relationship("BrokerLeadConfig", back_populates="broker", uselist=False, cascade="all, delete-orphan")
-    
+    voice_config = relationship("BrokerVoiceConfig", back_populates="broker", uselist=False, cascade="all, delete-orphan")
+    chat_config = relationship("BrokerChatConfig", back_populates="broker", uselist=False, cascade="all, delete-orphan")
+    chat_messages = relationship("ChatMessage", back_populates="broker", cascade="all, delete-orphan")
+    prompt_versions = relationship("PromptVersion", back_populates="broker", cascade="all, delete-orphan")
+    knowledge_base_entries = relationship("KnowledgeBase", back_populates="broker", cascade="all, delete-orphan")
+
     def __repr__(self):
         return f"<Broker id={self.id} name={self.name}>"
 

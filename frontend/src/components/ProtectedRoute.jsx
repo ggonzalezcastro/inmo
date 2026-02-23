@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 
@@ -8,27 +9,41 @@ import { useAuthStore } from '../store/authStore';
  * @param {string[]} allowedRoles - Array of roles that can access this route (empty = any authenticated user)
  */
 export default function ProtectedRoute({ children, allowedRoles = [] }) {
-  const { isLoggedIn, user, loading, fetchUser } = useAuthStore();
+  const { isLoggedIn, user, userLoading, fetchUser } = useAuthStore();
   
-  // Check if user is logged in
+  // Fetch user once when we have token but no user (e.g. page refresh)
+  useEffect(() => {
+    if (isLoggedIn() && !user && !userLoading) {
+      fetchUser();
+    }
+  }, [isLoggedIn(), user, userLoading, fetchUser]);
+  
   if (!isLoggedIn()) {
     return <Navigate to="/login" replace />;
   }
   
-  // Fetch user if not loaded yet
-  if (!user && !loading) {
-    fetchUser();
-    return <div className="flex items-center justify-center h-screen">
-      <p className="text-gray-500">Cargando...</p>
-    </div>;
+  // Show loading only while fetching user (request has timeout; when it ends userLoading becomes false)
+  if (!user && userLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <p className="text-gray-500">Cargando...</p>
+      </div>
+    );
   }
   
-  // If roles are specified, check if user has one of them
+  // After fetch: if still no user, fetchUser already tried token decode in catch — show error
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <p className="text-gray-500">No se pudo cargar el usuario. <a href="/login" className="text-blue-600 underline">Volver a entrar</a></p>
+      </div>
+    );
+  }
+  
   if (allowedRoles.length > 0) {
-    const userRole = user?.role || 'agent';
+    const userRole = user.role || 'agent';
     if (!allowedRoles.includes(userRole)) {
-      // Redirect to a page the user can access
-      return <Navigate to="/pipeline" replace />;
+      return <Navigate to="/403" replace />;
     }
   }
   

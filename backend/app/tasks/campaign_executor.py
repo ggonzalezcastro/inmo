@@ -2,9 +2,10 @@
 Campaign execution tasks for Celery
 """
 from celery import shared_task
+from app.tasks.base import DLQTask
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.future import select
-from sqlalchemy import and_
+from sqlalchemy import and_, or_, func
 from datetime import datetime, timedelta
 from typing import List
 import logging
@@ -19,10 +20,9 @@ from app.models.campaign import (
 )
 from app.models.lead import Lead
 from app.models.template import MessageTemplate
-from app.services.template_service import TemplateService
-from app.services.telegram_service import TelegramService
-from app.services.pipeline_service import PipelineService
-from app.services.campaign_service import CampaignService
+from app.services.shared import TemplateService, TelegramService
+from app.services.pipeline import PipelineService
+from app.services.campaigns import CampaignService
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,13 @@ engine = create_async_engine(settings.DATABASE_URL, echo=False)
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
-@shared_task(name="app.tasks.campaign_executor.execute_campaign_for_lead", bind=True, max_retries=3)
+@shared_task(
+    name="app.tasks.campaign_executor.execute_campaign_for_lead",
+    base=DLQTask,
+    bind=True,
+    max_retries=5,
+    default_retry_delay=120,
+)
 def execute_campaign_for_lead(self, campaign_id: int, lead_id: int):
     """
     Execute all steps of a campaign for a lead
@@ -238,21 +244,56 @@ async def _execute_update_stage(db: AsyncSession, campaign, step, lead, log):
     log.response = {"stage": step.target_stage}
 
 
+def _build_eligible_leads_query(campaign: Campaign):
+    """
+    Build SQL query for leads eligible for this campaign's trigger (no N+1).
+    Returns select(Lead).where(...) with broker_id and trigger conditions.
+    """
+    condition = campaign.trigger_condition or {}
+    base = select(Lead).where(Lead.broker_id == campaign.broker_id)
+    
+    if campaign.triggered_by == CampaignTrigger.LEAD_SCORE:
+        score_min = condition.get("score_min")
+        score_max = condition.get("score_max")
+        if score_min is not None:
+            base = base.where(Lead.lead_score >= score_min)
+        if score_max is not None:
+            base = base.where(Lead.lead_score <= score_max)
+        return base
+    
+    if campaign.triggered_by == CampaignTrigger.STAGE_CHANGE:
+        target_stage = condition.get("stage")
+        if target_stage:
+            return base.where(Lead.pipeline_stage == target_stage)
+        return base.where(Lead.id == -1)  # no stage = no leads
+    
+    if campaign.triggered_by == CampaignTrigger.INACTIVITY:
+        inactivity_days = condition.get("inactivity_days", 30)
+        cutoff = datetime.now() - timedelta(days=inactivity_days)
+        return base.where(
+            or_(
+                Lead.last_contacted < cutoff,
+                and_(
+                    Lead.last_contacted.is_(None),
+                    Lead.created_at < cutoff
+                )
+            )
+        )
+    
+    return base.where(Lead.id == -1)  # MANUAL or unknown
+
+
 @shared_task(name="app.tasks.campaign_executor.check_trigger_campaigns")
 def check_trigger_campaigns():
     """
-    Run every hour: check all active campaigns, apply to matching leads
-    
-    This task checks all active campaigns and applies them to leads
-    that match the trigger conditions.
+    Run every hour: check all active campaigns, apply to matching leads.
+    Uses one query per campaign to get eligible leads (avoids N+1).
     """
     import asyncio
     
     async def _check():
-        # Get database session
         async with AsyncSessionLocal() as db:
             try:
-                # Get all active campaigns
                 campaigns_result = await db.execute(
                     select(Campaign).where(Campaign.status == CampaignStatus.ACTIVE)
                 )
@@ -262,69 +303,58 @@ def check_trigger_campaigns():
                 
                 for campaign in campaigns:
                     if campaign.triggered_by == CampaignTrigger.MANUAL:
-                        continue  # Skip manual campaigns
+                        continue
                     
                     try:
-                        # Get all leads (or filter by broker_id if needed)
-                        leads_result = await db.execute(select(Lead))
-                        leads = leads_result.scalars().all()
+                        query = _build_eligible_leads_query(campaign)
+                        leads_result = await db.execute(query)
+                        eligible_leads = leads_result.scalars().all()
                         
-                        for lead in leads:
-                            # Check trigger conditions
-                            from app.services.campaign_service import CampaignService
-                            
-                            should_trigger = await CampaignService.check_trigger_conditions(
+                        if campaign.max_contacts:
+                            stats = await CampaignService.get_campaign_stats(
                                 db=db,
-                                campaign=campaign,
-                                lead=lead
+                                campaign_id=campaign.id
                             )
+                            if stats["unique_leads"] >= campaign.max_contacts:
+                                logger.info(f"Campaign {campaign.id} reached max_contacts limit")
+                                continue
+                        
+                        applied_count = 0
+                        for lead in eligible_leads:
+                            campaign_history = lead.campaign_history or []
+                            if not isinstance(campaign_history, list):
+                                campaign_history = []
+                            already_applied = any(
+                                log.get("campaign_id") == campaign.id for log in campaign_history
+                            )
+                            if already_applied:
+                                continue
+                            if campaign.max_contacts and applied_count >= campaign.max_contacts:
+                                break
                             
-                            if should_trigger:
-                                # Check if campaign already applied
-                                campaign_history = lead.campaign_history or []
-                                already_applied = any(
-                                    log.get("campaign_id") == campaign.id 
-                                    for log in campaign_history
-                                )
-                                
-                                if not already_applied:
-                                    # Check max_contacts limit
-                                    if campaign.max_contacts:
-                                        stats = await CampaignService.get_campaign_stats(
-                                            db=db,
-                                            campaign_id=campaign.id
-                                        )
-                                        if stats["unique_leads"] >= campaign.max_contacts:
-                                            logger.info(f"Campaign {campaign.id} reached max_contacts limit")
-                                            continue
-                                    
-                                    # Apply campaign
-                                    logs = await CampaignService.apply_campaign_to_lead(
-                                        db=db,
-                                        campaign_id=campaign.id,
-                                        lead_id=lead.id
-                                    )
-                                    
-                                    # Update campaign history
-                                    if not isinstance(campaign_history, list):
-                                        campaign_history = []
-                                    
-                                    campaign_history.append({
-                                        "campaign_id": campaign.id,
-                                        "applied_at": datetime.now().isoformat(),
-                                        "trigger": campaign.triggered_by.value,
-                                        "steps_enqueued": len(logs)
-                                    })
-                                    lead.campaign_history = campaign_history
-                                    await db.commit()
-                                    
-                                    # Enqueue execution task
-                                    execute_campaign_for_lead.delay(campaign.id, lead.id)
-                                    
-                                    logger.info(f"Campaign {campaign.id} applied to lead {lead.id}")
+                            logs = await CampaignService.apply_campaign_to_lead(
+                                db=db,
+                                campaign_id=campaign.id,
+                                lead_id=lead.id
+                            )
+                            campaign_history.append({
+                                "campaign_id": campaign.id,
+                                "applied_at": datetime.now().isoformat(),
+                                "trigger": campaign.triggered_by.value,
+                                "steps_enqueued": len(logs)
+                            })
+                            lead.campaign_history = campaign_history
+                            applied_count += 1
+                            await db.commit()
+                            execute_campaign_for_lead.delay(campaign.id, lead.id)
+                            logger.info(f"Campaign {campaign.id} applied to lead {lead.id}")
                     
                     except Exception as e:
                         logger.error(f"Error checking campaign {campaign.id}: {str(e)}", exc_info=True)
+                        try:
+                            await db.rollback()
+                        except Exception:
+                            pass
                         continue
             
             except Exception as e:

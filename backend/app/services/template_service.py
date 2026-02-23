@@ -237,5 +237,3 @@ class TemplateService:
         logger.info(f"Template {template_id} deleted")
         return True
 
-
-

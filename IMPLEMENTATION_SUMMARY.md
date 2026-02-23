@@ -129,5 +129,3 @@ Cuando estés listo para integrar con el chat AI:
 4. El lead puede confirmar directamente desde el chat
 
 
-
-

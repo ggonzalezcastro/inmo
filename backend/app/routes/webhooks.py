@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException, status, Request, Header
+from fastapi import APIRouter, HTTPException, Request, Header, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.tasks import telegram_tasks
+from app.services.chat import ChatService
 import hmac
 import hashlib
 import json
@@ -73,5 +74,49 @@ async def telegram_webhook(
         message_text=message_text
     )
     
+    return {"ok": True}
+
+
+@router.post("/chat/{broker_id}/{provider_name}")
+async def chat_webhook(
+    broker_id: int,
+    provider_name: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    x_hub_signature_256: str = Header(None, alias="X-Hub-Signature-256"),
+    x_telegram_bot_api_secret_token: str = Header(None, alias="X-Telegram-Bot-Api-Secret-Token"),
+):
+    """
+    Unified chat webhook: POST /webhooks/{broker_id}/{provider_name}.
+    Supports telegram, whatsapp, etc. Verifies signature when available and processes via ChatService.
+    """
+    body = await request.body()
+    try:
+        payload = json.loads(body) if body else {}
+    except json.JSONDecodeError:
+        payload = {}
+
+    # Provider-specific signature header
+    signature = None
+    if provider_name.lower() == "whatsapp":
+        signature = x_hub_signature_256
+    elif provider_name.lower() == "telegram":
+        signature = x_telegram_bot_api_secret_token
+
+    chat_message = await ChatService.handle_webhook(
+        db=db,
+        broker_id=broker_id,
+        provider_name=provider_name.lower().strip(),
+        payload=payload,
+        signature=signature or "",
+    )
+    if not chat_message:
+        return {"ok": True}
+
+    try:
+        logger.info("Chat webhook processed lead_id=%s provider=%s", chat_message.lead_id, provider_name)
+    except Exception as e:
+        logger.warning("Chat webhook post-process: %s", e)
+
     return {"ok": True}
 

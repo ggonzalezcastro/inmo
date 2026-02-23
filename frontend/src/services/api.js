@@ -151,5 +151,16 @@ export const callsAPI = {
   getOne: (callId) => api.get(`/api/v1/calls/${callId}`),
 };
 
+// LLM costs dashboard (admin)
+export const costsAPI = {
+  getSummary: (params) => api.get('/api/v1/admin/costs/summary', { params }),
+  getDaily: (params) => api.get('/api/v1/admin/costs/daily', { params }),
+  getOutliers: (params) => api.get('/api/v1/admin/costs/outliers', { params }),
+  exportCsv: (params) =>
+    api.get('/api/v1/admin/costs/export', { params, responseType: 'blob' }),
+  getByBroker: (params) => api.get('/api/v1/admin/costs/by-broker', { params }),
+  getCalls: (params) => api.get('/api/v1/admin/costs/calls', { params }),
+};
+
 export default api;
 
