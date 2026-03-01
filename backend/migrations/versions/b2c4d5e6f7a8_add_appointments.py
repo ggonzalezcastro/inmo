@@ -19,42 +19,35 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Create enums if they don't exist using raw SQL
+    # Create enums if they don't exist using raw SQL (Alembic runs in a transaction, no commit)
     conn = op.get_bind()
     
-    # Check and create appointmenttype enum
-    result = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM pg_type WHERE typname = 'appointmenttype'
-        )
-    """))
-    if not result.scalar():
-        conn.execute(sa.text("""
-            CREATE TYPE appointmenttype AS ENUM 
-            ('property_visit', 'virtual_meeting', 'phone_call', 'office_meeting', 'other')
-        """))
-        conn.commit()
+    for enum_name, values in [
+        ("appointmenttype", ("property_visit", "virtual_meeting", "phone_call", "office_meeting", "other")),
+        ("appointmentstatus", ("scheduled", "confirmed", "cancelled", "completed", "no_show")),
+    ]:
+        r = conn.execute(sa.text("SELECT 1 FROM pg_type WHERE typname = :n"), {"n": enum_name})
+        if r.fetchone() is None:
+            vals = ", ".join(f"'{v}'" for v in values)
+            conn.execute(sa.text(f"CREATE TYPE {enum_name} AS ENUM ({vals})"))
     
-    # Check and create appointmentstatus enum
-    result = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM pg_type WHERE typname = 'appointmentstatus'
-        )
-    """))
-    if not result.scalar():
-        conn.execute(sa.text("""
-            CREATE TYPE appointmentstatus AS ENUM 
-            ('scheduled', 'confirmed', 'cancelled', 'completed', 'no_show')
-        """))
-        conn.commit()
+    # Use PostgreSQL ENUM with create_type=False so we don't try to create again
+    appointmenttype_enum = postgresql.ENUM(
+        "property_visit", "virtual_meeting", "phone_call", "office_meeting", "other",
+        name="appointmenttype", create_type=False,
+    )
+    appointmentstatus_enum = postgresql.ENUM(
+        "scheduled", "confirmed", "cancelled", "completed", "no_show",
+        name="appointmentstatus", create_type=False,
+    )
     
     # Create appointments table
     op.create_table('appointments',
         sa.Column('id', sa.Integer(), nullable=False),
         sa.Column('lead_id', sa.Integer(), nullable=False),
         sa.Column('agent_id', sa.Integer(), nullable=True),
-        sa.Column('appointment_type', sa.Enum('property_visit', 'virtual_meeting', 'phone_call', 'office_meeting', 'other', name='appointmenttype', create_type=False), nullable=False),
-        sa.Column('status', sa.Enum('scheduled', 'confirmed', 'cancelled', 'completed', 'no_show', name='appointmentstatus', create_type=False), nullable=False),
+        sa.Column('appointment_type', appointmenttype_enum, nullable=False),
+        sa.Column('status', appointmentstatus_enum, nullable=False),
         sa.Column('start_time', sa.DateTime(timezone=True), nullable=False),
         sa.Column('end_time', sa.DateTime(timezone=True), nullable=False),
         sa.Column('duration_minutes', sa.Integer(), nullable=False),
@@ -90,7 +83,7 @@ def upgrade() -> None:
         sa.Column('end_time', sa.Time(), nullable=False),
         sa.Column('valid_from', sa.Date(), nullable=False),
         sa.Column('valid_until', sa.Date(), nullable=True),
-        sa.Column('appointment_type', sa.Enum('property_visit', 'virtual_meeting', 'phone_call', 'office_meeting', 'other', name='appointmenttype', create_type=False), nullable=True),
+        sa.Column('appointment_type', appointmenttype_enum, nullable=True),
         sa.Column('slot_duration_minutes', sa.Integer(), nullable=False),
         sa.Column('max_appointments_per_slot', sa.Integer(), nullable=False),
         sa.Column('is_active', sa.Boolean(), nullable=False),

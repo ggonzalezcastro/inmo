@@ -122,9 +122,9 @@ async def register(user_data: UserRegister, db: AsyncSession = Depends(get_db)):
             user=new_user,
             broker_name=user_data.broker_name
         )
-        logger.info(f"Broker initialized for user {new_user.email}: {broker.id if broker else 'None'}")
+        logger.info(f"Broker initialized for user {user_data.email}: {broker.id if broker else 'None'}")
     except Exception as e:
-        logger.error(f"Error initializing broker for user {new_user.email}: {e}")
+        logger.error(f"Error initializing broker for user {user_data.email}: {e}")
         # Continue anyway - user is created but without broker config
         # They can configure it later
     

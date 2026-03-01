@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import * as costsApi from '../services/costsApi';
 import { useCostsStore } from '../store/costsStore';
 import type { LLMUsage } from '../types/costs.types';
@@ -84,9 +84,8 @@ export function CostTable() {
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {items.map((row) => (
-                  <>
+                  <Fragment key={row.id}>
                     <tr
-                      key={row.id}
                       className={
                         row.error
                           ? 'bg-red-50'
@@ -133,7 +132,7 @@ export function CostTable() {
                       </td>
                     </tr>
                     {expandedId === row.id && (
-                      <tr key={`${row.id}-exp`}>
+                      <tr>
                         <td colSpan={10} className="px-2 py-2 bg-gray-50 text-xs">
                           <pre className="whitespace-pre-wrap">
                             {JSON.stringify(
@@ -150,7 +149,7 @@ export function CostTable() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>

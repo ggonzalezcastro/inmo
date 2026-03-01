@@ -203,22 +203,31 @@ Retorna JSON con:
             # Use LLM to process
             response = await LLMServiceFacade.generate_response(processing_prompt)
 
-            # Try to parse JSON response
             import json
             import re
 
-            # Extract JSON from response
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
-            if json_match:
-                result = json.loads(json_match.group())
-            else:
-                # Fallback: extract data manually
-                result = {
-                    "next_message": response,
-                    "extracted_data": {},
-                    "should_continue": True,
-                    "stage_to_move": None
-                }
+            # Try direct parse first; fall back to extracting JSON block from text.
+            try:
+                result = json.loads(response)
+            except json.JSONDecodeError:
+                json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
+                if json_match:
+                    try:
+                        result = json.loads(json_match.group())
+                    except json.JSONDecodeError:
+                        result = {
+                            "next_message": response,
+                            "extracted_data": {},
+                            "should_continue": True,
+                            "stage_to_move": None,
+                        }
+                else:
+                    result = {
+                        "next_message": response,
+                        "extracted_data": {},
+                        "should_continue": True,
+                        "stage_to_move": None,
+                    }
 
             return result
 
@@ -275,24 +284,31 @@ Genera un resumen JSON con:
         try:
             response = await LLMServiceFacade.generate_response(summary_prompt)
 
-            # Parse JSON
             import json
             import re
 
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
-            if json_match:
-                summary = json.loads(json_match.group())
-            else:
-                # Fallback
-                summary = {
-                    "summary": "Llamada completada",
-                    "interest_level": 5,
-                    "budget": None,
-                    "timeline": None,
-                    "next_steps": "Seguimiento estándar",
-                    "score_delta": 0,
-                    "stage_to_move": None
-                }
+            _fallback_summary = {
+                "summary": "Llamada completada",
+                "interest_level": 5,
+                "budget": None,
+                "timeline": None,
+                "next_steps": "Seguimiento estándar",
+                "score_delta": 0,
+                "stage_to_move": None,
+            }
+
+            # Try direct parse first; fall back to extracting JSON block from text.
+            try:
+                summary = json.loads(response)
+            except json.JSONDecodeError:
+                json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
+                if json_match:
+                    try:
+                        summary = json.loads(json_match.group())
+                    except json.JSONDecodeError:
+                        summary = _fallback_summary
+                else:
+                    summary = _fallback_summary
 
             return summary
 

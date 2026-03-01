@@ -35,15 +35,12 @@ def upgrade() -> None:
     ]
     
     for column_name, column_type, default in columns_to_add:
-        result = conn.execute(sa.text(f"""
-            SELECT EXISTS (
-                SELECT 1 FROM information_schema.columns 
-                WHERE table_name = 'broker_prompt_configs' 
-                AND column_name = '{column_name}'
-            )
-        """))
-        column_exists = result.scalar()
-        
+        result = conn.execute(sa.text("""
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'broker_prompt_configs' AND column_name = :c
+        """), {"c": column_name})
+        column_exists = result.fetchone() is not None
+
         if not column_exists:
             op.add_column('broker_prompt_configs',
                 sa.Column(column_name, column_type, nullable=True)

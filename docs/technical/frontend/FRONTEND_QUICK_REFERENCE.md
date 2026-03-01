@@ -1,182 +1,158 @@
-# ⚡ Quick Reference: Frontend-Backend Integration
+# Quick Reference: Frontend (v2.0 TypeScript)
 
-**Versión**: 1.0  
-**Fecha**: 2025-01-27
+**Versión**: 2.0
+**Fecha**: 2026-02-27
 
 ---
 
-## 🎯 Cambios Principales en Lead
+## Estructura de un Feature
 
-El modelo `Lead` ahora tiene estos campos nuevos que el frontend debe manejar:
+Cada feature bajo `src/features/<name>/` sigue esta estructura:
 
-```typescript
-interface Lead {
-  // ... campos existentes ...
-  
-  pipeline_stage: "entrada" | "perfilamiento" | "calificacion_financiera" | 
-                  "agendado" | "seguimiento" | "referidos" | "ganado" | "perdido" | null;
-  
-  stage_entered_at: string | null; // ISO datetime
-  
-  campaign_history: Array<{
-    campaign_id: number;
-    applied_at: string;
-    trigger: string;
-    stage?: string;
-  }>;
-  
-  assigned_to: number | null;
-  treatment_type: "automated_telegram" | "automated_call" | "manual_follow_up" | "hold" | null;
-  next_action_at: string | null;
-  notes: string | null;
-}
+```
+features/leads/
+├── components/       # Componentes TSX
+├── hooks/            # Custom hooks (useLeads, etc.)
+├── services/         # leads.service.ts — llamadas a la API
+├── store/            # leadsStore.ts — Zustand
+├── types/            # index.ts — interfaces TypeScript
+└── index.ts          # Barrel export
 ```
 
 ---
 
-## 📍 Endpoints Nuevos
+## API Client
+
+```typescript
+import { apiClient } from '@/shared/lib/api-client'
+
+// GET con query params
+const res = await apiClient.get<PaginatedResponse<Lead>>('/api/v1/leads', { params: filters })
+
+// POST
+const lead = await apiClient.post<Lead>('/api/v1/leads', payload)
+
+// PUT / PATCH / DELETE
+await apiClient.put(`/api/v1/leads/${id}`, data)
+await apiClient.delete(`/api/v1/leads/${id}`)
+
+// Multipart (CSV upload)
+await apiClient.postForm('/api/v1/leads/bulk-import', formData)
+```
+
+---
+
+## Zustand Store Pattern
+
+```typescript
+import { create } from 'zustand'
+
+interface LeadsState {
+  leads: Lead[]
+  isLoading: boolean
+  setLeads: (leads: Lead[], total: number) => void
+}
+
+export const useLeadsStore = create<LeadsState>((set) => ({
+  leads: [],
+  isLoading: false,
+  setLeads: (leads, total) => set({ leads, total }),
+}))
+```
+
+---
+
+## Permisos
+
+```typescript
+import { usePermissions } from '@/shared/hooks/usePermissions'
+
+const { isAdmin, isSuperAdmin, isAgent, canManageCampaigns } = usePermissions()
+```
+
+---
+
+## Componentes UI Disponibles
+
+```typescript
+// shadcn/ui
+import { Button } from '@/shared/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
+import { Input } from '@/shared/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select'
+import { Badge } from '@/shared/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card'
+
+// Comunes
+import { StatusBadge } from '@/shared/components/common/StatusBadge'
+import { ScoreBadge } from '@/shared/components/common/ScoreBadge'
+import { DataTable } from '@/shared/components/common/DataTable'
+import { PageHeader } from '@/shared/components/common/PageHeader'
+import { LoadingSpinner } from '@/shared/components/common/LoadingSpinner'
+import { EmptyState } from '@/shared/components/common/EmptyState'
+import { ConfirmDialog } from '@/shared/components/common/ConfirmDialog'
+```
+
+---
+
+## Toast Notifications
+
+```typescript
+import { toast } from 'sonner'
+
+toast.success('Lead creado')
+toast.error('Error al guardar')
+toast.loading('Guardando...')
+```
+
+---
+
+## Constantes de Dominio
+
+```typescript
+import {
+  PIPELINE_STAGES,       // Array de { key, label }
+  PIPELINE_STAGE_CONFIG, // Record<stage, { label, color }>
+  LEAD_STATUS_CONFIG,    // Record<status, { label, color }>
+  CALIFICACION_CONFIG,   // Record<calificacion, { label, color }>
+} from '@/shared/lib/constants'
+```
+
+---
+
+## Endpoints del Backend
+
+### Leads
+- `GET /api/v1/leads` — lista paginada (params: skip, limit, search, status, calificacion)
+- `POST /api/v1/leads` — crear
+- `PUT /api/v1/leads/{id}` — actualizar
+- `DELETE /api/v1/leads/{id}` — eliminar
+- `POST /api/v1/leads/{id}/recalculate-score` — recalcular score
+- `POST /api/v1/leads/bulk-import` — importar CSV (multipart)
 
 ### Pipeline
-- `GET /api/v1/pipeline/stages/{stage}/leads` - Leads por etapa
-- `POST /api/v1/pipeline/leads/{id}/move-stage` - Mover lead
-- `POST /api/v1/pipeline/leads/{id}/auto-advance` - Auto-avanzar
-- `GET /api/v1/pipeline/metrics` - Métricas del pipeline
-- `GET /api/v1/pipeline/stages/{stage}/inactive` - Leads inactivos
+- `GET /api/v1/pipeline/stage/{stage}` — leads por etapa
+- `POST /api/v1/pipeline/leads/{id}/move` — mover etapa
+- `GET /api/v1/pipeline/metrics` — métricas
+- `GET /api/v1/pipeline/inactive` — leads inactivos
 
-### Campaigns
-- `GET /api/v1/campaigns` - Listar campañas
-- `POST /api/v1/campaigns` - Crear campaña
-- `GET /api/v1/campaigns/{id}` - Obtener campaña (incluye steps)
-- `PUT /api/v1/campaigns/{id}` - Actualizar campaña
-- `DELETE /api/v1/campaigns/{id}` - Eliminar campaña
-- `POST /api/v1/campaigns/{id}/steps` - Agregar paso
-- `DELETE /api/v1/campaigns/{id}/steps/{step_id}` - Eliminar paso
-- `POST /api/v1/campaigns/{id}/apply-to-lead/{lead_id}` - Aplicar a lead
-- `GET /api/v1/campaigns/{id}/stats` - Estadísticas
-- `GET /api/v1/campaigns/{id}/logs` - Logs de ejecución
-
-### Templates
-- `GET /api/v1/templates` - Listar plantillas
-- `POST /api/v1/templates` - Crear plantilla
-- `GET /api/v1/templates/{id}` - Obtener plantilla
-- `PUT /api/v1/templates/{id}` - Actualizar plantilla
-- `DELETE /api/v1/templates/{id}` - Eliminar plantilla
-- `GET /api/v1/templates/agent-type/{type}` - Por tipo de agente
-
-### Voice Calls
-- `POST /api/v1/calls/initiate` - Iniciar llamada
-- `GET /api/v1/calls/leads/{lead_id}` - Historial de llamadas
-- `GET /api/v1/calls/{call_id}` - Detalles de llamada (con transcript)
+### Otros
+- `GET /api/v1/campaigns` / `POST` / `PUT /{id}` / `DELETE /{id}`
+- `GET /api/v1/templates` / `POST` / `PUT /{id}` / `DELETE /{id}`
+- `GET /api/v1/appointments` / `POST` / `PUT /{id}` / `DELETE /{id}`
+- `GET /api/v1/broker/config` / `PUT /api/v1/broker/prompt-config`
+- `GET /api/v1/users` / `POST` / `PUT /{id}` / `DELETE /{id}`
+- `GET /api/v1/brokers` (superadmin) / `POST` / `PUT /{id}`
 
 ---
 
-## ⚠️ Puntos Críticos
+## Agregar un Nuevo Feature
 
-### 1. Campaign Steps NO están en la lista
-Cuando haces `GET /api/v1/campaigns`, los `steps` NO están incluidos. Solo en `GET /api/v1/campaigns/{id}`.
-
-**Solución**: Hacer request adicional para obtener steps cuando se necesite.
-
-### 2. Pipeline Stages - Valores exactos
-Los valores deben ser exactamente estos (case-sensitive):
-```
-"entrada", "perfilamiento", "calificacion_financiera", "agendado", 
-"seguimiento", "referidos", "ganado", "perdido"
-```
-
-### 3. Campaign History es un Array JSON
-El campo `campaign_history` en Lead es un array que se actualiza automáticamente cuando se aplica una campaña.
-
-### 4. Auto-advance es automático
-El backend avanza automáticamente las etapas cuando se cumplen condiciones. El frontend debe refrescar después de acciones.
-
----
-
-## 🔄 Flujo de Pipeline Board
-
-```typescript
-// 1. Cargar leads por etapa
-const leads = await api.get(`/api/v1/pipeline/stages/${stage}/leads`);
-
-// 2. Mover lead (drag-and-drop)
-await api.post(`/api/v1/pipeline/leads/${leadId}/move-stage`, {
-  new_stage: newStage,
-  reason: "Moved via drag-and-drop"
-});
-
-// 3. Verificar auto-advance (opcional)
-await api.post(`/api/v1/pipeline/leads/${leadId}/auto-advance`);
-```
-
----
-
-## 📊 Estructuras de Respuesta Clave
-
-### Campaign Response
-```typescript
-{
-  id: number;
-  name: string;
-  channel: "telegram" | "call" | "whatsapp" | "email";
-  status: "draft" | "active" | "paused" | "completed";
-  triggered_by: "manual" | "lead_score" | "stage_change" | "inactivity";
-  trigger_condition: Record<string, any>;
-  steps?: CampaignStep[]; // Solo en GET /{id}
-}
-```
-
-### Campaign Stats
-```typescript
-{
-  total_steps: number;
-  unique_leads: number;
-  success_rate: number; // 0-100
-  failure_rate: number; // 0-100
-}
-```
-
-### Pipeline Metrics
-```typescript
-{
-  total_leads: number;
-  stage_counts: Record<string, number>;
-  stage_avg_days: Record<string, number>;
-}
-```
-
----
-
-## 🎨 Template Variables
-
-Variables disponibles para usar en templates:
-- `{{name}}` - Nombre del lead
-- `{{phone}}` - Teléfono
-- `{{email}}` - Email
-- `{{budget}}` - Presupuesto
-- `{{location}}` - Ubicación
-- `{{timeline}}` - Timeline
-- `{{score}}` - Lead score
-- `{{stage}}` - Pipeline stage
-
----
-
-## ✅ Checklist Rápido
-
-- [ ] Actualizar tipo `Lead` con campos de pipeline
-- [ ] Mapear 8 etapas a columnas Kanban
-- [ ] Agregar endpoints de pipeline al API client
-- [ ] Agregar endpoints de campaigns al API client
-- [ ] Agregar endpoints de templates al API client
-- [ ] Agregar endpoints de voice calls al API client
-- [ ] Manejar `campaign_history` en lead detail
-- [ ] Mostrar `pipeline_stage` en lead cards
-- [ ] Implementar drag-and-drop con move-stage endpoint
-- [ ] Mostrar estadísticas de campañas
-- [ ] Auto-completar variables en template editor
-
----
-
-**Ver guía completa**: `FRONTEND_INTEGRATION_GUIDE.md`
-
-
-
+1. Crear directorio `src/features/<name>/` con la estructura estándar
+2. Definir tipos en `types/index.ts`
+3. Crear servicio en `services/<name>.service.ts`
+4. Crear store Zustand en `store/<name>Store.ts`
+5. Crear componentes TSX en `components/`
+6. Exportar desde `index.ts`
+7. Añadir ruta lazy en `src/app/router.tsx`
+8. Añadir ítem en `NAV_ITEMS` de `src/shared/components/layout/Sidebar.tsx`

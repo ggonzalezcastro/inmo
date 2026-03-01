@@ -156,7 +156,9 @@ class ClaudeProvider(BaseLLMProvider):
             
             function_calls_executed = []
             max_iterations = 5
-            
+            total_input_tokens = 0
+            total_output_tokens = 0
+
             for iteration in range(max_iterations):
                 logger.info(f"[Claude] Tool calling iteration {iteration + 1}/{max_iterations}")
                 
@@ -164,6 +166,9 @@ class ClaudeProvider(BaseLLMProvider):
                 response = await self._client.messages.create(**kwargs)
                 elapsed = time.time() - start_time
                 logger.info(f"[Claude] API call time: {elapsed:.2f}s")
+                if getattr(response, "usage", None):
+                    total_input_tokens += response.usage.input_tokens or 0
+                    total_output_tokens += response.usage.output_tokens or 0
                 
                 # Check if response has tool use
                 tool_uses = [block for block in response.content if block.type == "tool_use"]
@@ -171,7 +176,8 @@ class ClaudeProvider(BaseLLMProvider):
                 if not tool_uses:
                     # No tool calls, extract text response
                     text_blocks = [block.text for block in response.content if block.type == "text"]
-                    return self._clean_response("".join(text_blocks)), function_calls_executed
+                    usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
+                    return self._clean_response("".join(text_blocks)), function_calls_executed, usage
                 
                 # Execute tool calls
                 if tool_executor:
@@ -210,16 +216,18 @@ class ClaudeProvider(BaseLLMProvider):
                 else:
                     # No executor, return tool calls info
                     text_blocks = [block.text for block in response.content if block.type == "text"]
+                    usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
                     return self._clean_response("".join(text_blocks)), [
                         {"name": tu.name, "args": tu.input} for tu in tool_uses
-                    ]
+                    ], usage
             
             logger.warning("[Claude] Max iterations reached")
-            return self.FALLBACK_RESPONSE, function_calls_executed
+            usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
+            return self.FALLBACK_RESPONSE, function_calls_executed, usage
             
         except Exception as e:
             logger.error(f"[Claude] Error in generate_with_tools: {e}", exc_info=True)
-            return self._handle_error(e), []
+            return self._handle_error(e), [], None
     
     async def generate_json(
         self,

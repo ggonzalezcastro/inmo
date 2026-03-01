@@ -4,7 +4,7 @@ import * as costsApi from '../services/costsApi';
 import type { CostPeriod } from '../types/costs.types';
 
 export function TopExpensiveLeads() {
-  const { outliers, summary, isLoading, period, selectedBrokerId } = useCostsStore();
+  const { outliers, isLoading, period, selectedBrokerId } = useCostsStore();
 
   const handleExportCsv = async () => {
     try {

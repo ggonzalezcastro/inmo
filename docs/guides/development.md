@@ -45,12 +45,34 @@ inmo/
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
-│   │   ├── components/            # Shared React components
-│   │   ├── features/              # Feature modules
-│   │   ├── shared/                # Shared utilities
-│   │   ├── store/                 # Zustand stores
-│   │   └── App.jsx                # Main app + routes
-│   └── vite.config.js
+│   │   ├── app/                   # Router (router.tsx) y App root (App.tsx)
+│   │   ├── features/              # Vertical slices por dominio
+│   │   │   ├── auth/              # store/, services/, hooks/, components/, index.ts
+│   │   │   ├── dashboard/
+│   │   │   ├── leads/
+│   │   │   ├── pipeline/
+│   │   │   ├── campaigns/
+│   │   │   ├── appointments/
+│   │   │   ├── templates/
+│   │   │   ├── settings/
+│   │   │   ├── users/
+│   │   │   ├── brokers/
+│   │   │   ├── chat/              # Wrapper de ChatTest.jsx (sin modificar)
+│   │   │   └── llm-costs/
+│   │   ├── shared/
+│   │   │   ├── components/
+│   │   │   │   ├── ui/            # Shadcn/ui (Button, Dialog, Select, etc.)
+│   │   │   │   ├── common/        # StatusBadge, ScoreBadge, DataTable, etc.
+│   │   │   │   └── layout/        # AppShell, Sidebar
+│   │   │   ├── guards/            # AuthGuard, RoleGuard
+│   │   │   ├── hooks/             # usePermissions, useDebounce, usePagination
+│   │   │   ├── lib/               # utils.ts, constants.ts, api-client.ts
+│   │   │   └── types/             # api.ts, auth.ts, common.ts
+│   │   ├── store/                 # authStore.js (shim de retrocompat → features/auth)
+│   │   ├── styles/                # globals.css (tokens CSS shadcn/ui)
+│   │   └── main.tsx               # Entry point
+│   ├── vite.config.ts             # Alias @/ → src/
+│   └── tsconfig.json
 ├── config/                        # Deployment configs
 ├── docker-compose.yml
 └── docs/                          # This documentation
@@ -71,14 +93,17 @@ inmo/
 | Tablas | Plural: `leads`, `brokers` |
 | Rutas | Plural: `/api/v1/leads` |
 
-### Frontend (JavaScript/React)
+### Frontend (TypeScript/React)
 
 | Convención | Ejemplo |
 |-----------|---------|
-| Componentes | `PascalCase.jsx` |
-| Stores | `camelCaseStore.js` |
-| Funciones | `camelCase()` |
-| CSS | Tailwind utility classes |
+| Componentes | `PascalCase.tsx` |
+| Lógica pura (hooks, stores, services) | `camelCase.ts` |
+| Stores Zustand | `camelCaseStore.ts` en `features/<name>/store/` |
+| Servicios API | `<name>.service.ts` en `features/<name>/services/` |
+| Exports | Barrel `index.ts` por feature |
+| CSS | Tailwind utility classes + variables CSS HSL |
+| Imports internos | Alias `@/` (ej. `@/shared/lib/utils`) |
 
 ## Agregar un Nuevo Proveedor de Voz
 

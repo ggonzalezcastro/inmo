@@ -94,9 +94,11 @@ async def get_leads_by_stage(
     """Get leads in a specific pipeline stage"""
     
     try:
+        broker_id = current_user.get("broker_id")
         leads, total = await PipelineService.get_leads_by_stage(
             db=db,
             stage=stage,
+            broker_id=broker_id,
             treatment_type=treatment_type,
             skip=skip,
             limit=limit
@@ -145,7 +147,8 @@ async def get_stage_metrics(
     """Get pipeline conversion metrics"""
     
     try:
-        metrics = await PipelineService.get_stage_metrics(db=db)
+        broker_id = current_user.get("broker_id")
+        metrics = await PipelineService.get_stage_metrics(db=db, broker_id=broker_id)
         return metrics
         
     except Exception as e:
@@ -163,10 +166,12 @@ async def get_inactive_leads_in_stage(
     """Get leads that have been inactive in a stage for too long"""
     
     try:
+        broker_id = current_user.get("broker_id")
         leads = await PipelineService.get_leads_inactive_in_stage(
             db=db,
             stage=stage,
-            inactivity_days=inactivity_days
+            inactivity_days=inactivity_days,
+            broker_id=broker_id
         )
         
         from app.schemas.lead import LeadResponse

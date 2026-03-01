@@ -19,36 +19,23 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Check if column already exists
     conn = op.get_bind()
     result = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM information_schema.columns 
-            WHERE table_name = 'broker_prompt_configs' 
-            AND column_name = 'data_collection_prompt'
-        )
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'broker_prompt_configs' AND column_name = 'data_collection_prompt'
     """))
-    column_exists = result.scalar()
-    
-    # Add column if it doesn't exist
-    if not column_exists:
+    if result.fetchone() is None:
         op.add_column('broker_prompt_configs',
             sa.Column('data_collection_prompt', sa.Text(), nullable=True)
         )
 
 
 def downgrade() -> None:
-    # Remove column if it exists
     conn = op.get_bind()
     result = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM information_schema.columns 
-            WHERE table_name = 'broker_prompt_configs' 
-            AND column_name = 'data_collection_prompt'
-        )
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'broker_prompt_configs' AND column_name = 'data_collection_prompt'
     """))
-    column_exists = result.scalar()
-    
-    if column_exists:
+    if result.fetchone() is not None:
         op.drop_column('broker_prompt_configs', 'data_collection_prompt')
 

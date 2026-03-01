@@ -209,12 +209,28 @@ async def _execute_send_message(db: AsyncSession, campaign, step, lead, log):
 
 
 async def _execute_make_call(db: AsyncSession, campaign, step, lead, log):
-    """Execute make_call action"""
-    
-    # This will be implemented when voice service is ready
-    log.status = CampaignLogStatus.FAILED
-    log.response = {"error": "make_call action not yet implemented"}
-    logger.warning("make_call action not yet implemented")
+    """Execute make_call action via VoiceCallService."""
+    from app.services.voice import VoiceCallService
+
+    agent_type = (step.config or {}).get("agent_type") or "default"
+    try:
+        voice_call = await VoiceCallService.initiate_call(
+            db=db,
+            lead_id=lead.id,
+            campaign_id=campaign.id,
+            broker_id=campaign.broker_id,
+            agent_type=agent_type,
+        )
+        log.status = CampaignLogStatus.COMPLETED
+        log.response = {
+            "voice_call_id": voice_call.id,
+            "external_call_id": voice_call.external_call_id,
+            "status": voice_call.status.value,
+        }
+    except ValueError as e:
+        logger.error("make_call failed for lead=%s campaign=%s: %s", lead.id, campaign.id, str(e))
+        log.status = CampaignLogStatus.FAILED
+        log.response = {"error": str(e)}
 
 
 async def _execute_schedule_meeting(db: AsyncSession, campaign, step, lead, log):

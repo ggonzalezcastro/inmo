@@ -23,148 +23,46 @@ def upgrade() -> None:
     
     # Create enums for campaigns
     # CampaignChannel enum
-    result = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM pg_type WHERE typname = 'campaignchannel'
-        )
-    """))
-    if not result.scalar():
-        conn.execute(sa.text("""
-            CREATE TYPE campaignchannel AS ENUM 
-            ('telegram', 'call', 'whatsapp', 'email')
-        """))
-        conn.commit()
+    def ensure_enum(name, values):
+        r = conn.execute(sa.text("SELECT 1 FROM pg_type WHERE typname = :n"), {"n": name})
+        if r.fetchone() is None:
+            vals = ", ".join(f"'{v}'" for v in values)
+            conn.execute(sa.text(f"CREATE TYPE {name} AS ENUM ({vals})"))
+
+    ensure_enum("campaignchannel", ("telegram", "call", "whatsapp", "email"))
+    ensure_enum("campaignstatus", ("draft", "active", "paused", "completed"))
+    ensure_enum("campaigntrigger", ("manual", "lead_score", "stage_change", "inactivity"))
+    ensure_enum("campaignstepaction", ("send_message", "make_call", "schedule_meeting", "update_stage"))
+    ensure_enum("campaignlogstatus", ("pending", "sent", "failed", "skipped"))
     
-    # CampaignStatus enum
-    result = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM pg_type WHERE typname = 'campaignstatus'
-        )
-    """))
-    if not result.scalar():
-        conn.execute(sa.text("""
-            CREATE TYPE campaignstatus AS ENUM 
-            ('draft', 'active', 'paused', 'completed')
-        """))
-        conn.commit()
+    # TemplateChannel enum - create only if not exists
+    r = conn.execute(sa.text("SELECT 1 FROM pg_type WHERE typname = 'templatechannel'"))
+    if r.fetchone() is None:
+        conn.execute(sa.text("CREATE TYPE templatechannel AS ENUM ('telegram', 'call', 'email', 'whatsapp')"))
     
-    # CampaignTrigger enum
-    result = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM pg_type WHERE typname = 'campaigntrigger'
-        )
-    """))
-    if not result.scalar():
-        conn.execute(sa.text("""
-            CREATE TYPE campaigntrigger AS ENUM 
-            ('manual', 'lead_score', 'stage_change', 'inactivity')
-        """))
-        conn.commit()
-    
-    # CampaignStepAction enum
-    result = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM pg_type WHERE typname = 'campaignstepaction'
-        )
-    """))
-    if not result.scalar():
-        conn.execute(sa.text("""
-            CREATE TYPE campaignstepaction AS ENUM 
-            ('send_message', 'make_call', 'schedule_meeting', 'update_stage')
-        """))
-        conn.commit()
-    
-    # CampaignLogStatus enum
-    result = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM pg_type WHERE typname = 'campaignlogstatus'
-        )
-    """))
-    if not result.scalar():
-        conn.execute(sa.text("""
-            CREATE TYPE campaignlogstatus AS ENUM 
-            ('pending', 'sent', 'failed', 'skipped')
-        """))
-        conn.commit()
-    
-    # TemplateChannel enum - Check if exists and drop if needed to recreate
-    result = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM pg_type WHERE typname = 'templatechannel'
-        )
-    """))
-    if result.scalar():
-        # Enum exists, drop it first (will be recreated)
-        try:
-            conn.execute(sa.text("DROP TYPE IF EXISTS templatechannel CASCADE"))
-            conn.commit()
-        except:
-            pass
-    conn.execute(sa.text("""
-        CREATE TYPE templatechannel AS ENUM 
-        ('telegram', 'call', 'email', 'whatsapp')
-    """))
-    conn.commit()
-    
-    # AgentType enum
-    result = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM pg_type WHERE typname = 'agenttype'
-        )
-    """))
-    if not result.scalar():
-        conn.execute(sa.text("""
-            CREATE TYPE agenttype AS ENUM 
-            ('perfilador', 'calificador_financiero', 'agendador', 'seguimiento')
-        """))
-        conn.commit()
-    
-    # CallStatus enum
-    result = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM pg_type WHERE typname = 'callstatus'
-        )
-    """))
-    if not result.scalar():
-        conn.execute(sa.text("""
-            CREATE TYPE callstatus AS ENUM 
-            ('initiated', 'ringing', 'answered', 'completed', 'failed', 'no_answer', 'busy', 'cancelled')
-        """))
-        conn.commit()
-    
-    # SpeakerType enum
-    result = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM pg_type WHERE typname = 'speakertype'
-        )
-    """))
-    if not result.scalar():
-        conn.execute(sa.text("""
-            CREATE TYPE speakertype AS ENUM 
-            ('bot', 'customer')
-        """))
-        conn.commit()
-    
-    # TreatmentType enum
-    result = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM pg_type WHERE typname = 'treatmenttype'
-        )
-    """))
-    if not result.scalar():
-        conn.execute(sa.text("""
-            CREATE TYPE treatmenttype AS ENUM 
-            ('automated_telegram', 'automated_call', 'manual_follow_up', 'hold')
-        """))
-        conn.commit()
-    
+    ensure_enum("agenttype", ("perfilador", "calificador_financiero", "agendador", "seguimiento"))
+    ensure_enum("callstatus", ("initiated", "ringing", "answered", "completed", "failed", "no_answer", "busy", "cancelled"))
+    ensure_enum("speakertype", ("bot", "customer"))
+    ensure_enum("treatmenttype", ("automated_telegram", "automated_call", "manual_follow_up", "hold"))
+
+    templatechannel_enum = postgresql.ENUM("telegram", "call", "email", "whatsapp", name="templatechannel", create_type=False)
+    agenttype_enum = postgresql.ENUM("perfilador", "calificador_financiero", "agendador", "seguimiento", name="agenttype", create_type=False)
+    campaignchannel_enum = postgresql.ENUM("telegram", "call", "whatsapp", "email", name="campaignchannel", create_type=False)
+    campaignstatus_enum = postgresql.ENUM("draft", "active", "paused", "completed", name="campaignstatus", create_type=False)
+    campaigntrigger_enum = postgresql.ENUM("manual", "lead_score", "stage_change", "inactivity", name="campaigntrigger", create_type=False)
+    campaignstepaction_enum = postgresql.ENUM("send_message", "make_call", "schedule_meeting", "update_stage", name="campaignstepaction", create_type=False)
+    campaignlogstatus_enum = postgresql.ENUM("pending", "sent", "failed", "skipped", name="campaignlogstatus", create_type=False)
+    callstatus_enum = postgresql.ENUM("initiated", "ringing", "answered", "completed", "failed", "no_answer", "busy", "cancelled", name="callstatus", create_type=False)
+    speakertype_enum = postgresql.ENUM("bot", "customer", name="speakertype", create_type=False)
+    treatmenttype_enum = postgresql.ENUM("automated_telegram", "automated_call", "manual_follow_up", "hold", name="treatmenttype", create_type=False)
+
     # Create message_templates table
     op.create_table('message_templates',
         sa.Column('id', sa.Integer(), nullable=False),
         sa.Column('name', sa.String(length=200), nullable=False),
-        sa.Column('channel', sa.Enum('telegram', 'call', 'email', 'whatsapp', name='templatechannel', create_type=False), nullable=False),
+        sa.Column('channel', templatechannel_enum, nullable=False),
         sa.Column('content', sa.Text(), nullable=False),
-        sa.Column('agent_type', sa.Enum('perfilador', 'calificador_financiero', 'agendador', 'seguimiento', name='agenttype', create_type=False), nullable=True),
+        sa.Column('agent_type', agenttype_enum, nullable=True),
         sa.Column('variables', postgresql.JSON(astext_type=sa.Text()), nullable=False),
         sa.Column('broker_id', sa.Integer(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -182,9 +80,9 @@ def upgrade() -> None:
         sa.Column('id', sa.Integer(), nullable=False),
         sa.Column('name', sa.String(length=200), nullable=False),
         sa.Column('description', sa.Text(), nullable=True),
-        sa.Column('channel', sa.Enum('telegram', 'call', 'whatsapp', 'email', name='campaignchannel', create_type=False), nullable=False),
-        sa.Column('status', sa.Enum('draft', 'active', 'paused', 'completed', name='campaignstatus', create_type=False), nullable=False),
-        sa.Column('triggered_by', sa.Enum('manual', 'lead_score', 'stage_change', 'inactivity', name='campaigntrigger', create_type=False), nullable=False),
+        sa.Column('channel', campaignchannel_enum, nullable=False),
+        sa.Column('status', campaignstatus_enum, nullable=False),
+        sa.Column('triggered_by', campaigntrigger_enum, nullable=False),
         sa.Column('trigger_condition', postgresql.JSON(astext_type=sa.Text()), nullable=True),
         sa.Column('max_contacts', sa.Integer(), nullable=True),
         sa.Column('broker_id', sa.Integer(), nullable=False),
@@ -205,7 +103,7 @@ def upgrade() -> None:
         sa.Column('id', sa.Integer(), nullable=False),
         sa.Column('campaign_id', sa.Integer(), nullable=False),
         sa.Column('step_number', sa.Integer(), nullable=False),
-        sa.Column('action', sa.Enum('send_message', 'make_call', 'schedule_meeting', 'update_stage', name='campaignstepaction', create_type=False), nullable=False),
+        sa.Column('action', campaignstepaction_enum, nullable=False),
         sa.Column('message_template_id', sa.Integer(), nullable=True),
         sa.Column('delay_hours', sa.Integer(), nullable=False),
         sa.Column('conditions', postgresql.JSON(astext_type=sa.Text()), nullable=True),
@@ -226,7 +124,7 @@ def upgrade() -> None:
         sa.Column('campaign_id', sa.Integer(), nullable=False),
         sa.Column('lead_id', sa.Integer(), nullable=False),
         sa.Column('step_number', sa.Integer(), nullable=False),
-        sa.Column('status', sa.Enum('pending', 'sent', 'failed', 'skipped', name='campaignlogstatus', create_type=False), nullable=False),
+        sa.Column('status', campaignlogstatus_enum, nullable=False),
         sa.Column('response', postgresql.JSON(astext_type=sa.Text()), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('executed_at', sa.DateTime(timezone=True), nullable=True),
@@ -249,7 +147,7 @@ def upgrade() -> None:
         sa.Column('campaign_id', sa.Integer(), nullable=True),
         sa.Column('phone_number', sa.String(length=20), nullable=False),
         sa.Column('external_call_id', sa.String(length=255), nullable=True),
-        sa.Column('status', sa.Enum('initiated', 'ringing', 'answered', 'completed', 'failed', 'no_answer', 'busy', 'cancelled', name='callstatus', create_type=False), nullable=False),
+        sa.Column('status', callstatus_enum, nullable=False),
         sa.Column('duration', sa.Integer(), nullable=True),
         sa.Column('recording_url', sa.String(length=500), nullable=True),
         sa.Column('transcript', sa.Text(), nullable=True),
@@ -278,7 +176,7 @@ def upgrade() -> None:
     op.create_table('call_transcripts',
         sa.Column('id', sa.Integer(), nullable=False),
         sa.Column('voice_call_id', sa.Integer(), nullable=False),
-        sa.Column('speaker', sa.Enum('bot', 'customer', name='speakertype', create_type=False), nullable=False),
+        sa.Column('speaker', speakertype_enum, nullable=False),
         sa.Column('text', sa.Text(), nullable=False),
         sa.Column('timestamp', sa.Float(), nullable=False),
         sa.Column('confidence', sa.Float(), nullable=True),
@@ -294,7 +192,7 @@ def upgrade() -> None:
     op.add_column('leads', sa.Column('stage_entered_at', sa.DateTime(timezone=True), nullable=True))
     op.add_column('leads', sa.Column('campaign_history', postgresql.JSON(astext_type=sa.Text()), nullable=False, server_default='[]'))
     op.add_column('leads', sa.Column('assigned_to', sa.Integer(), nullable=True))
-    op.add_column('leads', sa.Column('treatment_type', sa.Enum('automated_telegram', 'automated_call', 'manual_follow_up', 'hold', name='treatmenttype', create_type=False), nullable=True))
+    op.add_column('leads', sa.Column('treatment_type', treatmenttype_enum, nullable=True))
     op.add_column('leads', sa.Column('next_action_at', sa.DateTime(timezone=True), nullable=True))
     op.add_column('leads', sa.Column('notes', sa.Text(), nullable=True))
     

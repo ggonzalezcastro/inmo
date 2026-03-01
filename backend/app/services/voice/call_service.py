@@ -8,7 +8,6 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from app.config import settings
 from app.models.lead import Lead
 from app.models.user import User
 from app.models.voice_call import VoiceCall, CallStatus
@@ -16,6 +15,30 @@ from app.services.voice.provider import get_voice_provider
 from app.services.voice.types import WebhookEvent, CallEventType
 
 logger = logging.getLogger(__name__)
+
+
+async def handle_tool_call(tool_name: str, tool_call_id: str, parameters: Dict[str, Any]) -> str:
+    """
+    Handle a single VAPI tool call. Returns a string result for the tool.
+    """
+    if not tool_name:
+        return "Acción registrada."
+
+    if tool_name == "schedule_appointment":
+        lead_id = parameters.get("lead_id")
+        logger.info(
+            "Tool call schedule_appointment lead_id=%s params=%s",
+            lead_id,
+            parameters,
+        )
+        return "Entendido, un asesor te contactará para confirmar el horario."
+
+    if tool_name == "update_lead_stage":
+        logger.info("Tool call update_lead_stage params=%s", parameters)
+        return "Información registrada correctamente."
+
+    logger.warning("Unknown tool call: %s params=%s", tool_name, parameters)
+    return "Acción registrada."
 
 
 def _webhook_event_to_legacy(event: WebhookEvent) -> tuple:
@@ -28,6 +51,10 @@ def _webhook_event_to_legacy(event: WebhookEvent) -> tuple:
         CallEventType.CALL_STARTED: "answered",
         CallEventType.TRANSCRIPT_UPDATE: "transcript",
         CallEventType.FUNCTION_CALL: "function-call",
+        CallEventType.END_OF_CALL_REPORT: "completed",
+        CallEventType.TOOL_CALLS: "tool-call",
+        CallEventType.ASSISTANT_REQUEST: "unknown",
+        CallEventType.HANG: "unknown",
     }
     event_type_str = _map.get(event.event_type, event.status or "unknown")
     if event.event_type == CallEventType.STATUS_UPDATE and event.status:
@@ -101,8 +128,13 @@ class VoiceCallService:
             raise ValueError(f"Lead {lead_id} has no phone number")
 
         broker_user_id = await _resolve_broker_user_id(db, broker_id, lead, campaign_id)
-        # Resolve synchronously for the same session
         company_broker_id = await _company_broker_id_for_user(db, broker_user_id)
+        # C4: Fail early with a clear message instead of passing broker_id=0 to provider.
+        if company_broker_id is None:
+            raise ValueError(
+                f"User {broker_user_id} has no broker (company) assigned. "
+                "Assign the user to a broker before initiating voice calls."
+            )
 
         voice_call = VoiceCall(
             lead_id=lead_id,
@@ -117,9 +149,6 @@ class VoiceCallService:
 
         try:
             provider = get_voice_provider()
-            webhook_base_url = getattr(settings, "WEBHOOK_BASE_URL", "http://localhost:8000")
-            webhook_url = f"{webhook_base_url}/api/v1/calls/webhooks/voice"
-
             context = {
                 "db": db,
                 "voice_call_id": voice_call.id,
@@ -130,7 +159,7 @@ class VoiceCallService:
             }
             external_call_id = await provider.make_call(
                 phone=lead.phone,
-                webhook_url=webhook_url,
+                webhook_url="",  # URL now built internally by VapiProvider
                 context=context,
             )
 
@@ -222,6 +251,13 @@ class VoiceCallService:
         Handle a normalized webhook event from any voice provider.
         Dispatches to transcript update, function-call, or status update.
         """
+        logger.info(
+            "Webhook received event=%s call_id=%s broker_id=%s assistant_type=%s",
+            event.event_type,
+            event.external_call_id,
+            event.broker_id,
+            event.assistant_type,
+        )
         event_type_str, metadata = _webhook_event_to_legacy(event)
         if event_type_str == "transcript":
             await VoiceCallService.handle_transcript_update(
@@ -230,7 +266,7 @@ class VoiceCallService:
                 metadata.get("message_data", {}),
             )
             return None
-        if event_type_str == "function-call":
+        if event_type_str in ("function-call", "tool-call"):
             return None
         return await VoiceCallService.handle_call_webhook(
             db,

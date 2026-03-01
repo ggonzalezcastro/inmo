@@ -49,7 +49,7 @@ export default function NavBar() {
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-4">
             <h1 className="text-2xl font-bold text-gray-900">
-              {navItems.find(item => isActive(item.path))?.label || 'Inmo'}
+              {navItems.find(item => isActive(item.path))?.label || 'Captame.cl'}
             </h1>
             <nav className="flex gap-2">
               {navItems.map((item) => (

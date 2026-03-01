@@ -1,1 +1,0 @@
-export { default as CampaignsPage } from '../../pages/Campaigns'

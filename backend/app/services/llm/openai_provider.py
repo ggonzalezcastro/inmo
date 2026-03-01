@@ -150,7 +150,9 @@ class OpenAIProvider(BaseLLMProvider):
             
             function_calls_executed = []
             max_iterations = 5
-            
+            total_input_tokens = 0
+            total_output_tokens = 0
+
             for iteration in range(max_iterations):
                 logger.info(f"[OpenAI] Tool calling iteration {iteration + 1}/{max_iterations}")
                 
@@ -165,6 +167,9 @@ class OpenAIProvider(BaseLLMProvider):
                 )
                 elapsed = time.time() - start_time
                 logger.info(f"[OpenAI] API call time: {elapsed:.2f}s")
+                if getattr(response, "usage", None):
+                    total_input_tokens += response.usage.prompt_tokens or 0
+                    total_output_tokens += response.usage.completion_tokens or 0
                 
                 choice = response.choices[0]
                 message = choice.message
@@ -172,7 +177,8 @@ class OpenAIProvider(BaseLLMProvider):
                 # Check for tool calls
                 if not message.tool_calls:
                     # No tool calls, return text
-                    return self._clean_response(message.content or ""), function_calls_executed
+                    usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
+                    return self._clean_response(message.content or ""), function_calls_executed, usage
                 
                 # Add assistant message with tool calls
                 native_messages.append({
@@ -217,17 +223,19 @@ class OpenAIProvider(BaseLLMProvider):
                             })
                 else:
                     # No executor, return info
+                    usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
                     return message.content or self.FALLBACK_RESPONSE, [
                         {"name": tc.function.name, "args": json.loads(tc.function.arguments)}
                         for tc in message.tool_calls
-                    ]
+                    ], usage
             
             logger.warning("[OpenAI] Max iterations reached")
-            return self.FALLBACK_RESPONSE, function_calls_executed
+            usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
+            return self.FALLBACK_RESPONSE, function_calls_executed, usage
             
         except Exception as e:
             logger.error(f"[OpenAI] Error in generate_with_tools: {e}", exc_info=True)
-            return self._handle_error(e), []
+            return self._handle_error(e), [], None
     
     async def generate_json(
         self,

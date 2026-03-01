@@ -67,8 +67,9 @@ class PipelineService:
         db: AsyncSession,
         stage: str,
         inactivity_days: int = 7,
+        broker_id: Optional[int] = None,
     ) -> List[Lead]:
-        return await _get_leads_inactive_in_stage(db, stage, inactivity_days)
+        return await _get_leads_inactive_in_stage(db, stage, inactivity_days, broker_id)
 
     @staticmethod
     async def calcular_calificacion(

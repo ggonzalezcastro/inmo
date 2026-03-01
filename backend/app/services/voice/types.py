@@ -1,7 +1,7 @@
 """Normalized types for voice provider abstraction."""
 from enum import Enum
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, List, Any
 
 
 class VoiceProviderType(str, Enum):
@@ -21,6 +21,10 @@ class CallEventType(str, Enum):
     TRANSCRIPT_UPDATE = "transcript_update"
     STATUS_UPDATE = "status_update"
     FUNCTION_CALL = "function_call"
+    TOOL_CALLS = "tool_calls"
+    END_OF_CALL_REPORT = "end_of_call_report"
+    ASSISTANT_REQUEST = "assistant_request"
+    HANG = "hang"
 
 
 @dataclass
@@ -34,6 +38,12 @@ class WebhookEvent:
     duration_seconds: Optional[int] = None
     error_message: Optional[str] = None
     raw_data: dict = field(default_factory=dict)
+    ended_reason: Optional[str] = None
+    artifact_messages: Optional[List[Any]] = None
+    tool_calls_data: Optional[List[Any]] = None
+    call_id_from_metadata: Optional[str] = None
+    broker_id: Optional[int] = None
+    assistant_type: Optional[str] = None
 
 
 @dataclass

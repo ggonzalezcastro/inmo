@@ -546,3 +546,26 @@ async def activate_prompt_version(
     }
 
 
+@router.post("/voice/assistant", response_model=dict)
+async def create_voice_assistant(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create or update the Vapi assistant for this broker from its stored configuration."""
+    try:
+        broker_id = current_user.get("broker_id")
+        if not broker_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Current user has no broker assigned. Assign the user to a broker first.",
+            )
+        from app.services.voice.providers.vapi import VapiAssistantService
+        result = await VapiAssistantService.create_assistant_for_broker(db, broker_id)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error creating voice assistant broker_id=%s: %s", current_user.get("broker_id"), str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+

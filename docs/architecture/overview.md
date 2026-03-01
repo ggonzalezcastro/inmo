@@ -27,21 +27,47 @@ El backend es una aplicación FastAPI completamente asíncrona:
 | Middleware | `app/middleware/` | Auth JWT, rate limiting, permisos |
 | Core | `app/core/` | Configuración, base de datos, cache |
 
-### Frontend (React + Vite)
+### Frontend (React 18 + TypeScript + Vite)
 
-SPA con Zustand para estado global:
+SPA con TypeScript strict mode, Shadcn/ui y Zustand para estado global.
 
-| Módulo | Ruta | Descripción |
-|--------|------|-------------|
-| Dashboard | `/dashboard` | Vista general de métricas |
-| Leads | `/leads` | Gestión de leads |
-| Pipeline | `/pipeline` | Vista kanban del pipeline |
-| Campaigns | `/campaigns` | Gestión de campañas |
-| Templates | `/templates` | Templates de mensajes |
-| Chat | `/chat` | Interfaz de chat |
-| Settings | `/settings` | Configuración del broker |
-| Users | `/users` | Gestión de usuarios |
-| Brokers | `/brokers` | Gestión de brokers (superadmin) |
+**Stack**: React 18 · TypeScript · Vite · Tailwind CSS · Shadcn/ui (Radix UI) · Zustand · React Router v6 · @tanstack/react-table · sonner · lucide-react
+
+**Arquitectura de directorios**:
+```
+src/
+├── app/          # Router, App root (entry point)
+├── features/     # Vertical slices por dominio
+│   ├── auth/     # Login, Register, authStore, guards
+│   ├── dashboard/
+│   ├── leads/
+│   ├── pipeline/
+│   ├── campaigns/
+│   ├── appointments/
+│   ├── templates/
+│   ├── settings/
+│   ├── users/
+│   ├── brokers/
+│   ├── chat/     # Wrapper de ChatTest.jsx (sin modificar)
+│   └── llm-costs/
+└── shared/       # UI components, hooks, guards, lib
+```
+
+**Módulos y rutas**:
+
+| Módulo | Ruta | Roles | Descripción |
+|--------|------|-------|-------------|
+| Dashboard | `/dashboard` | todos | KPIs, pipeline summary, leads calientes |
+| Leads | `/leads` | todos | Tabla filtrable, detalle lateral, importación CSV |
+| Pipeline | `/pipeline` | todos | Kanban de 8 etapas, actualizaciones optimistas |
+| Campañas | `/campaigns` | admin, superadmin | CRUD de campañas y pasos |
+| Citas | `/appointments` | todos | Agenda, confirmar/cancelar |
+| Templates | `/templates` | admin, superadmin | Editor de plantillas con variables |
+| Chat IA | `/chat` | todos | ChatTest.jsx (inalterado) |
+| Costos LLM | `/costs` | admin, superadmin | Dashboard de costos por proveedor/broker |
+| Configuración | `/settings` | admin, superadmin | Prompt IA, scoring, preview |
+| Usuarios | `/users` | admin, superadmin | CRUD de usuarios del broker |
+| Brokers | `/brokers` | superadmin | Gestión global de brokers |
 
 ### Infraestructura
 

@@ -112,7 +112,7 @@ export function CostByBrokerChart() {
                 <Bar
                   dataKey="cost_usd"
                   name="Costo USD"
-                  onClick={(data: { broker_id: number }) => setBrokerId(data.broker_id)}
+                  onClick={(data: unknown) => setBrokerId((data as { broker_id: number }).broker_id)}
                   cursor="pointer"
                 >
                   {chartData.map((_, i) => (

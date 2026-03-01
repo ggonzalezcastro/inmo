@@ -1,4 +1,5 @@
 from typing import AsyncGenerator
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     create_async_engine,
     AsyncSession,
@@ -52,8 +53,9 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 # Initialize database
 async def init_db():
-    """Create all tables"""
+    """Create all tables. Ensures pgvector extension exists for knowledge_base."""
     async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
 
 

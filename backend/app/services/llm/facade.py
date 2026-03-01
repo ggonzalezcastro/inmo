@@ -358,10 +358,28 @@ Retorna JSON con:
                     tool_executor=tool_executor,
                     cached_content=cached_content,
                 )
+            # result is (text, tool_calls) or (text, tool_calls, usage)
+            usage = result[2] if len(result) >= 3 else None
+            input_tokens = None
+            output_tokens = None
+            if usage:
+                input_tokens = usage.get("input_tokens") or usage.get("prompt_tokens")
+                output_tokens = usage.get("output_tokens") or usage.get("completion_tokens")
+            _fire_log(
+                provider_name=pname,
+                model=model,
+                call_type="chat_response",
+                used_fallback=used_fallback,
+                latency_ms=int((time.monotonic() - _t0) * 1000),
+                broker_id=broker_id,
+                lead_id=lead_id,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                error=None,
+            )
+            return result[0], result[1]
         except Exception as _exc:
             _err = str(_exc)[:500]
-            raise
-        finally:
             _fire_log(
                 provider_name=pname,
                 model=model,
@@ -372,7 +390,7 @@ Retorna JSON con:
                 lead_id=lead_id,
                 error=_err,
             )
-        return result
+            raise
 
     @staticmethod
     async def build_llm_prompt(

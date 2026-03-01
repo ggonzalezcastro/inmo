@@ -191,7 +191,14 @@ class GeminiProvider(BaseLLMProvider):
                     config=config,
                 )
                 text = response.text.strip() if response.text else ""
-                return self._clean_response(text), []
+                usage = None
+                if getattr(response, "usage_metadata", None):
+                    um = response.usage_metadata
+                    inp = getattr(um, "prompt_token_count", 0) or 0
+                    out = getattr(um, "candidates_token_count", 0) or 0
+                    if inp or out:
+                        usage = {"input_tokens": inp, "output_tokens": out}
+                return self._clean_response(text), [], usage
 
             native_tools = self._convert_tools_to_native(tools)
             config = types.GenerateContentConfig(
@@ -204,7 +211,9 @@ class GeminiProvider(BaseLLMProvider):
             
             function_calls_executed = []
             max_iterations = 5
-            
+            total_input_tokens = 0
+            total_output_tokens = 0
+
             for iteration in range(max_iterations):
                 logger.info(f"[Gemini] Tool calling iteration {iteration + 1}/{max_iterations}")
                 
@@ -216,6 +225,11 @@ class GeminiProvider(BaseLLMProvider):
                 )
                 elapsed = time.time() - start_time
                 logger.info(f"[Gemini] API call time: {elapsed:.2f}s")
+                # Accumulate usage for cost logging
+                if getattr(response, "usage_metadata", None):
+                    um = response.usage_metadata
+                    total_input_tokens += getattr(um, "prompt_token_count", 0) or 0
+                    total_output_tokens += getattr(um, "candidates_token_count", 0) or 0
                 
                 # Check for function calls
                 function_calls = self._extract_function_calls(response)
@@ -223,7 +237,8 @@ class GeminiProvider(BaseLLMProvider):
                 if not function_calls:
                     # No function calls, return text response
                     text = response.text.strip() if response.text else ""
-                    return self._clean_response(text), function_calls_executed
+                    usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
+                    return self._clean_response(text), function_calls_executed, usage
                 
                 # Execute function calls
                 if tool_executor:
@@ -267,17 +282,19 @@ class GeminiProvider(BaseLLMProvider):
                 else:
                     # No executor, return what we have
                     text = response.text.strip() if response.text else ""
+                    usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
                     return self._clean_response(text), [
                         {"name": fc["name"], "args": fc["args"]} for fc in function_calls
-                    ]
+                    ], usage
             
             # Max iterations reached
             logger.warning("[Gemini] Max iterations reached in tool calling")
-            return self.FALLBACK_RESPONSE, function_calls_executed
+            usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
+            return self.FALLBACK_RESPONSE, function_calls_executed, usage
             
         except Exception as e:
             logger.error(f"[Gemini] Error in generate_with_tools: {e}", exc_info=True)
-            return self._handle_error(e), []
+            return self._handle_error(e), [], None
     
     async def generate_json(
         self,

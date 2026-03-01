@@ -1,0 +1,180 @@
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import { Building2, Loader2, Sparkles, Shield, BarChart3 } from 'lucide-react'
+import { Button } from '@/shared/components/ui/button'
+import { Input } from '@/shared/components/ui/input'
+import { Label } from '@/shared/components/ui/label'
+import { useRegister } from '../hooks/useRegister'
+
+const features = [
+  {
+    icon: Sparkles,
+    value: 'Agente IA incluido',
+    label: 'Sofía califica y responde por ti desde el día 1',
+  },
+  {
+    icon: BarChart3,
+    value: 'Pipeline visual',
+    label: 'Kanban completo con etapas del proceso chileno',
+  },
+  {
+    icon: Shield,
+    value: 'Multi-canal',
+    label: 'Telegram, WhatsApp y llamadas de voz integradas',
+  },
+]
+
+export function RegisterPage() {
+  const { register, isLoading } = useRegister()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [brokerName, setBrokerName] = useState('')
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    register({ email, password, broker_name: brokerName })
+  }
+
+  return (
+    <div className="min-h-screen flex">
+      {/* ── Left panel ─────────────────────────────────────────────────────────── */}
+      <div className="hidden lg:flex lg:w-5/12 bg-[#0A1628] flex-col justify-between p-12 relative overflow-hidden">
+        {/* Decorative blobs */}
+        <div className="absolute top-0 right-0 w-72 h-72 rounded-full bg-[#1A56DB]/10 blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-96 h-96 rounded-full bg-[#1A56DB]/5 blur-3xl pointer-events-none" />
+
+        {/* Dot-grid pattern */}
+        <svg
+          className="absolute inset-0 w-full h-full opacity-[0.035] pointer-events-none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            <pattern id="dots" width="40" height="40" patternUnits="userSpaceOnUse">
+              <circle cx="1" cy="1" r="1" fill="white" />
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#dots)" />
+        </svg>
+
+        {/* Logo */}
+        <div className="relative z-10 flex items-center gap-3">
+          <div className="w-9 h-9 bg-[#1A56DB] rounded-lg flex items-center justify-center">
+            <Building2 className="h-5 w-5 text-white" />
+          </div>
+          <span className="text-lg font-semibold text-white tracking-tight">Captame.cl</span>
+        </div>
+
+        {/* Headline + features */}
+        <div className="relative z-10">
+          <h2 className="text-[2.25rem] font-bold text-white leading-[1.2] mb-3">
+            Tu CRM inmobiliario<br />
+            <span className="text-[#93B4F5]">listo en minutos.</span>
+          </h2>
+          <p className="text-[#8B9FBE] text-[15px] leading-relaxed mb-10 max-w-xs">
+            Registra tu inmobiliaria y empieza a captar más leads hoy mismo. Sin tarjeta de crédito.
+          </p>
+
+          <div className="space-y-5">
+            {features.map(({ icon: Icon, value, label }) => (
+              <div key={value} className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-lg bg-[#1A56DB]/20 border border-[#1A56DB]/30 flex items-center justify-center shrink-0">
+                  <Icon className="h-5 w-5 text-[#93B4F5]" />
+                </div>
+                <div>
+                  <p className="text-white font-semibold text-[15px] leading-tight">{value}</p>
+                  <p className="text-[#8B9FBE] text-sm">{label}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <p className="relative z-10 text-[#4B6080] text-xs">
+          © 2025 Captame.cl · Todos los derechos reservados
+        </p>
+      </div>
+
+      {/* ── Right panel — Form ─────────────────────────────────────────────────── */}
+      <div className="flex-1 flex items-center justify-center p-8 bg-white">
+        <div className="w-full max-w-sm">
+          {/* Mobile logo */}
+          <div className="flex items-center gap-3 mb-8 lg:hidden">
+            <div className="w-9 h-9 bg-primary rounded-lg flex items-center justify-center">
+              <Building2 className="h-5 w-5 text-white" />
+            </div>
+            <span className="text-lg font-semibold">Captame.cl</span>
+          </div>
+
+          <div className="mb-8">
+            <h1 className="text-[1.625rem] font-bold text-[#111827] mb-1 tracking-tight">
+              Crear cuenta
+            </h1>
+            <p className="text-[#6B7280] text-sm">Registra tu inmobiliaria en el sistema</p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="space-y-1.5">
+              <Label htmlFor="broker_name" className="text-sm font-medium text-[#374151]">
+                Nombre de la inmobiliaria
+              </Label>
+              <Input
+                id="broker_name"
+                placeholder="Ej: Inmobiliaria Santiago Sur"
+                value={brokerName}
+                onChange={(e) => setBrokerName(e.target.value)}
+                required
+                className="h-11"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="email" className="text-sm font-medium text-[#374151]">
+                Email de administrador
+              </Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="admin@empresa.cl"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+                className="h-11"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="password" className="text-sm font-medium text-[#374151]">
+                Contraseña
+              </Label>
+              <Input
+                id="password"
+                type="password"
+                placeholder="Mínimo 8 caracteres"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={8}
+                autoComplete="new-password"
+                className="h-11"
+              />
+            </div>
+
+            <Button type="submit" className="w-full h-11 text-sm font-semibold" disabled={isLoading}>
+              {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Crear cuenta
+            </Button>
+          </form>
+
+          <p className="mt-6 text-center text-sm text-muted-foreground">
+            ¿Ya tienes cuenta?{' '}
+            <Link to="/login" className="text-primary hover:underline font-medium">
+              Iniciar sesión
+            </Link>
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}

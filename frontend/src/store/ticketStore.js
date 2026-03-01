@@ -13,47 +13,12 @@ export const useTicketStore = create((set, get) => ({
   fetchTicket: async (leadId) => {
     set({ loading: true, error: null });
     try {
-      // Fetch lead data and messages in parallel
-      const [ticketResponse, messagesResponse] = await Promise.all([
-        ticketAPI.getTicket(leadId),
-        ticketAPI.getMessages(leadId, 0, 100)
-      ]);
-      
-      const ticket = ticketResponse.data;
-      const messagesData = messagesResponse.data;
-      
-      // Map messages from the new endpoint format
-      let messages = [];
-      if (messagesData.messages && Array.isArray(messagesData.messages)) {
-        messages = messagesData.messages.map(msg => ({
-          id: msg.id,
-          message_text: msg.message_text || msg.text,
-          sender_type: msg.sender_type || (msg.direction === 'in' ? 'customer' : (msg.ai_response_used ? 'bot' : 'agent')),
-          created_at: msg.created_at || msg.timestamp,
-          timestamp: msg.timestamp || msg.created_at,
-          direction: msg.direction,
-          ai_response_used: msg.ai_response_used || false,
-        }));
-      }
-      
-      // Sort messages by timestamp (oldest first)
-      messages.sort((a, b) => {
-        const timeA = new Date(a.created_at || a.timestamp || 0);
-        const timeB = new Date(b.created_at || b.timestamp || 0);
-        return timeA - timeB;
-      });
-      
-      console.log('📥 Ticket data loaded:', {
-        leadId,
-        ticket: ticket?.id,
-        messagesCount: messages.length,
-        total: messagesData.total,
-        messages: messages.slice(0, 3), // Log first 3 messages
-      });
+      const response = await ticketAPI.getTicket(leadId);
+      const ticket = response.data;
       
       set({
         currentTicket: ticket,
-        messages: messages,
+        messages: ticket.messages || [],
         notes: ticket.notes || [],
         tasks: ticket.tasks || [],
         loading: false,
@@ -61,7 +26,6 @@ export const useTicketStore = create((set, get) => ({
       
       return ticket;
     } catch (error) {
-      console.error('❌ Error fetching ticket:', error);
       set({ 
         error: error.response?.data?.detail || error.message,
         loading: false 
@@ -79,28 +43,15 @@ export const useTicketStore = create((set, get) => ({
       });
       
       const newMessage = response.data;
-      
-      // Add message to state immediately for better UX
       set((state) => ({
-        messages: [...state.messages, {
-          id: newMessage.id || Date.now(),
-          message_text: newMessage.message_text || text,
-          sender_type: 'agent',
-          created_at: newMessage.created_at || new Date().toISOString(),
-          timestamp: newMessage.timestamp || new Date().toISOString(),
-          direction: 'out',
-          ai_response_used: false,
-        }],
+        messages: [...state.messages, newMessage],
       }));
       
-      // Refresh messages to get the latest from server
-      setTimeout(async () => {
-        await get().fetchTicket(leadId);
-      }, 500);
+      // Refresh ticket to get updated data
+      await get().fetchTicket(leadId);
       
       return newMessage;
     } catch (error) {
-      console.error('❌ Error sending message:', error);
       set({ 
         error: error.response?.data?.detail || error.message 
       });

@@ -139,7 +139,7 @@ class BaseLLMProvider(ABC):
         tools: List[LLMToolDefinition],
         system_prompt: Optional[str] = None,
         tool_executor: Optional[Callable] = None
-    ) -> Tuple[str, List[Dict[str, Any]]]:
+    ) -> Tuple[str, List[Dict[str, Any]], Optional[Dict[str, int]]]:
         """
         Generate response with function/tool calling support.
         
@@ -150,7 +150,8 @@ class BaseLLMProvider(ABC):
             tool_executor: Async function to execute tools: (name, args) -> result
             
         Returns:
-            Tuple of (final_response_text, list_of_executed_tool_calls)
+            Tuple of (final_response_text, list_of_executed_tool_calls, optional_usage).
+            usage may be {"input_tokens": int, "output_tokens": int} for cost logging.
         """
         pass
     

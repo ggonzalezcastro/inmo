@@ -22,6 +22,7 @@ from app.features.auth.routes import router as auth_router
 from app.features.leads.routes import router as leads_router
 from app.features.webhooks.routes import router as webhooks_router
 from app.features.telegram.routes import router as telegram_router
+from app.features.whatsapp.routes import router as whatsapp_router
 from app.features.chat.routes import router as chat_router
 from app.features.appointments.routes import router as appointments_router
 from app.features.campaigns.routes import router as campaigns_router
@@ -345,6 +346,7 @@ async def health_check():
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(leads_router, prefix="/api/v1/leads", tags=["leads"])
 app.include_router(webhooks_router, prefix="/webhooks", tags=["webhooks"])
+app.include_router(whatsapp_router, prefix="/webhooks/whatsapp", tags=["whatsapp"])
 app.include_router(telegram_router, prefix="/api/v1/telegram", tags=["telegram"])
 app.include_router(chat_router, prefix="/api/v1/chat", tags=["chat"])
 app.include_router(appointments_router, prefix="/api/v1/appointments", tags=["appointments"])

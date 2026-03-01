@@ -40,8 +40,8 @@ async def get_leads_by_stage(
     count_query = select(func.count(Lead.id)).where(stage_condition)
 
     if broker_id:
-        query = query.where(Lead.assigned_to == broker_id)
-        count_query = count_query.where(Lead.assigned_to == broker_id)
+        query = query.where(Lead.broker_id == broker_id)
+        count_query = count_query.where(Lead.broker_id == broker_id)
 
     if treatment_type:
         query = query.where(Lead.treatment_type == treatment_type)
@@ -87,7 +87,7 @@ async def get_stage_metrics(
             query = select(func.count(Lead.id)).where(Lead.pipeline_stage == stage)
 
         if broker_id:
-            query = query.where(Lead.assigned_to == broker_id)
+            query = query.where(Lead.broker_id == broker_id)
 
         result = await db.execute(query)
         count = result.scalar() or 0
@@ -112,7 +112,7 @@ async def get_stage_metrics(
             )
         )
         if broker_id:
-            query = query.where(Lead.assigned_to == broker_id)
+            query = query.where(Lead.broker_id == broker_id)
 
         result = await db.execute(query)
         timestamps = [row[0] for row in result.all() if row[0]]
@@ -125,7 +125,7 @@ async def get_stage_metrics(
                 )
             )
             if broker_id:
-                fallback_query = fallback_query.where(Lead.assigned_to == broker_id)
+                fallback_query = fallback_query.where(Lead.broker_id == broker_id)
             fallback_result = await db.execute(fallback_query)
             fallback_timestamps = [row[0] for row in fallback_result.all() if row[0]]
             timestamps.extend(fallback_timestamps)
@@ -149,6 +149,7 @@ async def get_leads_inactive_in_stage(
     db: AsyncSession,
     stage: str,
     inactivity_days: int = 7,
+    broker_id: Optional[int] = None,
 ) -> List[Lead]:
     """Get leads that have been in a stage for too long without activity."""
     if stage not in PIPELINE_STAGES:
@@ -162,5 +163,7 @@ async def get_leads_inactive_in_stage(
             Lead.stage_entered_at <= cutoff_date,
         )
     )
+    if broker_id:
+        query = query.where(Lead.broker_id == broker_id)
     result = await db.execute(query)
     return result.scalars().all()

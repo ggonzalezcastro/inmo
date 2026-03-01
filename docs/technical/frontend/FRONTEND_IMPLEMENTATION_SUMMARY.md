@@ -1,266 +1,174 @@
-# 🎨 Frontend Implementation Summary
+# Frontend Implementation Summary
 
-## ✅ Completed Tasks
+**Versión**: 2.0 (Reescritura completa)
+**Fecha**: 2026-02-27
+**Stack**: React 18 · TypeScript (strict) · Vite · Shadcn/ui · Tailwind CSS · Zustand · React Router v6
 
-### PHASE 1: UI Components & Data Flow
+---
 
-#### F1.1: Pipeline View (Kanban Board) ✅
-- **Files Created:**
-  - `frontend/src/components/PipelineBoard.jsx` - Main Kanban board component
-  - `frontend/src/components/LeadCard.jsx` - Reusable lead card with drag-and-drop
-  - `frontend/src/pages/Pipeline.jsx` - Pipeline page with routing
-  - `frontend/src/store/pipelineStore.js` - Zustand store for pipeline state
+## Arquitectura
 
-- **Features:**
-  - ✅ 8 columns (stages): Entrada, Perfilamiento, Calificación, Agendado, Seguimiento, Referidos, Ganado, Perdido
-  - ✅ Drag-and-drop between columns using @dnd-kit
-  - ✅ Filters: assigned user, campaign, date range, search
-  - ✅ Lead cards show: name, phone, score, status, last message
-  - ✅ Optimistic UI updates
-  - ✅ Click lead to open ticket detail
-
-#### F1.2: Ticket Detail View ✅
-- **Files Created:**
-  - `frontend/src/components/TicketDetail.jsx` - Complete ticket detail view
-  - `frontend/src/store/ticketStore.js` - Zustand store for ticket state
-
-- **Features:**
-  - ✅ Left panel: WhatsApp-like conversation thread
-  - ✅ Message bubbles colored by sender (bot=green, customer=gray, agent=blue)
-  - ✅ Right sidebar with:
-    - Ticket information (stage, status, score)
-    - Custom fields display
-    - Tags management
-    - Resolution options
-    - Quick actions (call, template, campaign)
-  - ✅ Tabs: Responder, Notas Internas, Tareas
-  - ✅ Send messages, add notes, add tasks
-
-#### F1.3: Campaign List View ✅
-- **Files Created:**
-  - `frontend/src/components/CampaignsList.jsx` - Campaign management table
-  - `frontend/src/pages/Campaigns.jsx` - Campaigns page
-
-- **Features:**
-  - ✅ Table with all campaigns
-  - ✅ Filters: status, channel, trigger type, search
-  - ✅ Actions: edit, delete, duplicate, view stats
-  - ✅ Status and channel badges
-  - ✅ Click row to edit
-
-#### F1.4: Campaign Builder ✅
-- **Files Created:**
-  - `frontend/src/components/CampaignBuilder.jsx` - Campaign creation/editing form
-
-- **Features:**
-  - ✅ Basic info: name, description, channel
-  - ✅ Trigger settings: manual, score range, stage change, inactivity
-  - ✅ Campaign steps: sequential actions with delays
-  - ✅ Step actions: send message, make call, schedule meeting
-  - ✅ Template selection for messages
-  - ✅ Reorder steps (up/down buttons)
-  - ✅ Delete steps
-  - ✅ Advanced options: max contacts, activate on save
-
-#### F1.5: Template Management ✅
-- **Files Created:**
-  - `frontend/src/components/TemplateManager.jsx` - Template CRUD interface
-  - `frontend/src/pages/Templates.jsx` - Templates page
-  - `frontend/src/store/templateStore.js` - Zustand store for templates
-
-- **Features:**
-  - ✅ List view with filters (channel, agent type, search)
-  - ✅ Create/edit templates in modal
-  - ✅ Variable hints ({{name}}, {{budget}}, etc.)
-  - ✅ Preview rendered template
-  - ✅ Show variables used in each template
-  - ✅ Channel and agent type badges
-
-### PHASE 2: Stores & API Integration
-
-#### F2.1: Zustand Stores ✅
-- **Files Created:**
-  - `frontend/src/store/pipelineStore.js` ✅
-  - `frontend/src/store/campaignStore.js` ✅
-  - `frontend/src/store/ticketStore.js` ✅
-  - `frontend/src/store/templateStore.js` ✅
-
-- **All stores include:**
-  - ✅ State management
-  - ✅ Loading and error states
-  - ✅ CRUD operations
-  - ✅ Optimistic updates where applicable
-
-#### F2.2: API Client ✅
-- **File Modified:**
-  - `frontend/src/services/api.js`
-
-- **Endpoints Added:**
-  - ✅ `pipelineAPI` - Pipeline operations
-  - ✅ `campaignAPI` - Campaign CRUD and stats
-  - ✅ `ticketAPI` - Ticket operations and messages
-  - ✅ `templateAPI` - Template CRUD and rendering
-
-### PHASE 3: Advanced UI Features
-
-#### F3.1: Real-time Updates ✅
-- **Files Created:**
-  - `frontend/src/hooks/useRealtime.js` - Custom hook for polling
-
-- **Features:**
-  - ✅ Polling-based real-time updates
-  - ✅ `useTicketRealtime` hook for ticket updates
-  - ✅ `usePipelineRealtime` hook for pipeline updates
-  - ✅ Integrated in TicketDetail and PipelineBoard
-
-#### F3.2: Message Templates & Auto-Complete ✅
-- **Features:**
-  - ✅ Quick template buttons in TicketDetail
-  - ✅ Variable auto-complete when typing `{{`
-  - ✅ Variable hints dropdown
-  - ✅ Template preview before sending
-
-#### F3.3: Call UI ✅
-- **Files Created:**
-  - `frontend/src/components/CallWidget.jsx` - Call management modal
-
-- **Features:**
-  - ✅ Call duration display
-  - ✅ Real-time transcript (simulated)
-  - ✅ AI summary after call
-  - ✅ Extracted data display
-  - ✅ Score change indicator
-  - ✅ Auto-advance stage option
-
-#### F3.4: Campaign Analytics ✅
-- **Files Created:**
-  - `frontend/src/components/CampaignAnalytics.jsx` - Analytics dashboard
-
-- **Features:**
-  - ✅ Metrics cards: leads contacted, success rate, avg time, cost per lead
-  - ✅ Line chart: leads by day (using Recharts)
-  - ✅ Bar chart: conversion by step
-  - ✅ Funnel chart: conversion funnel
-  - ✅ Breakdown by step with progress bars
-  - ✅ Time range selector
-
-### PHASE 4: Responsive & Polish
-
-#### F4.1: Mobile Responsiveness ✅
-- **Implemented:**
-  - ✅ Tailwind responsive classes (`md:`, `lg:`) throughout
-  - ✅ Pipeline board: horizontal scroll on mobile
-  - ✅ Ticket detail: stacked layout on mobile (messages full-width, sidebar below)
-  - ✅ Forms: single-column on mobile
-  - ✅ Navigation: collapsible on mobile
-
-#### F4.2: Accessibility ✅
-- **Implemented:**
-  - ✅ Proper HTML semantics (buttons, labels, headings)
-  - ✅ ARIA labels on interactive elements
-  - ✅ Keyboard navigation support
-  - ✅ Focus indicators visible
-  - ✅ Color contrast meets WCAG AA (using Tailwind default colors)
-
-#### F4.3: Performance ✅
-- **Implemented:**
-  - ✅ React.memo for LeadCard (prevents unnecessary re-renders)
-  - ✅ useMemo for expensive calculations (where needed)
-  - ✅ Lazy loading for CampaignAnalytics (only loads when opened)
-  - ✅ Optimistic UI updates for better perceived performance
-
-### PHASE 5: Integration & Testing
-
-#### F5.1: Error Handling ✅
-- **Implemented:**
-  - ✅ Error states in all components
-  - ✅ Loading states during API calls
-  - ✅ Empty states (no leads, no campaigns, etc.)
-  - ✅ Toast notifications ready (can be added with react-toastify)
-  - ✅ Network timeout handling in API client
-
-## 📦 Dependencies Installed
-
-```json
-{
-  "@dnd-kit/core": "^6.1.0",
-  "@dnd-kit/sortable": "^8.0.0",
-  "@dnd-kit/utilities": "^3.2.2",
-  "recharts": "^2.10.3"
-}
-```
-
-## 🗂️ File Structure
+El frontend sigue una arquitectura **feature-based (vertical slices)**. Cada módulo de negocio es autocontenido con sus propios componentes, servicios, store y tipos.
 
 ```
 frontend/src/
-├── components/
-│   ├── CampaignAnalytics.jsx ✅
-│   ├── CampaignBuilder.jsx ✅
-│   ├── CampaignsList.jsx ✅
-│   ├── CallWidget.jsx ✅
-│   ├── Dashboard.jsx (updated) ✅
-│   ├── LeadCard.jsx ✅
-│   ├── PipelineBoard.jsx ✅
-│   ├── TicketDetail.jsx ✅
-│   └── TemplateManager.jsx ✅
-├── pages/
-│   ├── Campaigns.jsx ✅
-│   ├── Pipeline.jsx ✅
-│   └── Templates.jsx ✅
+├── app/
+│   ├── App.tsx              # RouterProvider + Toaster (sonner)
+│   └── router.tsx           # createBrowserRouter, lazy loading, guards
+├── features/
+│   ├── auth/
+│   │   ├── components/      # LoginPage, RegisterPage
+│   │   ├── hooks/           # useLogin, useRegister
+│   │   ├── services/        # auth.service.ts
+│   │   ├── store/           # authStore.ts (Zustand + localStorage compat)
+│   │   └── index.ts
+│   ├── dashboard/           # KPICard, PipelineSummary, HotLeadsList, DashboardPage
+│   ├── leads/               # LeadsPage, LeadsTable, LeadDetail, LeadFormDialog, ImportCSVDialog
+│   ├── pipeline/            # PipelinePage, KanbanColumn, KanbanCard
+│   ├── campaigns/           # CampaignsPage
+│   ├── appointments/        # AppointmentsPage
+│   ├── templates/           # TemplatesPage, TemplateEditorDialog
+│   ├── settings/            # SettingsPage (3 tabs: IA, Scoring, Preview)
+│   ├── users/               # UsersPage
+│   ├── brokers/             # BrokersPage
+│   ├── chat/                # ChatPage (wrapper de ChatTest.jsx sin modificar)
+│   └── llm-costs/           # CostsDashboardPage (feature pre-existente)
+├── shared/
+│   ├── components/
+│   │   ├── ui/              # Shadcn/ui: Button, Dialog, Select, Tabs, Badge, etc.
+│   │   ├── common/          # StatusBadge, ScoreBadge, DataTable, PageHeader, etc.
+│   │   └── layout/          # AppShell, Sidebar (colapsable)
+│   ├── guards/              # AuthGuard, RoleGuard
+│   ├── hooks/               # usePermissions, useDebounce, usePagination
+│   ├── lib/
+│   │   ├── utils.ts         # cn(), formatCurrency, formatDate, getInitials, etc.
+│   │   ├── constants.ts     # PIPELINE_STAGES, LEAD_STATUS_CONFIG, etc.
+│   │   └── api-client.ts    # Axios con JWT interceptor (setTokenGetter pattern)
+│   └── types/               # api.ts, auth.ts, common.ts
 ├── store/
-│   ├── campaignStore.js ✅
-│   ├── pipelineStore.js ✅
-│   ├── templateStore.js ✅
-│   └── ticketStore.js ✅
-├── hooks/
-│   └── useRealtime.js ✅
-├── services/
-│   └── api.js (updated) ✅
-└── App.jsx (updated) ✅
+│   └── authStore.js         # Shim de retrocompatibilidad → features/auth/store/authStore
+├── styles/
+│   └── globals.css          # Tokens CSS HSL (shadcn/ui), fuente Inter
+└── main.tsx                 # ReactDOM.createRoot, StrictMode
 ```
 
-## 🚀 Routes Added
+---
 
-- `/dashboard` - Main dashboard (existing)
-- `/pipeline` - Kanban board view ✅
-- `/campaigns` - Campaign management ✅
-- `/templates` - Template management ✅
+## Decisiones Técnicas Clave
 
-## 📝 Notes
+### Autenticación y Compatibilidad con Chat
+El módulo `ChatTest.jsx` (chat con IA) no fue modificado: importa directamente de `src/store/authStore` y `src/services/api.js`. Para mantener compatibilidad:
 
-### Backend Integration
-The frontend is ready and will work once the backend endpoints are implemented. The API client includes fallbacks for missing endpoints:
+1. `src/store/authStore.js` es un **shim** que re-exporta desde `features/auth/store/authStore.ts`
+2. El nuevo store de TypeScript escribe el token en **Zustand Y `localStorage`** simultáneamente
+3. Así el `api.js` original sigue leyendo el token sin cambios
 
-- Pipeline endpoints fall back to leads API with filters
-- Campaign endpoints need to be created
-- Ticket endpoints need to be created
-- Template endpoints need to be created
+### Routing y Lazy Loading
+- `createBrowserRouter` de React Router v6
+- Páginas de features cargadas con `React.lazy` + `Suspense` → mejor TTI
+- `AuthGuard` envuelve el layout protegido; `RoleGuard` protege rutas específicas por rol
+- Roles: `superadmin` (todo), `admin` (todo excepto brokers), `agent` (leads/pipeline/chat/citas)
 
-### Next Steps (Backend)
-1. Add `pipeline_stage` to `LeadUpdate` schema
-2. Create `/api/v1/pipeline/stage/{stage}` endpoint
-3. Create `/api/v1/leads/{lead_id}/stage` endpoint
-4. Create campaign CRUD endpoints
-5. Create ticket endpoints
-6. Create template endpoints
+### API Client
+`shared/lib/api-client.ts` usa un patrón **`setTokenGetter(fn)`** en lugar de leer el token directamente. El auth store llama `setTokenGetter(() => token)` en `setAuth()`. Esto evita dependencias circulares.
 
-### Testing
-- All components are production-ready
-- Error handling implemented
-- Loading states implemented
-- Empty states implemented
-- Responsive design implemented
-- Accessibility features implemented
+### Componentes UI
+Todos los componentes de `shared/components/ui/` están implementados manualmente sobre **Radix UI primitives** siguiendo la convención de Shadcn/ui. No se usa el CLI de shadcn/ui; los archivos están en el repositorio directamente.
 
-## ✅ All Frontend Tasks Complete!
+---
 
-The frontend implementation is complete according to the requirements. All components are:
-- ✅ Production-ready
-- ✅ Responsive
-- ✅ Accessible
-- ✅ Well-structured
-- ✅ Integrated with stores
-- ✅ Ready for backend integration
+## Features por Módulo
 
+### Dashboard
+- 4 KPI cards: leads totales, hot leads, agendados, tasa de conversión
+- Resumen del pipeline con barras de progreso por etapa
+- Lista de leads calientes con score badge
 
+### Leads
+- Tabla con paginación server-side usando `@tanstack/react-table`
+- Filtros: búsqueda por nombre/teléfono, estado, calificación
+- Panel lateral de detalle (datos financieros visibles solo para admin)
+- Formulario de creación/edición en Dialog
+- Importación masiva vía CSV
+
+### Pipeline
+- Kanban de **8 columnas** (entrada → ganado/perdido)
+- Carga de todas las columnas en paralelo con `Promise.all`
+- Mover lead a otra etapa desde un `DropdownMenu` hover (actualización optimista)
+- Badge de inactividad (leads sin contacto en más de 7 días)
+
+### Configuración (Settings)
+- Tab **Agente IA**: nombre, identidad, system prompt
+- Tab **Scoring**: umbrales por categoría (frío, cálido, caliente)
+- Tab **Preview**: system prompt compilado completo
+
+### Chat IA
+`ChatPage` renderiza `ChatTest.jsx` como está, dentro del contenedor del AppShell. Ningún archivo del módulo de chat fue modificado.
+
+---
+
+## Permisos por Rol
+
+| Módulo | agent | admin | superadmin |
+|--------|-------|-------|------------|
+| Dashboard | ✅ | ✅ | ✅ |
+| Leads | ✅ | ✅ | ✅ |
+| Pipeline | ✅ | ✅ | ✅ |
+| Citas | ✅ | ✅ | ✅ |
+| Chat IA | ✅ | ✅ | ✅ |
+| Campañas | — | ✅ | ✅ |
+| Templates | — | ✅ | ✅ |
+| Costos LLM | — | ✅ | ✅ |
+| Configuración | — | ✅ | ✅ |
+| Usuarios | — | ✅ | ✅ |
+| Brokers | — | — | ✅ |
+
+---
+
+## Dependencias Añadidas
+
+```json
+{
+  "class-variance-authority": "^0.7.x",
+  "clsx": "^2.x",
+  "tailwind-merge": "^2.x",
+  "lucide-react": "^0.x",
+  "sonner": "^1.x",
+  "@radix-ui/react-dialog": "^1.x",
+  "@radix-ui/react-dropdown-menu": "^2.x",
+  "@radix-ui/react-select": "^2.x",
+  "@radix-ui/react-tabs": "^1.x",
+  "@radix-ui/react-tooltip": "^1.x",
+  "@radix-ui/react-avatar": "^1.x",
+  "@radix-ui/react-progress": "^1.x",
+  "@radix-ui/react-switch": "^2.x",
+  "@radix-ui/react-popover": "^1.x",
+  "@radix-ui/react-separator": "^1.x",
+  "@radix-ui/react-label": "^2.x",
+  "@tanstack/react-table": "^8.x"
+}
+```
+
+---
+
+## Comandos de Desarrollo
+
+```bash
+cd frontend
+
+npm install
+npm run dev          # http://localhost:5173
+npm run build        # dist/
+
+# TypeScript check (0 errores esperados)
+npx tsc --noEmit --skipLibCheck
+```
+
+---
+
+## Notas de Compatibilidad
+
+- `src/store/authStore.js` **no borrar** — es el shim que mantiene vivo al módulo Chat
+- `src/services/api.js` **no borrar** — lo usa ChatTest.jsx directamente
+- `src/components/ChatTest.jsx` **no modificar** — constraint del proyecto
+- `src/features/llm-costs/` — feature pre-existente en JavaScript; excluida parcialmente de tsc pero incluida en el bundle vía `router.tsx`

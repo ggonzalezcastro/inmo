@@ -34,15 +34,8 @@ export const usePipelineStore = create((set, get) => ({
   fetchLeadsByStage: async (stage, filters = {}) => {
     set({ loading: true, error: null });
     try {
-      // Clean filters - remove empty values
-      const cleanFilters = Object.entries({ ...get().filters, ...filters }).reduce((acc, [key, value]) => {
-        if (value !== null && value !== undefined && value !== '') {
-          acc[key] = value;
-        }
-        return acc;
-      }, {});
-      
-      const response = await pipelineAPI.getLeadsByStage(stage, cleanFilters);
+      const currentFilters = { ...get().filters, ...filters };
+      const response = await pipelineAPI.getLeadsByStage(stage, currentFilters);
       
       set((state) => ({
         leadsByStage: {
@@ -52,7 +45,6 @@ export const usePipelineStore = create((set, get) => ({
         loading: false,
       }));
     } catch (error) {
-      console.error(`Error fetching leads for stage ${stage}:`, error.response?.data || error.message);
       set({ 
         error: error.response?.data?.detail || error.message, 
         loading: false 
@@ -64,72 +56,22 @@ export const usePipelineStore = create((set, get) => ({
   fetchAllStages: async (filters = {}) => {
     set({ loading: true, error: null });
     try {
-      // Clean filters - remove empty values
-      const currentFilters = Object.entries({ ...get().filters, ...filters }).reduce((acc, [key, value]) => {
-        if (value !== null && value !== undefined && value !== '') {
-          acc[key] = value;
-        }
-        return acc;
-      }, {});
-      
-      console.log('🔍 Fetching leads for all stages with filters:', currentFilters);
+      const currentFilters = { ...get().filters, ...filters };
       
       // Fetch leads for each stage in parallel
       const promises = PIPELINE_STAGES.map(stage => 
         pipelineAPI.getLeadsByStage(stage.id, currentFilters)
-          .then(response => {
-            console.log(`✅ Stage ${stage.id}:`, response.data);
-            return response;
-          })
-          .catch(err => {
-            // If a stage fails, log and return empty array
-            console.error(`❌ Error fetching leads for stage ${stage.id}:`, err.response?.data || err.message);
-            return { data: { stage: stage.id, data: [], total: 0, skip: 0, limit: 50 } };
-          })
       );
       
       const responses = await Promise.all(promises);
       const leadsByStage = {};
       
       PIPELINE_STAGES.forEach((stage, index) => {
-        const response = responses[index];
-        const responseData = response?.data;
-        
-        // Backend returns: { stage: string, data: Lead[], total: number, skip: number, limit: number }
-        const leads = responseData?.data || [];
-        leadsByStage[stage.id] = Array.isArray(leads) ? leads : [];
-        
-        console.log(`📊 Stage ${stage.id}: ${leads.length} leads loaded`);
-        
-        // Log cada lead en esta etapa
-        if (leads.length > 0) {
-          console.log(`\n📋 Leads en etapa "${stage.label}" (${stage.id}):`);
-          leads.forEach((lead, idx) => {
-            console.log(`  ${idx + 1}. ID: ${lead.id} | Nombre: ${lead.name || 'Sin nombre'} | Teléfono: ${lead.phone} | Stage: ${lead.pipeline_stage || 'NULL'} | Score: ${lead.lead_score || 0}`);
-          });
-        }
+        leadsByStage[stage.id] = responses[index].data.data || [];
       });
-      
-      const totalLeads = Object.values(leadsByStage).reduce((sum, leads) => sum + leads.length, 0);
-      console.log(`\n✅ Total leads loaded across all stages: ${totalLeads}`);
-      
-      // Log resumen completo
-      console.log('\n📊 RESUMEN COMPLETO DEL PIPELINE:');
-      console.log('='.repeat(60));
-      Object.entries(leadsByStage).forEach(([stageId, leads]) => {
-        const stage = PIPELINE_STAGES.find(s => s.id === stageId);
-        console.log(`${stage?.label || stageId}: ${leads.length} leads`);
-        if (leads.length > 0) {
-          leads.forEach(lead => {
-            console.log(`  - ID ${lead.id}: ${lead.name || 'Sin nombre'} (${lead.phone})`);
-          });
-        }
-      });
-      console.log('='.repeat(60));
       
       set({ leadsByStage, loading: false });
     } catch (error) {
-      console.error('❌ Error fetching all stages:', error);
       set({ 
         error: error.response?.data?.detail || error.message, 
         loading: false 

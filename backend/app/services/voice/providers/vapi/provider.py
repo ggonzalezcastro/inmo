@@ -54,9 +54,12 @@ class VapiProvider(BaseVoiceProvider):
 
         metadata = request.metadata or {}
         db = metadata.get("db")
-        webhook_url = request.webhook_url or metadata.get("webhook_url") or ""
         broker_id = request.broker_id
         agent_type = request.agent_type
+        webhook_url = (
+            f"{getattr(settings, 'WEBHOOK_BASE_URL', 'http://localhost:8000')}"
+            "/api/v1/calls/webhooks/voice"
+        )
 
         phone_number_id = None
         if db is not None and broker_id is not None:
@@ -91,14 +94,18 @@ class VapiProvider(BaseVoiceProvider):
                 "number": request.phone_number,
                 "numberE164CheckEnabled": True,
             },
-        }
-        if metadata or request.lead_id:
-            payload["metadata"] = {
+            "assistantOverrides": {
+                "server": {
+                    "url": webhook_url,
+                },
+            },
+            "metadata": {
                 "lead_id": request.lead_id,
                 "campaign_id": metadata.get("campaign_id"),
                 "broker_id": broker_id,
-                "webhook_url": webhook_url,
-            }
+                "assistant_type": agent_type or "default",
+            },
+        }
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -107,7 +114,7 @@ class VapiProvider(BaseVoiceProvider):
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{self.base_url}/call/phone",
+                f"{self.base_url}/call",
                 json=payload,
                 headers=headers,
             ) as response:
@@ -160,6 +167,17 @@ class VapiProvider(BaseVoiceProvider):
         status = call.get("status")
         transcript = call.get("transcript")
         summary = call.get("summary")
+        duration_seconds = self._calculate_duration(call)
+        recording_url = call.get("recordingUrl")
+        ended_reason = None
+        artifact_messages = None
+        tool_calls_data = None
+        call_id_from_metadata = (call.get("metadata") or {}).get("call_id")
+        vapi_metadata = call.get("metadata") or {}
+        if not vapi_metadata:
+            vapi_metadata = message.get("metadata") or {}
+        broker_id_raw = vapi_metadata.get("broker_id")
+        assistant_type_from_meta = vapi_metadata.get("assistant_type")
 
         if message_type == "status-update":
             status = message.get("status") or status
@@ -168,16 +186,48 @@ class VapiProvider(BaseVoiceProvider):
             )
         elif message_type == "call-started":
             event_type = CallEventType.CALL_STARTED
-        elif message_type == "call-ended":
-            event_type = CallEventType.CALL_ENDED
         elif message_type == "transcript":
             event_type = CallEventType.TRANSCRIPT_UPDATE
             transcript = message.get("transcript") or transcript
-        elif message_type == "function-call":
-            event_type = CallEventType.FUNCTION_CALL
-
-        duration_seconds = self._calculate_duration(call)
-        recording_url = call.get("recordingUrl")
+        elif message_type == "tool-calls":
+            event_type = CallEventType.TOOL_CALLS
+            tool_with_list = message.get("toolWithToolCallList") or []
+            tool_list = message.get("toolCallList") or []
+            if tool_with_list:
+                tool_calls_data = [
+                    {
+                        "name": item.get("name"),
+                        "toolCall": item.get("toolCall") or {},
+                        "tool_call_id": (item.get("toolCall") or {}).get("id"),
+                        "parameters": (item.get("toolCall") or {}).get("parameters") or {},
+                    }
+                    for item in tool_with_list
+                ]
+            elif tool_list:
+                tool_calls_data = [
+                    {
+                        "name": item.get("name"),
+                        "toolCall": item,
+                        "tool_call_id": item.get("id"),
+                        "parameters": item.get("parameters") or {},
+                    }
+                    for item in tool_list
+                ]
+            else:
+                tool_calls_data = []
+        elif message_type == "end-of-call-report":
+            event_type = CallEventType.END_OF_CALL_REPORT
+            artifact = message.get("artifact") or {}
+            transcript = artifact.get("transcript") or transcript
+            artifact_messages = artifact.get("messages") or []
+            recording_obj = artifact.get("recording") or {}
+            recording_url = recording_obj.get("url") or recording_url
+            ended_reason = message.get("endedReason")
+            summary = (artifact.get("summary") or summary) if isinstance(artifact.get("summary"), str) else summary
+        elif message_type == "assistant-request":
+            event_type = CallEventType.ASSISTANT_REQUEST
+        elif message_type == "hang":
+            event_type = CallEventType.HANG
 
         return WebhookEvent(
             event_type=event_type,
@@ -188,6 +238,12 @@ class VapiProvider(BaseVoiceProvider):
             recording_url=recording_url,
             duration_seconds=duration_seconds,
             raw_data=payload,
+            ended_reason=ended_reason,
+            artifact_messages=artifact_messages,
+            tool_calls_data=tool_calls_data,
+            call_id_from_metadata=call_id_from_metadata,
+            broker_id=int(broker_id_raw) if broker_id_raw else None,
+            assistant_type=assistant_type_from_meta,
         )
 
     async def cancel_call(self, external_call_id: str) -> bool:

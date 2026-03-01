@@ -3,7 +3,7 @@ import api from '../services/api';
 
 /**
  * useRealtime - Custom hook for real-time updates via polling
- * 
+ *
  * Features:
  * - Polls API endpoints for updates
  * - Updates stores automatically
@@ -12,41 +12,35 @@ import api from '../services/api';
 export function useRealtime(config) {
   const {
     endpoint,
-    interval = 5000, // 5 seconds default
+    interval = 5000,
     onUpdate,
     enabled = true,
   } = config;
 
   const intervalRef = useRef(null);
   const lastUpdateRef = useRef(null);
+  // Keep a stable ref to the latest onUpdate so the effect never goes stale
+  const onUpdateRef = useRef(onUpdate);
+  useEffect(() => { onUpdateRef.current = onUpdate; });
 
   useEffect(() => {
     if (!enabled || !endpoint) return;
 
     const poll = async () => {
       try {
-        const response = await api.get(endpoint, { 
-          params: lastUpdateRef.current ? { since: lastUpdateRef.current } : {} 
+        const response = await api.get(endpoint, {
+          params: lastUpdateRef.current ? { since: lastUpdateRef.current } : {},
         });
         lastUpdateRef.current = new Date().toISOString();
-        onUpdate?.(response.data);
+        onUpdateRef.current?.(response.data);
       } catch (error) {
-        // Silently fail for 404 (endpoint doesn't exist yet) - don't spam console
-        if (error.response?.status === 404) {
-          // Endpoint doesn't exist yet, that's ok
-          return;
-        }
-        // Only log other errors
         if (error.response?.status !== 404) {
           console.error('Error polling for updates:', error);
         }
       }
     };
 
-    // Initial poll
     poll();
-
-    // Set up interval
     intervalRef.current = setInterval(poll, interval);
 
     return () => {
@@ -54,7 +48,7 @@ export function useRealtime(config) {
         clearInterval(intervalRef.current);
       }
     };
-  }, [endpoint, interval, enabled, onUpdate]);
+  }, [endpoint, interval, enabled]); // onUpdate intentionally omitted — use ref above
 
   return {
     stop: () => {

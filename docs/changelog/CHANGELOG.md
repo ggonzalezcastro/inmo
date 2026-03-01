@@ -1,4 +1,4 @@
----
+
 title: Changelog
 version: 1.1.0
 date: 2026-02-22
@@ -8,6 +8,58 @@ author: Equipo Inmo
 # Changelog
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
+
+## [1.2.0] - 2026-02-27
+
+### Añadido
+
+#### Reescritura Completa del Frontend (React 18 + TypeScript)
+- Migración de JavaScript a **TypeScript strict mode** en todo el frontend
+- Adopción de **Shadcn/ui** (Radix UI + Tailwind CSS) como sistema de componentes
+- Arquitectura **feature-based**: `src/app/`, `src/features/`, `src/shared/`
+- **React Router v6** con `createBrowserRouter`, lazy loading por feature y Suspense
+- **`@tanstack/react-table`** para tablas con paginación manual del servidor
+- **`sonner`** para notificaciones toast
+- Alias de path `@/` → `src/` configurado en Vite y TypeScript
+
+#### Sistema de Autenticación TypeScript
+- Store Zustand con tipado estricto en `features/auth/store/authStore.ts`
+- Token almacenado en memoria Zustand + `localStorage` para compatibilidad con el módulo Chat
+- Hooks `useLogin`, `useRegister` con decodificación de JWT y redirección automática
+- Páginas `LoginPage` y `RegisterPage` (TSX) con toggle de visibilidad de contraseña
+- Shim de retrocompatibilidad: `src/store/authStore.js` re-exporta desde el nuevo store TypeScript
+
+#### Layout y Navegación
+- `AppShell` — contenedor principal con sidebar colapsable + `<Outlet />`
+- `Sidebar` — colapsable (w-60 / w-16), filtrado de ítems por rol, sección de usuario con logout
+- `AuthGuard` — redirige a `/login` si no autenticado, preserva `location.state`
+- `RoleGuard` — redirige a `/403` si el rol no tiene acceso
+- Hook `usePermissions` — expone `isAdmin`, `isSuperAdmin`, `isAgent` y permisos granulares
+
+#### Componentes Shared (Shadcn/ui)
+- Componentes UI: `Button`, `Input`, `Label`, `Textarea`, `Badge`, `Card`, `Dialog`, `Select`, `Tabs`, `Separator`, `Tooltip`, `Avatar`, `Progress`, `Switch`, `Popover`, `DropdownMenu`
+- Componentes comunes: `LoadingSpinner`, `StatusBadge`, `ScoreBadge`, `QualificationBadge`, `PipelineStageBadge`, `PageHeader`, `EmptyState`, `ConfirmDialog`, `DataTable`
+- Hooks shared: `useDebounce`, `usePagination`, `usePermissions`
+
+#### Features Migradas a TypeScript
+- **Dashboard**: KPIs, resumen de pipeline con barras de progreso, lista de leads calientes
+- **Leads**: tabla con `DataTable`, filtros (búsqueda, estado, calificación, paginación), panel de detalle lateral, importación CSV, formulario CRUD
+- **Pipeline**: Kanban con 8 columnas, carga paralela por etapa, actualizaciones optimistas, badge de inactividad
+- **Campaigns**, **Templates**, **Appointments**, **Settings**, **Users**, **Brokers**: migrados a TSX con servicios tipados
+- **Chat**: `ChatTest.jsx` preservado sin modificaciones; `ChatPage.tsx` actúa como wrapper dentro del AppShell
+
+#### Módulo LLM Costs
+- Integrado en el layout del AppShell (eliminado el NavBar duplicado)
+- Errores de TypeScript pre-existentes corregidos mínimamente
+
+### Cambios
+- `index.html` apunta a `/src/main.tsx` (antes `main.jsx`)
+- `vite.config.js` reemplazado por `vite.config.ts` con alias `@/`
+- `tailwind.config.js` actualizado con variables CSS HSL para shadcn/ui, modo oscuro (`class`), fuente Inter
+- `src/styles/globals.css` con tokens CSS de shadcn/ui (sistema de diseño light mode)
+- Convención de archivos: `.tsx` para componentes, `.ts` para lógica pura
+
+---
 
 ## [1.1.0] - 2026-02-22
 

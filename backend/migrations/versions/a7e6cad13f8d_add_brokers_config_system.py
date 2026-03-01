@@ -22,26 +22,20 @@ def upgrade() -> None:
     # Create UserRole enum if it doesn't exist
     conn = op.get_bind()
     result = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM pg_type WHERE typname = 'userrole'
-        )
+        SELECT 1 FROM pg_type WHERE typname = 'userrole'
     """))
-    if not result.scalar():
+    if result.fetchone() is None:
         conn.execute(sa.text("""
-            CREATE TYPE userrole AS ENUM 
-            ('superadmin', 'admin', 'agent')
+            CREATE TYPE userrole AS ENUM ('SUPERADMIN', 'ADMIN', 'AGENT')
         """))
-        conn.commit()
     
     # Check if brokers table exists
     conn = op.get_bind()
     result = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM information_schema.tables 
-            WHERE table_name = 'brokers'
-        )
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'brokers'
     """))
-    brokers_exists = result.scalar()
+    brokers_exists = result.fetchone() is not None
     
     # Create brokers table if it doesn't exist
     if not brokers_exists:
@@ -63,12 +57,10 @@ def upgrade() -> None:
     
     # Check if broker_prompt_configs table exists
     result = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM information_schema.tables 
-            WHERE table_name = 'broker_prompt_configs'
-        )
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'broker_prompt_configs'
     """))
-    prompt_configs_exists = result.scalar()
+    prompt_configs_exists = result.fetchone() is not None
     
     # Create broker_prompt_configs table if it doesn't exist
     if not prompt_configs_exists:
@@ -99,12 +91,10 @@ def upgrade() -> None:
     
     # Check if broker_lead_configs table exists
     result = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM information_schema.tables 
-            WHERE table_name = 'broker_lead_configs'
-        )
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'broker_lead_configs'
     """))
-    lead_configs_exists = result.scalar()
+    lead_configs_exists = result.fetchone() is not None
     
     # Create broker_lead_configs table if it doesn't exist
     if not lead_configs_exists:
@@ -131,12 +121,10 @@ def upgrade() -> None:
     
     # Check if broker_id column exists
     check_broker_id = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM information_schema.columns 
-            WHERE table_name = 'users' AND column_name = 'broker_id'
-        )
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'broker_id'
     """))
-    has_broker_id = check_broker_id.scalar()
+    has_broker_id = check_broker_id.fetchone() is not None
     
     # Add broker_id to users table if it doesn't exist
     if not has_broker_id:
@@ -150,23 +138,17 @@ def upgrade() -> None:
         op.create_index('ix_users_broker_id', 'users', ['broker_id'], unique=False)
     
     # Migrate broker_name to name (if broker_name exists)
-    # Check if name column already exists
-    conn = op.get_bind()
     check_name = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM information_schema.columns 
-            WHERE table_name = 'users' AND column_name = 'name'
-        )
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'name'
     """))
-    has_name = check_name.scalar()
-    
+    has_name = check_name.fetchone() is not None
+
     check_broker_name = conn.execute(sa.text("""
-        SELECT EXISTS (
-            SELECT 1 FROM information_schema.columns 
-            WHERE table_name = 'users' AND column_name = 'broker_name'
-        )
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'broker_name'
     """))
-    has_broker_name = check_broker_name.scalar()
+    has_broker_name = check_broker_name.fetchone() is not None
     
     if has_broker_name and not has_name:
         # Rename broker_name to name
