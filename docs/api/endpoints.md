@@ -1,56 +1,58 @@
----
-title: API - Endpoints
-version: 1.0.0
-date: 2026-02-21
-author: Equipo Inmo
----
-
 # API Endpoints
 
-## Autenticación (`/auth`)
-
-### POST /auth/register
-
-Registrar nuevo broker y usuario admin.
-
-| Campo | Tipo | Requerido | Validación |
-|-------|------|-----------|------------|
-| `email` | string | Sí | Formato email válido |
-| `password` | string | Sí | Min 8 chars, mayúscula, minúscula, dígito |
-| `broker_name` | string | Sí | Nombre de la inmobiliaria |
-
-**Respuesta (200):**
-
-```json
-{
-  "access_token": "eyJ...",
-  "token_type": "bearer"
-}
+Base URL: `http://localhost:8000`  
+All endpoints except `/auth/register`, `/auth/login`, `GET /webhooks/*`, and `GET /health` require:
+```
+Authorization: Bearer <access_token>
 ```
 
-### POST /auth/login
+---
 
-Autenticar usuario existente.
+## Auth — `/auth`
 
-| Campo | Tipo | Requerido |
-|-------|------|-----------|
-| `email` | string | Sí |
-| `password` | string | Sí |
+### `POST /auth/register`
+Registers a new broker account. Creates `User` (role=ADMIN), `Broker`, and all default configs.
 
-**Respuesta (200):** Igual que `/auth/register`
+**Body:**
+```json
+{
+  "email": "admin@inmobiliaria-activa.cl",
+  "password": "Seguro123!",
+  "broker_name": "Inmobiliaria Activa"
+}
+```
+**Password rules:** min 8 chars, at least 1 digit and 1 special character.
 
-### GET /auth/me
+**Response `200`:**
+```json
+{ "access_token": "eyJ...", "token_type": "bearer" }
+```
+**Errors:** `400` email already registered · `422` weak password / invalid email
 
-Obtener información del usuario autenticado. Requiere `Authorization: Bearer`.
+---
 
-**Respuesta (200):**
+### `POST /auth/login`
+Authenticate and receive a JWT Bearer token.
 
+**Body:**
+```json
+{ "email": "admin@inmobiliaria-activa.cl", "password": "Seguro123!" }
+```
+**Response `200`:** same as `/register`  
+**Error:** `401` invalid credentials
+
+---
+
+### `GET /auth/me`
+Returns the authenticated user's profile.
+
+**Response `200`:**
 ```json
 {
   "id": 1,
-  "email": "admin@broker.com",
-  "name": "Admin User",
-  "role": "admin",
+  "email": "admin@inmobiliaria-activa.cl",
+  "name": "Inmobiliaria Activa",
+  "role": "ADMIN",
   "broker_id": 1,
   "is_active": true
 }
@@ -58,468 +60,299 @@ Obtener información del usuario autenticado. Requiere `Authorization: Bearer`.
 
 ---
 
-## Leads (`/api/v1/leads`)
+## Leads — `/api/v1/leads`
 
-### GET /api/v1/leads
+### `GET /api/v1/leads`
+List leads. Results filtered by role: AGENT sees only their assigned leads; ADMIN sees broker leads; SUPERADMIN sees all.
 
-Listar leads con filtros y paginación. Filtrado por rol (ADMIN: broker, AGENT: asignados).
+**Query params:**
+| Param | Type | Default | Description |
+|---|---|---|---|
+| status | string | | Filter: `cold`\|`warm`\|`hot`\|`converted`\|`lost` |
+| min_score | float | 0 | |
+| max_score | float | 100 | |
+| search | string | | Matches name, phone, or email |
+| pipeline_stage | string | | Filter by pipeline stage |
+| skip | int | 0 | |
+| limit | int | 50 | max 200 |
 
-| Query Param | Tipo | Default | Descripción |
-|-------------|------|---------|-------------|
-| `status` | string | - | Filtrar por status (cold/warm/hot/converted/lost) |
-| `min_score` | float | - | Score mínimo |
-| `max_score` | float | - | Score máximo |
-| `search` | string | - | Búsqueda por nombre, email, teléfono |
-| `pipeline_stage` | string | - | Filtrar por etapa |
-| `skip` | int | 0 | Offset |
-| `limit` | int | 50 | Máximo registros |
-
-**Respuesta (200):**
-
+**Response `200`:**
 ```json
 {
-  "data": [
-    {
-      "id": 1,
-      "phone": "+521234567890",
-      "name": "Juan Pérez",
-      "email": "juan@email.com",
-      "status": "warm",
-      "lead_score": 45.5,
-      "pipeline_stage": "perfilamiento",
-      "tags": ["interesado", "zona-norte"],
-      "metadata": {"budget": "2000000", "location": "Monterrey"},
-      "last_contacted": "2026-02-20T15:30:00Z",
-      "created_at": "2026-02-15T10:00:00Z"
-    }
-  ],
-  "total": 150,
+  "data": [{"id": 1, "phone": "+56912345678", "name": "María", "status": "warm", "lead_score": 42.5, ...}],
+  "total": 1,
   "skip": 0,
   "limit": 50
 }
 ```
 
-### POST /api/v1/leads
+---
 
-Crear lead nuevo.
+### `GET /api/v1/leads/{lead_id}`
+Get full lead detail including last 10 activity log entries.
 
-| Campo | Tipo | Requerido | Descripción |
-|-------|------|-----------|-------------|
-| `phone` | string | Sí | Teléfono (se normaliza a E.164) |
-| `name` | string | No | Nombre completo |
-| `email` | string | No | Email |
-| `tags` | string[] | No | Etiquetas |
-| `metadata` | object | No | Datos adicionales |
+**Response `200`:** `LeadDetailResponse` with `recent_activities[]`  
+**Error:** `404` lead not found
 
-### PUT /api/v1/leads/{lead_id}
+---
 
-Actualizar lead.
+### `POST /api/v1/leads`
+Create a new lead manually.
 
-| Campo | Tipo | Requerido |
-|-------|------|-----------|
-| `name` | string | No |
-| `email` | string | No |
-| `status` | string | No |
-| `tags` | string[] | No |
-| `metadata` | object | No |
-
-### DELETE /api/v1/leads/{lead_id}
-
-Eliminar lead. Respuesta: `204 No Content`.
-
-### PUT /api/v1/leads/{lead_id}/assign
-
-Asignar lead a agente. Solo ADMIN.
-
-| Campo | Tipo | Requerido |
-|-------|------|-----------|
-| `agent_id` | int | Sí |
-
-### PUT /api/v1/leads/{lead_id}/pipeline
-
-Mover lead a etapa del pipeline.
-
-| Campo | Tipo | Requerido |
-|-------|------|-----------|
-| `stage` | string | Sí |
-
-### POST /api/v1/leads/{lead_id}/recalculate
-
-Recalcular score del lead.
-
-**Respuesta (200):**
-
+**Body:**
 ```json
-{
-  "lead_score": 65.0,
-  "qualification": "warm"
-}
+{ "phone": "+56912345678", "name": "María", "email": "maria@email.com", "tags": ["activo"] }
 ```
+**Response `201`:** `LeadResponse`
 
-### POST /api/v1/leads/bulk-import
+---
 
-Importar leads desde CSV (multipart form).
+### `PUT /api/v1/leads/{lead_id}`
+Update lead fields. Partial update supported.
 
-**Respuesta (200):**
+---
 
+### `DELETE /api/v1/leads/{lead_id}`
+Delete lead and all related records (cascade). **Response `204`**
+
+---
+
+### `PUT /api/v1/leads/{lead_id}/assign`
+Assign lead to an agent. **ADMIN only.** Agent must belong to the same broker.
+
+**Body:** `{ "agent_id": 3 }`
+
+---
+
+### `PUT /api/v1/leads/{lead_id}/pipeline`
+Manually move lead to a pipeline stage.
+
+**Body:** `{ "stage": "agendado" }`
+
+**Valid stages:** `entrada` · `perfilamiento` · `calificacion_financiera` · `agendado` · `seguimiento` · `referidos` · `ganado` · `perdido`
+
+---
+
+### `POST /api/v1/leads/{lead_id}/recalculate`
+Force recalculate lead score, qualification, and pipeline stage.
+
+**Response `200`:**
 ```json
-{
-  "imported": 45,
-  "duplicates": 3,
-  "invalid": 2
-}
+{ "lead_id": 1, "score": 68.5, "calificacion": "potencial", "pipeline_stage": "calificacion_financiera" }
 ```
 
 ---
 
-## Chat (`/api/v1/chat`)
+### `POST /api/v1/leads/bulk-import`
+Bulk import from CSV. Accepts `multipart/form-data` with field `file` (.csv only).  
+CSV columns: `phone`, `name`, `email`, `tags` (comma-separated).
 
-### POST /api/v1/chat/test
+**Response `200`:**
+```json
+{ "imported": 45, "duplicates": 3, "invalid": 1 }
+```
 
-Probar respuesta del chat IA.
+---
 
-| Campo | Tipo | Requerido | Validación |
-|-------|------|-----------|------------|
-| `message` | string | Sí | 1-4000 chars, HTML sanitizado |
-| `lead_id` | int | No | Lead existente |
-| `provider` | string | No | Canal de chat |
+## Chat — `/api/v1/chat`
 
-**Respuesta (200):**
+### `POST /api/v1/chat/test`
+Send a message to Sofía and receive a full AI response.
 
+**Body:**
 ```json
 {
-  "response": "¡Hola! Soy Sofía, tu asesora inmobiliaria...",
-  "lead_id": 1,
-  "lead_score": 25.0,
+  "message": "Hola, me interesa un departamento de 2 dormitorios en Las Condes",
+  "lead_id": null,
+  "provider": "webchat"
+}
+```
+- `lead_id`: optional. If omitted, a new lead is created.
+- `message`: max 4000 chars, XSS-sanitized.
+
+**Response `200`:**
+```json
+{
+  "response": "¡Hola! Soy Sofía. ¿Cuál es tu nombre?",
+  "lead_id": 42,
+  "lead_score": 15.0,
   "lead_status": "cold"
 }
 ```
-
-### GET /api/v1/chat/{lead_id}/messages
-
-Obtener historial de mensajes de un lead.
-
-| Query Param | Tipo | Default |
-|-------------|------|---------|
-| `skip` | int | 0 |
-| `limit` | int | 50 |
-| `provider` | string | - |
-
-### GET /api/v1/chat/verify/{lead_id}
-
-Verificar datos del lead con mensajes y actividades.
+**Errors:** `404` lead_id not found · `422` message empty/too long
 
 ---
 
-## Llamadas de Voz (`/api/v1/calls`)
+### `POST /api/v1/chat/stream`
+Same as `/test` but streams tokens via **SSE (Server-Sent Events)**.
 
-### POST /api/v1/calls/initiate
+**Response:** `text/event-stream`
 
-Iniciar llamada outbound.
+Each event:
+```
+data: {"token": "Hola"}
 
-| Campo | Tipo | Requerido |
-|-------|------|-----------|
-| `lead_id` | int | Sí |
-| `campaign_id` | int | No |
-| `agent_type` | string | No |
+data: {"token": ", soy"}
 
-**Respuesta (200):**
-
-```json
-{
-  "id": 1,
-  "lead_id": 5,
-  "phone_number": "+521234567890",
-  "external_call_id": "call_abc123",
-  "status": "initiated",
-  "created_at": "2026-02-21T10:00:00Z"
-}
+data: {"done": true, "lead_id": 42, "lead_score": 15.0, "lead_status": "cold", "conversation_state": "greeting"}
 ```
 
-### GET /api/v1/calls/leads/{lead_id}
-
-Historial de llamadas de un lead.
-
-### GET /api/v1/calls/{call_id}
-
-Detalle de llamada con transcripción.
-
-### POST /api/v1/calls/webhooks/voice
-
-Webhook genérico de voz (default: VAPI).
-
-### POST /api/v1/calls/webhooks/voice/{provider_name}
-
-Webhook de voz por proveedor (`vapi`, `bland`).
-
----
-
-## Citas (`/api/v1/appointments`)
-
-### POST /api/v1/appointments
-
-Crear cita.
-
-| Campo | Tipo | Requerido | Validación |
-|-------|------|-----------|------------|
-| `lead_id` | int | Sí | Lead existente |
-| `appointment_type` | enum | No | property_visit (default) |
-| `start_time` | datetime | Sí | ISO 8601 |
-| `duration_minutes` | int | No | 15-480, default 60 |
-| `agent_id` | int | Sí | Agente del broker |
-| `location` | string | No | Dirección |
-| `notes` | string | No | Notas |
-
-### GET /api/v1/appointments
-
-Listar citas con filtros.
-
-| Query Param | Tipo | Descripción |
-|-------------|------|-------------|
-| `lead_id` | int | Filtrar por lead |
-| `agent_id` | int | Filtrar por agente |
-| `status` | enum | scheduled/confirmed/cancelled/completed/no_show |
-| `start_date` | date | Desde fecha |
-| `end_date` | date | Hasta fecha |
-
-### GET /api/v1/appointments/available/slots
-
-Consultar slots disponibles.
-
-| Query Param | Tipo | Requerido |
-|-------------|------|-----------|
-| `start_date` | date | Sí |
-| `end_date` | date | Sí |
-| `agent_id` | int | No |
-| `appointment_type` | enum | No |
-| `duration_minutes` | int | No |
-
-**Respuesta (200):**
-
-```json
-[
-  {
-    "start_time": "2026-02-25T10:00:00Z",
-    "end_time": "2026-02-25T11:00:00Z",
-    "duration_minutes": 60,
-    "date": "2026-02-25",
-    "time": "10:00"
-  }
-]
+On error:
+```
+data: {"error": "...", "code": "validation_error"}
 ```
 
-### POST /api/v1/appointments/{appointment_id}/confirm
+Fallback: if provider doesn't support `stream_generate`, the pre-computed response is split word-by-word with ~15ms delay.
 
-Confirmar cita. Cambia status a `CONFIRMED`.
-
-### POST /api/v1/appointments/{appointment_id}/cancel
-
-Cancelar cita. Query param opcional: `reason`.
+Headers set: `Cache-Control: no-cache`, `X-Accel-Buffering: no` (disables Nginx buffering).
 
 ---
 
-## Campañas (`/api/v1/campaigns`)
+### `GET /api/v1/chat/{lead_id}/messages`
+Get chat history for a lead. Prefers `chat_messages` table; falls back to `telegram_messages`.
 
-### POST /api/v1/campaigns
+**Query params:** `skip`, `limit` (default 100), `provider` (optional filter)
 
-Crear campaña.
-
-| Campo | Tipo | Requerido | Opciones |
-|-------|------|-----------|----------|
-| `name` | string | Sí | Max 200 chars |
-| `description` | string | No | - |
-| `channel` | enum | Sí | telegram, call, whatsapp, email |
-| `triggered_by` | enum | No | manual (default), lead_score, stage_change, inactivity |
-| `trigger_condition` | object | No | Condiciones del trigger |
-| `max_contacts` | int | No | Límite de contactos (null = ilimitado) |
-
-### POST /api/v1/campaigns/{campaign_id}/steps
-
-Agregar paso a campaña.
-
-| Campo | Tipo | Requerido | Opciones |
-|-------|------|-----------|----------|
-| `step_number` | int | Sí | Orden del paso |
-| `action` | enum | Sí | send_message, make_call, schedule_meeting, update_stage |
-| `delay_hours` | int | No | Default 0 |
-| `message_template_id` | int | No | Template a usar |
-| `conditions` | object | No | Condiciones adicionales |
-| `target_stage` | string | No | Para action=update_stage |
-
-### POST /api/v1/campaigns/{campaign_id}/apply-to-lead/{lead_id}
-
-Aplicar campaña a un lead.
-
-### GET /api/v1/campaigns/{campaign_id}/stats
-
-Estadísticas de campaña.
-
-**Respuesta (200):**
-
+**Response `200`:**
 ```json
 {
-  "campaign_id": 1,
-  "total_steps": 3,
-  "unique_leads": 50,
-  "pending": 10,
-  "sent": 35,
-  "failed": 3,
-  "skipped": 2,
-  "success_rate": 0.875,
-  "failure_rate": 0.075
+  "lead_id": 42,
+  "provider": "chat_messages",
+  "messages": [
+    { "id": 1, "direction": "in", "message_text": "Hola", "sender_type": "customer", "created_at": "...", "ai_response_used": false, "provider": "webchat" }
+  ],
+  "total": 1, "skip": 0, "limit": 100
 }
 ```
 
 ---
 
-## Pipeline (`/api/v1/pipeline`)
-
-### POST /api/v1/pipeline/leads/{lead_id}/move-stage
-
-Mover lead a etapa.
-
-| Campo | Tipo | Requerido |
-|-------|------|-----------|
-| `new_stage` | string | Sí |
-| `reason` | string | No |
-
-**Etapas:** `entrada`, `perfilamiento`, `calificacion_financiera`, `agendado`, `seguimiento`, `referidos`, `ganado`, `perdido`
-
-### POST /api/v1/pipeline/leads/{lead_id}/auto-advance
-
-Evaluar auto-avance de etapa.
-
-### GET /api/v1/pipeline/stages/{stage}/leads
-
-Obtener leads de una etapa.
-
-### GET /api/v1/pipeline/metrics
-
-Métricas del pipeline.
-
-### GET /api/v1/pipeline/stages/{stage}/inactive
-
-Leads inactivos en etapa. Query param: `inactivity_days` (default 7).
+### `GET /api/v1/chat/verify/{lead_id}`
+Debug endpoint: returns lead data, all messages, activity logs, and data completeness summary (`has_name`, `has_phone`, `has_location`, `has_budget`).
 
 ---
 
-## Templates (`/api/v1/templates`)
+## Appointments — `/api/v1/appointments`
 
-### POST /api/v1/templates
+Full CRUD for appointments. Integrates with Google Calendar when `GOOGLE_CLIENT_ID` is configured.
 
-Crear template.
-
-| Campo | Tipo | Requerido |
-|-------|------|-----------|
-| `name` | string | Sí |
-| `channel` | enum | Sí |
-| `content` | string | Sí |
-| `agent_type` | enum | No |
-| `variables` | string[] | No |
-
-### GET /api/v1/templates/agent-type/{agent_type}
-
-Templates por tipo de agente (`perfilador`, `calificador_financiero`, `agendador`, `seguimiento`).
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/appointments` | List appointments (filters: `lead_id`, `agent_id`, `status`, `date_from`, `date_to`) |
+| POST | `/api/v1/appointments` | Create appointment |
+| GET | `/api/v1/appointments/{id}` | Get appointment detail |
+| PUT | `/api/v1/appointments/{id}` | Update appointment |
+| DELETE | `/api/v1/appointments/{id}` | Cancel/delete appointment |
+| GET | `/api/v1/appointments/available-slots` | Get available time slots |
 
 ---
 
-## Configuración de Broker (`/api/broker`)
+## Campaigns — `/api/v1/campaigns`
 
-### GET /api/broker/config
-
-Obtener configuración completa del broker. Superadmin pasa `?broker_id=N`.
-
-### PUT /api/broker/config/prompt
-
-Actualizar prompt del agente IA. Solo ADMIN+.
-
-### PUT /api/broker/config/leads
-
-Actualizar configuración de scoring. Solo ADMIN+.
-
-### GET /api/broker/config/prompt/preview
-
-Preview del prompt compilado.
-
-### GET /api/broker/config/defaults
-
-Valores por defecto de configuración.
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/campaigns` | List campaigns |
+| POST | `/api/v1/campaigns` | Create campaign |
+| GET | `/api/v1/campaigns/{id}` | Get campaign detail |
+| PUT | `/api/v1/campaigns/{id}` | Update campaign |
+| DELETE | `/api/v1/campaigns/{id}` | Delete campaign |
+| POST | `/api/v1/campaigns/{id}/steps` | Add step to campaign |
+| POST | `/api/v1/campaigns/{id}/apply` | Apply campaign to leads |
+| GET | `/api/v1/campaigns/{id}/logs` | Get execution logs |
 
 ---
 
-## Usuarios del Broker (`/api/broker`)
+## Pipeline — `/api/v1/pipeline`
 
-### GET /api/broker/users
-
-Listar usuarios del broker. Solo ADMIN+.
-
-### POST /api/broker/users
-
-Crear usuario.
-
-| Campo | Tipo | Requerido |
-|-------|------|-----------|
-| `email` | string | Sí |
-| `password` | string | Sí |
-| `name` | string | Sí |
-| `role` | enum | Sí |
-
-### PUT /api/broker/users/{user_id}
-
-Actualizar usuario.
-
-### DELETE /api/broker/users/{user_id}
-
-Desactivar usuario (soft delete).
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/pipeline` | Pipeline board: leads grouped by stage |
+| GET | `/api/v1/pipeline/metrics` | Funnel KPIs and conversion rates |
+| POST | `/api/v1/pipeline/auto-advance` | Trigger auto-advance check (admin) |
 
 ---
 
-## Brokers (`/api/brokers`)
+## Templates — `/api/v1/templates`
 
-### POST /api/brokers/
-
-Crear broker. Solo SUPERADMIN.
-
-### GET /api/brokers/
-
-Listar brokers.
-
-### GET /api/brokers/{broker_id}
-
-Detalle de broker.
-
-### PUT /api/brokers/{broker_id}
-
-Actualizar broker. Solo SUPERADMIN.
-
-### DELETE /api/brokers/{broker_id}
-
-Eliminar broker (soft delete). Solo SUPERADMIN.
+CRUD for message templates. Supports variable interpolation: `{{name}}`, `{{broker_name}}`, `{{date}}`, etc.
 
 ---
 
-## Webhooks (`/webhooks`)
+## Voice — `/api/v1/calls`
 
-### POST /webhooks/telegram
-
-Webhook de Telegram. Header: `X-Telegram-Bot-Api-Secret-Hash`.
-
-### POST /webhooks/chat/{broker_id}/{provider_name}
-
-Webhook unificado para chat (telegram, whatsapp).
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/v1/calls` | Initiate outbound AI voice call via VAPI |
+| GET | `/api/v1/calls` | List calls for broker |
+| GET | `/api/v1/calls/{id}` | Get call detail + transcript |
+| POST | `/api/v1/calls/webhook` | VAPI webhook receiver (call status, transcript) |
 
 ---
 
-## Telegram (`/api/v1/telegram`)
+## Webhooks — `/webhooks`
 
-### POST /api/v1/telegram/webhook/setup
+| Method | Path | Description |
+|---|---|---|
+| POST | `/webhooks/telegram` | Telegram bot webhook (called by Telegram) |
+| GET | `/webhooks/whatsapp` | WhatsApp webhook verification |
+| POST | `/webhooks/whatsapp` | WhatsApp message receiver |
 
-Configurar webhook de Telegram.
+---
 
-| Campo | Tipo | Requerido |
-|-------|------|-----------|
-| `webhook_url` | string | Sí |
+## Knowledge Base — `/api/v1/kb`
 
-### GET /api/v1/telegram/webhook/info
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/kb` | List KB entries for broker |
+| POST | `/api/v1/kb` | Create entry (auto-embeds with Gemini text-embedding-004) |
+| GET | `/api/v1/kb/{id}` | Get entry |
+| PUT | `/api/v1/kb/{id}` | Update entry (re-embeds) |
+| DELETE | `/api/v1/kb/{id}` | Delete entry |
+| POST | `/api/v1/kb/search` | Semantic search (cosine similarity via pgvector) |
 
-Obtener info del webhook actual.
+---
+
+## Broker Config — `/api/broker`
+
+ADMIN/SUPERADMIN only. Manage AI agent identity, prompt sections, lead scoring weights, and prompt version history.
+
+---
+
+## Broker Users — `/api/broker`
+
+ADMIN/SUPERADMIN only. Create, update, deactivate users within a broker.
+
+---
+
+## Brokers — `/api/brokers`
+
+SUPERADMIN only. Full broker CRUD.
+
+---
+
+## Costs — `/api/v1/admin/costs`
+
+LLM cost analytics: per-broker summary, daily chart data, outlier detection, CSV export, cross-broker aggregation (SUPERADMIN).
+
+---
+
+## Admin Tasks — `/api/v1/admin/tasks`
+
+DLQ (Dead Letter Queue) management for failed Celery tasks: list, retry, discard.
+
+---
+
+## WebSocket — `/ws/{broker_id}/{user_id}`
+
+Real-time event stream. See [architecture/overview.md](../architecture/overview.md#5-real-time-updates) for full protocol.
+
+---
+
+## Utility
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/` | No | API info + docs link |
+| GET | `/health` | No | DB, Redis, circuit breakers, cache stats |
+| GET | `/docs` | No | Swagger UI |
+| GET | `/redoc` | No | ReDoc UI |
