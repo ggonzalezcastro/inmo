@@ -1,159 +1,102 @@
----
-title: Arquitectura General
-version: 1.1.0
-date: 2026-02-22
-author: Equipo Inmo
----
+# System Architecture Overview
 
-# Arquitectura General
+## Summary
 
-## Visión General
+**AI Lead Agent Pro** is a multi-tenant real-estate CRM powered by an AI agent named **Sofía**. The system qualifies inbound leads via WhatsApp, Telegram, and web chat, managing the full lifecycle from first contact through appointment booking.
 
-AI Lead Agent Pro es un CRM inmobiliario multi-tenant con IA integrada. La arquitectura se basa en capas con separación clara entre rutas, servicios y modelos, usando patrones de diseño como Strategy, Factory y Facade.
+## High-Level Architecture
 
-## Componentes Principales
+```mermaid
+graph TD
+    subgraph Channels
+        WA[WhatsApp / Meta Cloud API]
+        TG[Telegram Bot]
+        WC[Web Chat]
+    end
 
-### Backend (FastAPI)
+    subgraph Backend [:8000]
+        API[FastAPI App]
+        WS[WebSocket /ws]
+        CE[Celery Workers]
+        CB[Celery Beat]
+    end
 
-El backend es una aplicación FastAPI completamente asíncrona:
+    subgraph AI Layer
+        LLM[LLM Router\nGemini / Claude / OpenAI]
+        MCP[MCP Server :8001]
+        SC[Semantic Cache\nRedis + pgvector]
+        KB[RAG Knowledge Base\npgvector]
+    end
 
-| Capa | Directorio | Responsabilidad |
-|------|-----------|-----------------|
-| Routes | `app/routes/` | Endpoints HTTP, validación de entrada, serialización |
-| Services | `app/services/` | Lógica de negocio organizada por dominio |
-| Models | `app/models/` | Modelos SQLAlchemy (ORM) |
-| Schemas | `app/schemas/` | Pydantic schemas para request/response |
-| Tasks | `app/tasks/` | Tareas asíncronas Celery |
-| Middleware | `app/middleware/` | Auth JWT, rate limiting, permisos |
-| Core | `app/core/` | Configuración, base de datos, cache |
+    subgraph Data
+        PG[(PostgreSQL + pgvector)]
+        RD[(Redis)]
+    end
 
-### Frontend (React 18 + TypeScript + Vite)
+    subgraph Observability
+        JG[Jaeger / OpenTelemetry]
+    end
 
-SPA con TypeScript strict mode, Shadcn/ui y Zustand para estado global.
+    WA -->|webhook POST| API
+    TG -->|webhook POST| API
+    WC -->|POST /api/v1/chat/test| API
+    WC -->|POST /api/v1/chat/stream SSE| API
 
-**Stack**: React 18 · TypeScript · Vite · Tailwind CSS · Shadcn/ui (Radix UI) · Zustand · React Router v6 · @tanstack/react-table · sonner · lucide-react
+    API --> LLM
+    LLM --> MCP
+    LLM --> SC
+    SC --> KB
+    KB --> PG
 
-**Arquitectura de directorios**:
-```
-src/
-├── app/          # Router, App root (entry point)
-├── features/     # Vertical slices por dominio
-│   ├── auth/     # Login, Register, authStore, guards
-│   ├── dashboard/
-│   ├── leads/
-│   ├── pipeline/
-│   ├── campaigns/
-│   ├── appointments/
-│   ├── templates/
-│   ├── settings/
-│   ├── users/
-│   ├── brokers/
-│   ├── chat/     # Wrapper de ChatTest.jsx (sin modificar)
-│   └── llm-costs/
-└── shared/       # UI components, hooks, guards, lib
-```
+    API --> PG
+    API --> RD
+    CE --> PG
+    CE --> RD
+    CB --> CE
 
-**Módulos y rutas**:
+    API --> WS
+    WS --> RD
 
-| Módulo | Ruta | Roles | Descripción |
-|--------|------|-------|-------------|
-| Dashboard | `/dashboard` | todos | KPIs, pipeline summary, leads calientes |
-| Leads | `/leads` | todos | Tabla filtrable, detalle lateral, importación CSV |
-| Pipeline | `/pipeline` | todos | Kanban de 8 etapas, actualizaciones optimistas |
-| Campañas | `/campaigns` | admin, superadmin | CRUD de campañas y pasos |
-| Citas | `/appointments` | todos | Agenda, confirmar/cancelar |
-| Templates | `/templates` | admin, superadmin | Editor de plantillas con variables |
-| Chat IA | `/chat` | todos | ChatTest.jsx (inalterado) |
-| Costos LLM | `/costs` | admin, superadmin | Dashboard de costos por proveedor/broker |
-| Configuración | `/settings` | admin, superadmin | Prompt IA, scoring, preview |
-| Usuarios | `/users` | admin, superadmin | CRUD de usuarios del broker |
-| Brokers | `/brokers` | superadmin | Gestión global de brokers |
-
-### Infraestructura
-
-| Servicio | Tecnología | Puerto |
-|----------|-----------|--------|
-| API Server | FastAPI + Uvicorn | 8000 |
-| Database | PostgreSQL 15 | 5432 |
-| Cache/Queue Broker | Redis | 6379 |
-| Worker | Celery | N/A |
-| Scheduler | Celery Beat | N/A |
-
-## Multi-Tenancy
-
-El sistema implementa multi-tenancy a nivel de base de datos:
-
-- Cada **Broker** es una inmobiliaria independiente
-- Los **Users** pertenecen a un broker
-- Los **Leads** están vinculados a un broker
-- Las configuraciones (prompts, scoring, voz, chat) son por broker
-- Roles: `SUPERADMIN` (acceso global), `ADMIN` (broker), `AGENT` (leads asignados)
-
-## Patrones de Diseño
-
-### Strategy Pattern (Proveedores)
-
-Tres dominios usan el patrón Strategy con factory:
-
-1. **LLM**: `BaseLLMProvider` → `GeminiProvider`, `ClaudeProvider`, `OpenAIProvider`
-2. **Voice**: `BaseVoiceProvider` → `VapiProvider`, `BlandProvider`
-3. **Chat**: `BaseChatProvider` → `TelegramProvider`, `WhatsAppProvider`
-
-### Multi-Agent System (Sprint 3)
-
-Cuando `MULTI_AGENT_ENABLED=true`, el `ChatOrchestratorService` monolítico es reemplazado por agentes especializados:
-
-```
-AgentSupervisor
-├── QualifierAgent   (entrada → perfilamiento)
-├── SchedulerAgent   (calificacion_financiera)
-└── FollowUpAgent    (agendado → seguimiento → referidos)
+    API --> JG
 ```
 
-Los handoffs entre agentes se coordinan mediante `HandoffSignal`. Ver `docs/architecture/multi_agent.md` para detalles completos.
+## Technology Stack
 
-### Service Layer
+| Layer | Technology |
+|---|---|
+| API Framework | FastAPI (async) |
+| ORM | SQLAlchemy 2 async |
+| Database | PostgreSQL 15 + pgvector extension |
+| Cache / Broker | Redis 7 |
+| Task Queue | Celery + Celery Beat |
+| LLM Providers | Google Gemini 2.5 Flash (primary), Anthropic Claude Sonnet (fallback), OpenAI GPT-4o |
+| AI Tools Protocol | MCP 1.2.0 (HTTP transport) |
+| Voice Calls | VAPI.ai |
+| Messaging | Telegram Bot API, WhatsApp Meta Cloud API |
+| Embeddings | Gemini text-embedding-004 (768 dims) |
+| Tracing | OpenTelemetry + Jaeger |
+| Frontend | React 18, Vite, Tailwind CSS, Zustand, React Router v6 |
 
-Cada dominio tiene su propio subpaquete dentro de `services/`:
+## Layers
 
-```
-services/
-├── agents/         # Sistema multi-agente (Qualifier, Scheduler, FollowUp, Supervisor)
-├── voice/          # Llamadas de voz
-├── llm/            # Modelos de lenguaje (facade, providers, router, cache)
-├── chat/           # Mensajería multicanal
-├── broker/         # Configuración de brokers
-├── leads/          # Gestión de leads
-├── pipeline/       # Pipeline de ventas
-├── appointments/   # Citas y calendario
-├── campaigns/      # Campañas automatizadas
-├── knowledge/      # RAG — embeddings y búsqueda semántica
-└── shared/         # Servicios transversales
-```
+### 1. Inbound Channels
+Leads arrive via Telegram webhook (`POST /webhooks/telegram`), WhatsApp webhook (`POST /webhooks/whatsapp`), or the web chat endpoint (`POST /api/v1/chat/test`). Webhook payloads are validated and dispatched to `ChatOrchestratorService`.
 
-### Caching
+### 2. FastAPI Application
+All HTTP and WebSocket traffic is handled by a single FastAPI app (`backend/app/main.py`). Routers are registered with versioned prefixes (e.g. `/api/v1/leads`). Middleware stack: `RequestIDMiddleware` → `CORSMiddleware` → `TrustedHostMiddleware` → `RateLimitMiddleware` (production only).
 
-Redis se usa para:
-- Contexto de leads (TTL 30 min)
-- Configuración de prompts de broker (TTL 1 hora)
-- Caché semántico de respuestas LLM por broker (coseno, excluye PII) — `llm/semantic_cache.py`
-- Caché de contexto de Gemini para system prompts estáticos (~75% ahorro en tokens) — `llm/prompt_cache.py`
-- Dead Letter Queue de tareas Celery — `tasks/dlq.py`
-- Rate limiting (sliding window)
-- Cola de tareas Celery
+### 3. AI / LLM Layer
+- **LLM Router** selects the active provider from `settings.LLM_PROVIDER` and falls back to `settings.LLM_FALLBACK_PROVIDER` on failure, controlled by circuit breakers (`pybreaker`).
+- **MCP Server** exposes tools (appointment booking, lead update, KB search) over HTTP transport on port 8001.
+- **Semantic Cache** stores recent embeddings in Redis; hits bypass LLM calls when cosine similarity ≥ `SEMANTIC_CACHE_THRESHOLD` (default `0.92`).
+- **RAG KB** queries `knowledge_base` table via IVFFlat cosine index to inject broker-specific property/FAQ context into the system prompt.
 
-### WebSocket
+### 4. Background Tasks
+Celery workers handle campaign step execution, voice call initiation, reminder sending, and DLQ retries. Celery Beat schedules recurring jobs (pipeline auto-advance, inactivity triggers).
 
-`app/core/websocket_manager.py` mantiene conexiones activas por `broker_id`. El frontend se conecta a `GET /ws/{broker_id}` con JWT. Los cambios de etapa en pipeline, nuevos mensajes y actualizaciones de score se emiten en tiempo real.
+### 5. Real-Time Updates
+WebSocket endpoint `WS /ws/{broker_id}/{user_id}` broadcasts events (`new_message`, `stage_changed`, `lead_assigned`, `lead_hot`) to connected CRM dashboard clients. Authentication uses a JWT sent as the first WebSocket frame.
 
-## Flujo de Datos Principal
+## Multi-Tenancy Model
 
-1. **Mensaje entrante** → Webhook → ChatOrchestratorService (o AgentSupervisor si `MULTI_AGENT_ENABLED`)
-2. **Resolución de lead** → LeadService (crear o encontrar)
-3. **Contexto** → LeadContextService (desde Redis o BD)
-4. **Caché semántico** → SemanticCache.lookup() (evita llamada LLM si hay hit)
-5. **Análisis LLM** → LLMServiceFacade → LLMRouter → Provider activo (Gemini/Claude/OpenAI)
-6. **Scoring** → ScoringService (base + comportamiento + engagement + financiero)
-7. **Pipeline** → PipelineService (auto-avance de etapa + broadcast WebSocket)
-8. **Respuesta** → LLM genera respuesta → envía por canal
-9. **Persistencia** → ChatService + ActivityService
+Every resource (`Lead`, `Campaign`, `KnowledgeBase`, `PromptConfig`) is scoped to a `broker_id`. Role-based access (`AGENT` / `ADMIN` / `SUPERADMIN`) is enforced at the route layer via `Permissions` middleware.
