@@ -1,13 +1,13 @@
 # Render Blueprint — deploy backend + workers from repo root
 # Docs: https://render.com/docs/blueprint-spec
 #
-# IMPORTANT: Before deploying, add these env vars in the Render dashboard:
+# IMPORTANT: After deploying, add these env vars in the Render dashboard:
 #   GEMINI_API_KEY, ANTHROPIC_API_KEY (or OPENAI_API_KEY), TELEGRAM_TOKEN
 #   ALLOWED_ORIGINS  → https://your-app.up.railway.app  (Railway frontend URL)
 #   WEBHOOK_BASE_URL → https://inmo-backend.onrender.com (your Render service URL)
 
 services:
-  # ── Redis ───────────────────────────────────────────────────────────────────
+  # ── Redis ────────────────────────────────────────────────────────────────────
   - type: redis
     name: inmo-redis
     region: oregon
@@ -20,10 +20,11 @@ services:
     env: python
     region: oregon
     plan: starter
-    pythonVersion: "3.11"
     buildCommand: cd backend && pip install -r requirements.txt
     startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
       - key: DATABASE_URL
         fromDatabase:
           name: inmo-db
@@ -51,12 +52,8 @@ services:
         value: "false"
       - key: MCP_TRANSPORT
         value: stdio
-      # Set these in the Render dashboard:
-      # GEMINI_API_KEY
-      # ANTHROPIC_API_KEY
-      # TELEGRAM_TOKEN
-      # ALLOWED_ORIGINS        → your Railway frontend URL
-      # WEBHOOK_BASE_URL       → this service's Render URL
+      # Add in Render dashboard: GEMINI_API_KEY, ANTHROPIC_API_KEY,
+      # TELEGRAM_TOKEN, ALLOWED_ORIGINS, WEBHOOK_BASE_URL
 
   # ── Celery Worker ────────────────────────────────────────────────────────────
   - type: worker
@@ -64,10 +61,11 @@ services:
     env: python
     region: oregon
     plan: starter
-    pythonVersion: "3.11"
     buildCommand: cd backend && pip install -r requirements.txt
     startCommand: cd backend && celery -A app.celery_app worker --loglevel=info
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
       - key: DATABASE_URL
         fromDatabase:
           name: inmo-db
@@ -96,7 +94,6 @@ services:
         value: production
       - key: MCP_TRANSPORT
         value: stdio
-      # GEMINI_API_KEY — set in dashboard
 
   # ── Celery Beat ──────────────────────────────────────────────────────────────
   - type: worker
@@ -104,10 +101,11 @@ services:
     env: python
     region: oregon
     plan: starter
-    pythonVersion: "3.11"
     buildCommand: cd backend && pip install -r requirements.txt
     startCommand: cd backend && celery -A app.celery_app beat --loglevel=info
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
       - key: DATABASE_URL
         fromDatabase:
           name: inmo-db
@@ -131,6 +129,4 @@ databases:
     user: inmo_user
     region: oregon
     plan: starter
-    postgresMajorVersion: "15"   # pgvector requires pg15+
-
-
+    postgresMajorVersion: "15"
