@@ -126,7 +126,9 @@ databases:
     plan: starter
     postgresMajorVersion: "15"   # pgvector requires pg15+
 
-caches:
-  - name: inmo-redis
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  - type: redis
+    name: inmo-redis
     region: oregon
     plan: starter
+    ipAllowList: []
