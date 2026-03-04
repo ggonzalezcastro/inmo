@@ -1,0 +1,13 @@
+# Railway deployment config for backend
+# In Railway dashboard: set "Root Directory" to "backend"
+# Add plugins: PostgreSQL and Redis (Railway injects DATABASE_URL and REDIS_URL)
+# Add env vars: GEMINI_API_KEY, SECRET_KEY, ALLOWED_ORIGINS, ENVIRONMENT=production
+
+[build]
+builder = "nixpacks"
+buildCommand = "pip install -r requirements.txt"
+
+[deploy]
+startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
