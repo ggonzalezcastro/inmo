@@ -124,6 +124,17 @@ class Settings(BaseSettings):
         case_sensitive = True
         extra = "ignore"  # Ignore extra fields from .env that aren't in the model
 
+    @field_validator('DATABASE_URL', mode='before')
+    @classmethod
+    def fix_database_url(cls, v: str) -> str:
+        """Render (and some other platforms) provide postgres:// URLs.
+        SQLAlchemy async requires postgresql+asyncpg://."""
+        if v.startswith("postgres://"):
+            v = v.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif v.startswith("postgresql://"):
+            v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
+
     @field_validator('SECRET_KEY')
     @classmethod
     def validate_secret_key(cls, v, info):
