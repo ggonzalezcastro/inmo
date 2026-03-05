@@ -130,8 +130,14 @@ async def seed():
                 text("SELECT id FROM users WHERE email = :email"),
                 {"email": admin_data["email"]},
             )
-            if existing_admin.fetchone():
-                print(f"           [SKIP] Admin '{admin_data['email']}' ya existe")
+            existing_row = existing_admin.fetchone()
+            if existing_row:
+                # Ensure role is ADMIN (fix accounts created with wrong role)
+                await db.execute(
+                    text("UPDATE users SET role = 'ADMIN', broker_id = :broker_id WHERE email = :email"),
+                    {"email": admin_data["email"], "broker_id": broker_id},
+                )
+                print(f"           [FIX]  Admin '{admin_data['email']}' actualizado a ADMIN")
             else:
                 await db.execute(
                     text("""
