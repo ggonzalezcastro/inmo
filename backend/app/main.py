@@ -269,7 +269,8 @@ app.add_middleware(
 allowed_hosts = ["localhost", "127.0.0.1"]
 if settings.ENVIRONMENT == "production":
     # In production, add your actual domain(s) here
-    production_hosts = getattr(settings, 'ALLOWED_HOSTS', '').split(',')
+    import os
+    production_hosts = os.getenv('ALLOWED_HOSTS', '').split(',')
     allowed_hosts.extend([h.strip() for h in production_hosts if h.strip()])
 
 app.add_middleware(
