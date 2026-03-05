@@ -241,10 +241,10 @@ class OpenAIProvider(BaseLLMProvider):
         self,
         prompt: str,
         json_schema: Optional[Dict] = None
-    ) -> Dict[str, Any]:
-        """Generate structured JSON response"""
+    ) -> tuple[Dict[str, Any], Optional[Dict]]:
+        """Generate structured JSON response. Returns (result, usage)."""
         if not self.is_configured:
-            return {}
+            return {}, None
         
         try:
             messages = [{"role": "user", "content": prompt}]
@@ -260,16 +260,23 @@ class OpenAIProvider(BaseLLMProvider):
                 kwargs["response_format"] = {"type": "json_object"}
             
             response = await self._client.chat.completions.create(**kwargs)
+
+            usage = None
+            if getattr(response, "usage", None):
+                usage = {
+                    "input_tokens": response.usage.prompt_tokens or 0,
+                    "output_tokens": response.usage.completion_tokens or 0,
+                }
             
             text = response.choices[0].message.content.strip()
-            return json.loads(text)
+            return json.loads(text), usage
             
         except json.JSONDecodeError as e:
             logger.error(f"[OpenAI] JSON parse error: {e}")
-            return {}
+            return {}, None
         except Exception as e:
             logger.error(f"[OpenAI] Error in generate_json: {e}", exc_info=True)
-            return {}
+            return {}, None
     
     def _convert_messages_to_native(self, messages: List[LLMMessage]) -> List[Dict]:
         """Convert unified messages to OpenAI format"""

@@ -16,6 +16,7 @@ class CampaignChannelEnum(str, Enum):
 
 class CampaignStatusEnum(str, Enum):
     DRAFT = "draft"
+    PENDING_REVIEW = "pending_review"
     ACTIVE = "active"
     PAUSED = "paused"
     COMPLETED = "completed"
@@ -52,7 +53,7 @@ class CampaignBase(BaseModel):
 
 
 class CampaignCreate(CampaignBase):
-    pass
+    channel: CampaignChannelEnum = CampaignChannelEnum.TELEGRAM
 
 
 class CampaignUpdate(BaseModel):
@@ -69,8 +70,11 @@ class CampaignResponse(CampaignBase):
     id: int
     status: CampaignStatusEnum
     broker_id: int
+    created_by: Optional[int] = None
+    approved_by: Optional[int] = None
     created_at: datetime
     updated_at: datetime
+    steps: List["CampaignStepResponse"] = []
     
     class Config:
         from_attributes = True
@@ -81,12 +85,26 @@ class CampaignStepBase(BaseModel):
     action: CampaignStepActionEnum
     delay_hours: int = Field(default=0, ge=0)
     message_template_id: Optional[int] = None
+    message_text: Optional[str] = None          # free-text message
+    use_ai_message: bool = False                 # let the AI agent generate the message
+    channel: Optional[CampaignChannelEnum] = None  # per-step channel override
     conditions: Optional[Dict[str, Any]] = Field(default_factory=dict)
     target_stage: Optional[str] = None
 
 
 class CampaignStepCreate(CampaignStepBase):
     pass
+
+
+class CampaignStepUpdate(BaseModel):
+    action: Optional[CampaignStepActionEnum] = None
+    delay_hours: Optional[int] = Field(default=None, ge=0)
+    message_template_id: Optional[int] = None
+    message_text: Optional[str] = None
+    use_ai_message: Optional[bool] = None
+    channel: Optional[CampaignChannelEnum] = None
+    conditions: Optional[Dict[str, Any]] = None
+    target_stage: Optional[str] = None
 
 
 class CampaignStepResponse(CampaignStepBase):

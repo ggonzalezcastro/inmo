@@ -107,6 +107,39 @@ class ChatOrchestratorService:
             )
         await db.refresh(lead)
 
+        # ── Human mode: AI silenced ──────────────────────────────────────────
+        # If a human agent has taken control, skip AI processing entirely.
+        # Just broadcast the inbound message so the human agent is notified.
+        if (lead.lead_metadata or {}).get("human_mode"):
+            if broker_id:
+                try:
+                    from app.core.websocket_manager import ws_manager
+                    await ws_manager.broadcast(broker_id, "new_message", {
+                        "lead_id": lead.id,
+                        "lead_name": lead.name,
+                        "message": message[:200],
+                        "provider": provider_name,
+                        "human_mode": True,
+                    })
+                    # Notify the assigned human agent
+                    await ws_manager.broadcast(broker_id, "human_mode_incoming", {
+                        "lead_id": lead.id,
+                        "lead_name": lead.name or lead.phone,
+                        "phone": lead.phone,
+                        "message_text": message[:300],
+                        "channel": provider_name,
+                        "assigned_to": (lead.lead_metadata or {}).get("human_assigned_to"),
+                    })
+                except Exception as _ws_exc:
+                    logger.debug("[WS] Human mode broadcast error: %s", _ws_exc)
+            return ChatResult(
+                response="[human_mode]",
+                lead_id=lead.id,
+                lead_score=lead.lead_score or 0,
+                lead_status=str(lead.status) if lead.status else "cold",
+            )
+        # ─────────────────────────────────────────────────────────────────────
+
         # 2c. Broadcast new_message + typing events via WebSocket (TASK-027)
         if broker_id:
             try:

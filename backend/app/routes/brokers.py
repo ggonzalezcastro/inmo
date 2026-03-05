@@ -21,31 +21,20 @@ logger = logging.getLogger(__name__)
 class BrokerCreate(BaseModel):
     name: str
     slug: str = None
-    phone: str = None
-    email: EmailStr = None
-    logo_url: str = None
-    website: str = None
-    address: str = None
-    timezone: str = None
-    currency: str = None
-    country: str = None
-    language: str = None
+    contact_phone: str = None
+    contact_email: EmailStr = None
+    business_hours: str = None
+    service_zones: Optional[dict] = None
 
 
 class BrokerResponse(BaseModel):
     id: int
     name: str
     slug: Optional[str] = None
-    phone: Optional[str] = None
-    email: Optional[str] = None
-    logo_url: Optional[str] = None
-    website: Optional[str] = None
-    address: Optional[str] = None
-    timezone: Optional[str] = None
-    currency: Optional[str] = None
-    country: Optional[str] = None
-    language: Optional[str] = None
-    subscription_plan: Optional[str] = None
+    contact_phone: Optional[str] = None
+    contact_email: Optional[str] = None
+    business_hours: Optional[str] = None
+    service_zones: Optional[dict] = None
     is_active: bool
     created_at: datetime
 
@@ -91,15 +80,10 @@ async def create_broker(
     broker = Broker(
         name=broker_data.name,
         slug=slug,
-        phone=broker_data.phone,
-        email=broker_data.email,
-        logo_url=broker_data.logo_url,
-        website=broker_data.website,
-        address=broker_data.address,
-        timezone=broker_data.timezone,
-        currency=broker_data.currency,
-        country=broker_data.country,
-        language=broker_data.language,
+        contact_phone=broker_data.contact_phone,
+        contact_email=broker_data.contact_email,
+        business_hours=broker_data.business_hours,
+        service_zones=broker_data.service_zones,
         is_active=True
     )
     
@@ -252,24 +236,14 @@ async def update_broker(
     broker.name = broker_data.name
     if broker_data.slug:
         broker.slug = broker_data.slug
-    if broker_data.phone:
-        broker.phone = broker_data.phone
-    if broker_data.email:
-        broker.email = broker_data.email
-    if broker_data.logo_url:
-        broker.logo_url = broker_data.logo_url
-    if broker_data.website:
-        broker.website = broker_data.website
-    if broker_data.address:
-        broker.address = broker_data.address
-    if broker_data.timezone:
-        broker.timezone = broker_data.timezone
-    if broker_data.currency:
-        broker.currency = broker_data.currency
-    if broker_data.country:
-        broker.country = broker_data.country
-    if broker_data.language:
-        broker.language = broker_data.language
+    if broker_data.contact_phone:
+        broker.contact_phone = broker_data.contact_phone
+    if broker_data.contact_email:
+        broker.contact_email = broker_data.contact_email
+    if broker_data.business_hours:
+        broker.business_hours = broker_data.business_hours
+    if broker_data.service_zones:
+        broker.service_zones = broker_data.service_zones
     
     await db.commit()
     await db.refresh(broker)

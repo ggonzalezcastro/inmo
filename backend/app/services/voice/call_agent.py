@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import Dict, Any, Optional, List
 import logging
+from pydantic import BaseModel, Field
 from app.models.lead import Lead
 from app.services.llm import LLMServiceFacade
 from app.services.shared import TemplateService
@@ -12,6 +13,16 @@ from app.models.template import MessageTemplate, AgentType
 from google.genai import types
 
 logger = logging.getLogger(__name__)
+
+
+class CallSummarySchema(BaseModel):
+    summary: str = "Llamada completada"
+    interest_level: int = Field(default=5, ge=1, le=10)
+    budget: Optional[str] = None
+    timeline: Optional[str] = None
+    next_steps: Optional[str] = "Seguimiento estándar"
+    score_delta: float = Field(default=0.0, ge=-50.0, le=50.0)
+    stage_to_move: Optional[str] = None
 
 
 class CallAgentService:
@@ -310,7 +321,12 @@ Genera un resumen JSON con:
                 else:
                     summary = _fallback_summary
 
-            return summary
+            try:
+                validated = CallSummarySchema.model_validate(summary)
+                return validated.model_dump()
+            except Exception as val_err:
+                logger.warning("CallSummary validation failed: %s — using fallback", val_err)
+                return _fallback_summary
 
         except Exception as e:
             logger.error(f"Error generating call summary: {str(e)}", exc_info=True)

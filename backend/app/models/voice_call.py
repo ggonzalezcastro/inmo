@@ -4,7 +4,7 @@ Voice call models for recording and managing phone calls
 from datetime import datetime
 from enum import Enum
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, Float, 
+    Column, Integer, String, Text, DateTime, Float, Boolean,
     ForeignKey, JSON, Enum as SQLEnum, Index
 )
 from sqlalchemy.orm import relationship
@@ -69,6 +69,9 @@ class VoiceCall(Base, IdMixin, TimestampMixin):
     stage_after_call = Column(String(50), nullable=True)  # What stage to move lead to
     score_delta = Column(Float, nullable=True, default=0.0)  # Score change from call
     
+    # Idempotency: marks end-of-call-report as fully processed
+    post_processed = Column(Boolean, nullable=False, default=False, server_default="false")
+
     # Timestamps
     started_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)

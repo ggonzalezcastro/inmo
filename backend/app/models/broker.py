@@ -14,18 +14,10 @@ class Broker(Base, IdMixin, TimestampMixin):
     
     name = Column(String(200), nullable=False)
     slug = Column(String(100), unique=True, nullable=True, index=True)
-    # Using phone/email to match existing DB schema
-    phone = Column(String(50), nullable=True)
-    email = Column(String(200), nullable=True)
-    # Additional fields that might exist
-    logo_url = Column(String(500), nullable=True)
-    website = Column(String(500), nullable=True)
-    address = Column(Text, nullable=True)
-    timezone = Column(String(50), nullable=True)
-    currency = Column(String(10), nullable=True)
-    country = Column(String(50), nullable=True)
-    language = Column(String(10), nullable=True)
-    subscription_plan = Column(String(50), nullable=True)
+    contact_phone = Column(String(50), nullable=True)
+    contact_email = Column(String(200), nullable=True)
+    business_hours = Column(String(100), nullable=True)
+    service_zones = Column(JSONB, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     
     # Relationships
@@ -122,14 +114,10 @@ class BrokerLeadConfig(Base, IdMixin, TimestampMixin):
     
     # Pesos de campos
     field_weights = Column(JSONB, default={
-        "name": 10,
-        "phone": 15,
-        "email": 10,
-        "location": 15,
-        "budget": 20
+        "name": 10, "phone": 15, "email": 10, "location": 15, "budget": 20
     }, nullable=True)
     
-    # Umbrales
+    # Umbrales de score
     cold_max_score = Column(Integer, default=20, nullable=False)
     warm_max_score = Column(Integer, default=50, nullable=False)
     hot_min_score = Column(Integer, default=50, nullable=False)
@@ -138,42 +126,19 @@ class BrokerLeadConfig(Base, IdMixin, TimestampMixin):
     # Prioridad de preguntas
     field_priority = Column(JSONB, default=["name", "phone", "email", "location", "budget"], nullable=True)
     
-    # ⭐ NUEVO: Rangos de ingresos configurables
-    income_ranges = Column(JSONB, default={
-        "insufficient": {"min": 0, "max": 500000, "label": "Insuficiente"},
-        "low": {"min": 500000, "max": 1000000, "label": "Bajo"},
-        "medium": {"min": 1000000, "max": 2000000, "label": "Medio"},
-        "good": {"min": 2000000, "max": 4000000, "label": "Bueno"},
-        "excellent": {"min": 4000000, "max": None, "label": "Excelente"}
-    }, nullable=True)
+    # Criterios de calificación financiera (columna nueva — ver migración add_qualification_criteria)
+    qualification_criteria = Column(JSONB, nullable=True)
     
-    # ⭐ NUEVO: Criterios de calificación configurables
-    qualification_criteria = Column(JSONB, default={
-        "calificado": {
-            "min_monthly_income": 1000000,
-            "dicom_status": ["clean"],
-            "max_debt_amount": 0
-        },
-        "potencial": {
-            "min_monthly_income": 500000,
-            "dicom_status": ["clean", "has_debt"],
-            "max_debt_amount": 500000
-        },
-        "no_calificado": {
-            "conditions": [
-                {"monthly_income_below": 500000},
-                {"debt_amount_above": 500000}
-            ]
-        }
-    }, nullable=True)
+    # Umbral de deuda aceptable (columna nueva — ver migración add_qualification_criteria)
+    max_acceptable_debt = Column(Integer, default=0, nullable=True)
     
-    # ⭐ NUEVO: Umbral de deuda aceptable
-    max_acceptable_debt = Column(Integer, default=500000, nullable=False)
+    # Configuración del score por tramos de sueldo y DICOM (ver migración add_scoring_config)
+    scoring_config = Column(JSONB, nullable=True)
     
     # Alertas
     alert_on_hot_lead = Column(Boolean, default=True, nullable=False)
     alert_score_threshold = Column(Integer, default=70, nullable=False)
-    alert_on_qualified = Column(Boolean, default=True, nullable=False)
+    alert_on_qualified = Column(Boolean, default=True, nullable=True)
     alert_email = Column(String(200), nullable=True)
     
     # Relationships

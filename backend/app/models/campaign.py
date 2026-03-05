@@ -22,6 +22,7 @@ class CampaignChannel(str, Enum):
 class CampaignStatus(str, Enum):
     """Status of a campaign"""
     DRAFT = "draft"
+    PENDING_REVIEW = "pending_review"
     ACTIVE = "active"
     PAUSED = "paused"
     COMPLETED = "completed"
@@ -67,14 +68,16 @@ class Campaign(Base, IdMixin, TimestampMixin):
     
     # Channel configuration
     channel = Column(
-        SQLEnum(CampaignChannel),
+        SQLEnum(CampaignChannel, name="campaignchannel", create_type=False,
+                values_callable=lambda obj: [e.value for e in obj]),
         nullable=False,
         index=True
     )
     
     # Status and control
     status = Column(
-        SQLEnum(CampaignStatus),
+        SQLEnum(CampaignStatus, name="campaignstatus", create_type=False,
+                values_callable=lambda obj: [e.value for e in obj]),
         default=CampaignStatus.DRAFT,
         nullable=False,
         index=True
@@ -82,7 +85,8 @@ class Campaign(Base, IdMixin, TimestampMixin):
     
     # Trigger configuration
     triggered_by = Column(
-        SQLEnum(CampaignTrigger),
+        SQLEnum(CampaignTrigger, name="campaigntrigger", create_type=False,
+                values_callable=lambda obj: [e.value for e in obj]),
         default=CampaignTrigger.MANUAL,
         nullable=False,
         index=True
@@ -98,11 +102,17 @@ class Campaign(Base, IdMixin, TimestampMixin):
     # Limits
     max_contacts = Column(Integer, nullable=True)  # NULL = unlimited
     
+    # Approval workflow
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    approved_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    
     # Multi-tenancy
     broker_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     
     # Relationships
     broker = relationship("User", foreign_keys=[broker_id])
+    creator = relationship("User", foreign_keys=[created_by])
+    approver = relationship("User", foreign_keys=[approved_by])
     steps = relationship("CampaignStep", back_populates="campaign", cascade="all, delete-orphan", order_by="CampaignStep.step_number")
     logs = relationship("CampaignLog", back_populates="campaign", cascade="all, delete-orphan")
     
@@ -134,12 +144,26 @@ class CampaignStep(Base, IdMixin, TimestampMixin):
     
     # Action to perform
     action = Column(
-        SQLEnum(CampaignStepAction),
+        SQLEnum(CampaignStepAction, name="campaignstepaction", create_type=False,
+                values_callable=lambda obj: [e.value for e in obj]),
         nullable=False
     )
     
     # Template reference (if action is send_message)
     message_template_id = Column(Integer, ForeignKey("message_templates.id", ondelete="SET NULL"), nullable=True)
+    
+    # Free-text message content (alternative to template)
+    message_text = Column(Text, nullable=True)
+    
+    # Let AI agent generate the message dynamically
+    use_ai_message = Column(Boolean, default=False, nullable=False)
+    
+    # Per-step channel override (NULL = inherit from campaign)
+    step_channel = Column(
+        SQLEnum(CampaignChannel, name="campaignchannel", create_type=False,
+                values_callable=lambda obj: [e.value for e in obj]),
+        nullable=True
+    )
     
     # Delay before executing this step (hours)
     delay_hours = Column(Integer, default=0, nullable=False)
@@ -183,7 +207,8 @@ class CampaignLog(Base, IdMixin):
     
     # Execution status
     status = Column(
-        SQLEnum(CampaignLogStatus),
+        SQLEnum(CampaignLogStatus, name="campaignlogstatus", create_type=False,
+                values_callable=lambda obj: [e.value for e in obj]),
         default=CampaignLogStatus.PENDING,
         nullable=False,
         index=True

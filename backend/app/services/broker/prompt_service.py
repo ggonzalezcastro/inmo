@@ -5,7 +5,7 @@ from sqlalchemy import text
 from typing import Dict, Optional
 import logging
 
-from app.models.broker import Broker
+from app.models.broker import Broker, BrokerLeadConfig
 from app.core.cache import cache_get, cache_set
 from app.services.broker.prompt_defaults import DEFAULT_SYSTEM_PROMPT
 
@@ -113,9 +113,37 @@ async def build_system_prompt(
     if data_collection_prompt:
         sections.append(f"## DATOS A RECOPILAR\n{data_collection_prompt}")
     else:
-        sections.append(
-            "## DATOS A RECOPILAR\n- Nombre completo\n- Teléfono\n- Email\n- Ubicación deseada (comuna/sector)\n- Renta/Sueldo mensual (NO presupuesto)"
-        )
+        # Build from field_priority if configured
+        _field_labels = {
+            "name": "Nombre completo",
+            "phone": "Teléfono",
+            "email": "Email",
+            "location": "Ubicación deseada (comuna/sector)",
+            "monthly_income": "Renta/Sueldo mensual (NO presupuesto del inmueble)",
+            "dicom_status": "Estado DICOM (consultar con tacto)",
+            "budget": "Presupuesto disponible",
+        }
+        try:
+            lead_cfg_result = await db.execute(
+                select(BrokerLeadConfig).where(BrokerLeadConfig.broker_id == broker_id)
+            )
+            lead_cfg = lead_cfg_result.scalars().first()
+            priority = lead_cfg.field_priority if lead_cfg and lead_cfg.field_priority else None
+        except Exception:
+            priority = None
+
+        if priority:
+            items = "\n".join(
+                f"{i+1}. {_field_labels.get(f, f)}"
+                for i, f in enumerate(priority)
+            )
+            sections.append(
+                f"## DATOS A RECOPILAR (en este orden)\n{items}"
+            )
+        else:
+            sections.append(
+                "## DATOS A RECOPILAR\n- Nombre completo\n- Teléfono\n- Email\n- Ubicación deseada (comuna/sector)\n- Renta/Sueldo mensual (NO presupuesto)"
+            )
 
     behavior_rules = safe_get(prompt_config_data, "behavior_rules")
     if behavior_rules:

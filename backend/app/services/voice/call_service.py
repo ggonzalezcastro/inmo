@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 import logging
 
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -17,6 +18,17 @@ from app.services.voice.types import WebhookEvent, CallEventType
 logger = logging.getLogger(__name__)
 
 
+class ScheduleAppointmentArgs(BaseModel):
+    lead_id: Optional[int] = None
+    date: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class UpdateLeadStageArgs(BaseModel):
+    lead_id: Optional[int] = None
+    stage: Optional[str] = None
+
+
 async def handle_tool_call(tool_name: str, tool_call_id: str, parameters: Dict[str, Any]) -> str:
     """
     Handle a single VAPI tool call. Returns a string result for the tool.
@@ -25,15 +37,24 @@ async def handle_tool_call(tool_name: str, tool_call_id: str, parameters: Dict[s
         return "Acción registrada."
 
     if tool_name == "schedule_appointment":
-        lead_id = parameters.get("lead_id")
+        try:
+            args = ScheduleAppointmentArgs.model_validate(parameters)
+        except Exception as e:
+            logger.warning("Invalid schedule_appointment args: %s", e)
+            return "No se pudo procesar: argumentos inválidos."
         logger.info(
             "Tool call schedule_appointment lead_id=%s params=%s",
-            lead_id,
+            args.lead_id,
             parameters,
         )
         return "Entendido, un asesor te contactará para confirmar el horario."
 
     if tool_name == "update_lead_stage":
+        try:
+            args = UpdateLeadStageArgs.model_validate(parameters)
+        except Exception as e:
+            logger.warning("Invalid update_lead_stage args: %s", e)
+            return "No se pudo procesar: argumentos inválidos."
         logger.info("Tool call update_lead_stage params=%s", parameters)
         return "Información registrada correctamente."
 
@@ -144,7 +165,7 @@ class VoiceCallService:
             broker_id=broker_user_id,
         )
         db.add(voice_call)
-        await db.commit()
+        await db.flush()          # assign ID without committing
         await db.refresh(voice_call)
 
         try:
@@ -166,7 +187,7 @@ class VoiceCallService:
             # Update voice call with external ID
             voice_call.external_call_id = external_call_id
             voice_call.started_at = datetime.now()
-            await db.commit()
+            await db.commit()     # single commit on happy path
             await db.refresh(voice_call)
 
             logger.info(f"Voice call {voice_call.id} initiated: {external_call_id}")
@@ -175,7 +196,7 @@ class VoiceCallService:
         except Exception as e:
             logger.error(f"Error initiating call: {str(e)}", exc_info=True)
             voice_call.status = CallStatus.FAILED
-            await db.commit()
+            await db.commit()     # commit FAILED status
             raise
 
     @staticmethod
@@ -274,6 +295,86 @@ class VoiceCallService:
             event_type_str,
             metadata,
         )
+
+    @staticmethod
+    async def store_transcript_lines(
+        db: AsyncSession,
+        voice_call_id: int,
+        artifact_messages: list,
+        transcript_text: str = "",
+    ) -> int:
+        """
+        Parse Vapi artifact messages into CallTranscript rows.
+
+        Primary source: ``artifact_messages`` — structured list from Vapi's
+        end-of-call-report artifact (each item has ``role``, ``message``,
+        ``secondsFromStart``).
+
+        Fallback: plain-text ``transcript`` string (format: "Bot: ...\\nUser: ...").
+
+        Returns the number of lines stored.
+        """
+        from app.models.voice_call import CallTranscript, SpeakerType
+
+        lines: list = []
+
+        if artifact_messages:
+            for msg in artifact_messages:
+                role = (msg.get("role") or "").lower()
+                text = (msg.get("message") or msg.get("content") or "").strip()
+                # Skip empty messages and non-speaker roles
+                if not text or role in ("tool", "tool_call", "system", "tool_result"):
+                    continue
+                speaker = (
+                    SpeakerType.BOT if role in ("assistant", "bot") else SpeakerType.CUSTOMER
+                )
+                timestamp = float(msg.get("secondsFromStart") or msg.get("time") or 0.0)
+                lines.append(
+                    CallTranscript(
+                        voice_call_id=voice_call_id,
+                        speaker=speaker,
+                        text=text,
+                        timestamp=timestamp,
+                        confidence=None,
+                    )
+                )
+        elif transcript_text:
+            # Fallback: parse "Bot: ...\nUser: ..." plain-text format from Vapi.
+            # No real timestamps available — assign sequential increments.
+            timestamp = 0.0
+            for line in transcript_text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                if line.lower().startswith(("bot:", "assistant:")):
+                    text = line.split(":", 1)[1].strip()
+                    speaker = SpeakerType.BOT
+                elif line.lower().startswith(("user:", "customer:")):
+                    text = line.split(":", 1)[1].strip()
+                    speaker = SpeakerType.CUSTOMER
+                else:
+                    continue
+                if text:
+                    lines.append(
+                        CallTranscript(
+                            voice_call_id=voice_call_id,
+                            speaker=speaker,
+                            text=text,
+                            timestamp=timestamp,
+                            confidence=None,
+                        )
+                    )
+                    timestamp += 1.0
+
+        if lines:
+            db.add_all(lines)
+            await db.flush()
+            logger.info(
+                "Stored %d transcript lines for voice_call_id=%s",
+                len(lines),
+                voice_call_id,
+            )
+        return len(lines)
 
     @staticmethod
     async def handle_transcript_update(

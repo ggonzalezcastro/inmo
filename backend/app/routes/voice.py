@@ -1,6 +1,9 @@
 """
 Voice call routes for managing phone calls
 """
+import hashlib
+import hmac
+import time
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Header
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,22 +28,51 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _verify_vapi_signature(raw_body: bytes, headers: dict, secret: str) -> bool:
+    """Verify HMAC-SHA256 webhook signature from Vapi."""
+    sig = headers.get("x-vapi-signature") or headers.get("X-Vapi-Signature") or ""
+    ts = headers.get("x-vapi-timestamp") or headers.get("X-Vapi-Timestamp") or ""
+    if not sig or not ts:
+        return False
+    try:
+        if abs(time.time() - float(ts)) > 300:
+            return False
+    except ValueError:
+        return False
+    expected = hmac.new(
+        secret.encode(),
+        (ts + "." + raw_body.decode("utf-8", errors="replace")).encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(sig, expected)
+
+
 async def _handle_vapi_webhook(
     payload: dict,
     db: AsyncSession,
     provider: Any,
     headers: Optional[dict] = None,
+    raw_body: Optional[bytes] = None,
 ) -> dict:
     """
     Shared VAPI webhook dispatch. Returns a dict to be returned as JSON.
     Always return HTTP 200 to VAPI; use dict for body.
     """
-    # C1: Verify Vapi webhook signature when secret is configured.
+    # Verify Vapi webhook signature when secret is configured.
     if settings.VAPI_WEBHOOK_SECRET:
-        token = (headers or {}).get("x-vapi-secret") or ""
-        if token != settings.VAPI_WEBHOOK_SECRET:
-            logger.warning("Vapi webhook: invalid secret, rejecting request")
-            return {"error": "Unauthorized"}
+        h = headers or {}
+        # Prefer HMAC signature (replay-resistant); fall back to shared secret.
+        if (h.get("x-vapi-signature") or h.get("X-Vapi-Signature")):
+            if raw_body is None or not _verify_vapi_signature(
+                raw_body, h, settings.VAPI_WEBHOOK_SECRET
+            ):
+                logger.warning("Vapi webhook: invalid HMAC signature, rejecting request")
+                return {"error": "Unauthorized"}
+        else:
+            token = h.get("x-vapi-secret") or ""
+            if token != settings.VAPI_WEBHOOK_SECRET:
+                logger.warning("Vapi webhook: invalid secret, rejecting request")
+                return {"error": "Unauthorized"}
 
     try:
         raw_event = await provider.handle_webhook(payload, headers=headers or {})
@@ -128,10 +160,27 @@ async def initiate_call(
     db: AsyncSession = Depends(get_db)
 ):
     """Initiate an outbound call to a lead"""
-    
+
     try:
         broker_id = current_user.get("id")
-        
+
+        # Rate limiting: max 5 simultaneous active calls per broker
+        from app.models.voice_call import VoiceCall, CallStatus
+        from sqlalchemy import func
+        active_statuses = [CallStatus.INITIATED, CallStatus.RINGING, CallStatus.ANSWERED]
+        count_result = await db.execute(
+            select(func.count()).select_from(VoiceCall).where(
+                VoiceCall.broker_id == broker_id,
+                VoiceCall.status.in_(active_statuses),
+            )
+        )
+        active_count = count_result.scalar_one()
+        if active_count >= 5:
+            raise HTTPException(
+                status_code=429,
+                detail="Máximo 5 llamadas activas simultáneas por broker."
+            )
+
         voice_call = await VoiceCallService.initiate_call(
             db=db,
             lead_id=request.lead_id,
@@ -158,14 +207,16 @@ async def voice_webhook_by_provider(
     """
     Webhook endpoint for voice callbacks by provider (vapi, bland, retell).
     """
+    raw_body = await request.body()
     try:
-        payload = await request.json()
+        import json as _json
+        payload = _json.loads(raw_body)
     except Exception:
         payload = {}
     from app.services.voice.factory import get_voice_provider as get_provider_async
     provider = await get_provider_async(provider_type=provider_name, db=db)
     body = await _handle_vapi_webhook(
-        payload, db, provider, headers=dict(request.headers)
+        payload, db, provider, headers=dict(request.headers), raw_body=raw_body
     )
     return JSONResponse(status_code=200, content=body)
 
@@ -179,13 +230,17 @@ async def voice_webhook(
     Webhook endpoint for voice callbacks (default provider: vapi).
     Use POST /webhooks/voice/{provider} for explicit provider routing.
     """
+    raw_body = await request.body()
     try:
-        payload = await request.json()
+        import json as _json
+        payload = _json.loads(raw_body)
     except Exception:
         payload = {}
     from app.services.voice.factory import get_voice_provider as get_provider_async
     provider = await get_provider_async(provider_type="vapi", db=db)
-    body = await _handle_vapi_webhook(payload, db, provider, headers=dict(request.headers))
+    body = await _handle_vapi_webhook(
+        payload, db, provider, headers=dict(request.headers), raw_body=raw_body
+    )
     return JSONResponse(status_code=200, content=body)
 
 

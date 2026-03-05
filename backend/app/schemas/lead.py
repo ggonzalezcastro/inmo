@@ -91,6 +91,7 @@ class LeadResponse(LeadBase):
     id: int
     status: LeadStatusEnum
     lead_score: float
+    pipeline_stage: Optional[str] = None
     last_contacted: Optional[datetime]
     created_at: datetime
     updated_at: datetime
@@ -149,6 +150,7 @@ class LeadResponse(LeadBase):
                     'tags': getattr(data, 'tags', []) or [],
                     'status': data.status,
                     'lead_score': getattr(data, 'lead_score', 0.0) or 0.0,
+                    'pipeline_stage': getattr(data, 'pipeline_stage', None),
                     'last_contacted': getattr(data, 'last_contacted', None),
                     'created_at': data.created_at,
                     'updated_at': data.updated_at,

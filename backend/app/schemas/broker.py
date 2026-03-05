@@ -50,6 +50,7 @@ class PromptConfigUpdate(BaseModel):
     full_custom_prompt: Optional[str] = None
     enable_appointment_booking: Optional[bool] = None
     tools_instructions: Optional[str] = None
+    timezone: Optional[str] = None  # e.g. "America/Santiago"
 
 
 class LeadConfigUpdate(BaseModel):
@@ -62,6 +63,7 @@ class LeadConfigUpdate(BaseModel):
     income_ranges: Optional[Dict[str, Any]] = None
     qualification_criteria: Optional[Dict[str, Any]] = None
     max_acceptable_debt: Optional[int] = None
+    scoring_config: Optional[Dict[str, Any]] = None
     alert_on_hot_lead: Optional[bool] = None
     alert_on_qualified: Optional[bool] = None
     alert_score_threshold: Optional[int] = None

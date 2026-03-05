@@ -43,11 +43,24 @@ class FollowUpAgent(BaseAgent):
         location = lead_data.get("location", "el proyecto")
         lead_summary = f"{name} visitó un proyecto en {location}."
 
-        return FOLLOW_UP_SYSTEM_PROMPT.format(
+        base_prompt = FOLLOW_UP_SYSTEM_PROMPT.format(
             agent_name=agent_name,
             broker_name=broker_name,
             lead_summary=lead_summary,
         )
+
+        # Hot fast-track: lead was advanced to "agendado" without a real appointment
+        # Sofía must proactively propose scheduling a visit
+        if (context.pipeline_stage == "agendado"
+                and context.lead_data.get("hot_fast_track")):
+            base_prompt += (
+                "\n\n⚡ INSTRUCCIÓN PRIORITARIA: Este lead fue avanzado automáticamente "
+                "porque mostró alto interés y está financieramente calificado. "
+                "NO tiene una visita agendada todavía. Tu objetivo INMEDIATO en este mensaje "
+                "es proponer una fecha concreta para visitar el proyecto. Sé directo/a y entusiasta."
+            )
+
+        return base_prompt
 
     async def should_handle(self, context: AgentContext) -> bool:
         if context.pipeline_stage in _OWN_STAGES:

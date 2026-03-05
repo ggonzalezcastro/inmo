@@ -254,7 +254,7 @@ class LLMRouter(BaseLLMProvider):
         self,
         prompt: str,
         json_schema: Optional[Dict] = None,
-    ) -> Dict[str, Any]:
+    ) -> tuple[Dict[str, Any], Optional[Dict]]:
         return await self._call_with_failover("generate_json", prompt, json_schema)
 
     # ── Passthrough helpers ──────────────────────────────────────────────────

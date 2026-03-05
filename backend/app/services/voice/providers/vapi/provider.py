@@ -2,6 +2,7 @@
 Vapi.ai Voice Provider - implements BaseVoiceProvider.
 """
 from typing import Dict, Any, Optional
+import asyncio
 import logging
 from datetime import datetime
 
@@ -112,21 +113,26 @@ class VapiProvider(BaseVoiceProvider):
             "Content-Type": "application/json",
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{self.base_url}/call",
-                json=payload,
-                headers=headers,
-            ) as response:
-                if response.status not in [200, 201]:
-                    error_text = await response.text()
-                    logger.error("Vapi API error: %s - %s", response.status, error_text)
-                    raise ValueError(f"Failed to create call: {error_text}")
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.base_url}/call",
+                    json=payload,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(connect=3, total=30),
+                ) as response:
+                    if response.status not in [200, 201]:
+                        error_text = await response.text()
+                        logger.error("Vapi API error: %s - %s", response.status, error_text)
+                        raise ValueError(f"Failed to create call: {error_text}")
 
-                result = await response.json()
-                call_id = result.get("id")
-                logger.info("Vapi call initiated: %s to %s", call_id, request.phone_number)
-                return call_id
+                    result = await response.json()
+                    call_id = result.get("id")
+                    logger.info("Vapi call initiated: %s to %s", call_id, request.phone_number)
+                    return call_id
+        except asyncio.TimeoutError:
+            logger.error("Vapi API timeout on make_call to %s", request.phone_number)
+            raise ValueError("Vapi request timed out")
 
     async def get_call_status(self, external_call_id: str) -> CallStatusResult:
         """Get call status from Vapi."""
@@ -134,27 +140,32 @@ class VapiProvider(BaseVoiceProvider):
             raise ValueError("Vapi API key not configured")
 
         headers = {"Authorization": f"Bearer {self.api_key}"}
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                f"{self.base_url}/call/{external_call_id}",
-                headers=headers,
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    raise ValueError(f"Failed to get call status: {error_text}")
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{self.base_url}/call/{external_call_id}",
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(connect=3, total=10),
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        raise ValueError(f"Failed to get call status: {error_text}")
 
-                call_data = await response.json()
-                duration = None
-                if call_data.get("endedAt") and call_data.get("startedAt"):
-                    duration = self._calculate_duration(call_data)
+                    call_data = await response.json()
+                    duration = None
+                    if call_data.get("endedAt") and call_data.get("startedAt"):
+                        duration = self._calculate_duration(call_data)
 
-                return CallStatusResult(
-                    external_call_id=call_data.get("id", external_call_id),
-                    status=call_data.get("status", "unknown"),
-                    duration_seconds=duration,
-                    transcript=call_data.get("transcript"),
-                    recording_url=call_data.get("recordingUrl"),
-                )
+                    return CallStatusResult(
+                        external_call_id=call_data.get("id", external_call_id),
+                        status=call_data.get("status", "unknown"),
+                        duration_seconds=duration,
+                        transcript=call_data.get("transcript"),
+                        recording_url=call_data.get("recordingUrl"),
+                    )
+        except asyncio.TimeoutError:
+            logger.error("Vapi API timeout on get_call_status for %s", external_call_id)
+            raise ValueError("Vapi request timed out")
 
     async def handle_webhook(self, payload: dict, headers: dict = None) -> WebhookEvent:
         """Parse Vapi webhook and return normalized WebhookEvent."""
@@ -246,6 +257,40 @@ class VapiProvider(BaseVoiceProvider):
             assistant_type=assistant_type_from_meta,
         )
 
+    async def validate_config(self) -> bool:
+        """
+        Validate Vapi credentials by making a lightweight authenticated request.
+        Returns True if the API key is valid, False otherwise.
+        """
+        if not self.api_key:
+            logger.error("Vapi: VAPI_API_KEY is not set")
+            return False
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{self.base_url}/call",
+                    headers=headers,
+                    params={"limit": "1"},
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as response:
+                    if response.status == 200:
+                        logger.info("Vapi API key validated successfully")
+                        return True
+                    if response.status == 401:
+                        logger.error("Vapi: invalid API key (401 Unauthorized)")
+                        return False
+                    # Other status codes (4xx/5xx) don't indicate an invalid key
+                    logger.warning(
+                        "Vapi validate_config: unexpected status %s — treating as valid",
+                        response.status,
+                    )
+                    return True
+        except Exception as e:
+            logger.warning("Vapi validate_config: connection error: %s", e)
+            # Network errors don't mean the key is wrong; don't block startup
+            return True
+
     async def cancel_call(self, external_call_id: str) -> bool:
         """Cancel an active Vapi call."""
         if not self.api_key:
@@ -256,8 +301,12 @@ class VapiProvider(BaseVoiceProvider):
                 async with session.post(
                     f"{self.base_url}/call/{external_call_id}/end",
                     headers=headers,
+                    timeout=aiohttp.ClientTimeout(connect=3, total=10),
                 ) as response:
                     return response.status in [200, 204]
+        except asyncio.TimeoutError:
+            logger.error("Vapi API timeout on cancel_call for %s", external_call_id)
+            return False
         except Exception as e:
             logger.warning("Failed to cancel Vapi call %s: %s", external_call_id, e)
             return False

@@ -13,33 +13,20 @@ async def get_default_config(db: AsyncSession) -> Dict[str, Any]:
     """Get default configuration values when no broker config exists."""
     return {
         "field_weights": {
-            "name": 10,
-            "phone": 15,
-            "email": 10,
-            "location": 15,
-            "budget": 20,
-            "monthly_income": 25,
-            "dicom_status": 20,
+            "name": 5, "phone": 10, "email": 0, "location": 0, "budget": 0,
+            "monthly_income": 40, "dicom_status": 20,
         },
         "cold_max_score": 20,
         "warm_max_score": 50,
         "hot_min_score": 50,
         "qualified_min_score": 75,
-        "field_priority": [
-            "name",
-            "phone",
-            "email",
-            "location",
-            "monthly_income",
-            "dicom_status",
-            "budget",
-        ],
+        "field_priority": ["name", "phone", "monthly_income", "dicom_status"],
         "income_ranges": {
+            "excellent": {"min": 3000000, "max": None, "label": "Excelente"},
+            "good":      {"min": 2000000, "max": 3000000, "label": "Alto"},
+            "medium":    {"min": 1000000, "max": 2000000, "label": "Medio"},
+            "low":       {"min": 500000,  "max": 1000000, "label": "Bajo"},
             "insufficient": {"min": 0, "max": 500000, "label": "Insuficiente"},
-            "low": {"min": 500000, "max": 1000000, "label": "Bajo"},
-            "medium": {"min": 1000000, "max": 2000000, "label": "Medio"},
-            "good": {"min": 2000000, "max": 4000000, "label": "Bueno"},
-            "excellent": {"min": 4000000, "max": None, "label": "Excelente"},
         },
         "qualification_criteria": {
             "calificado": {
@@ -50,17 +37,31 @@ async def get_default_config(db: AsyncSession) -> Dict[str, Any]:
             "potencial": {
                 "min_monthly_income": 500000,
                 "dicom_status": ["clean", "has_debt"],
-                "max_debt_amount": 500000,
+                "max_debt_amount": 0,
             },
             "no_calificado": {
                 "conditions": [
                     {"monthly_income_below": 500000},
-                    {"debt_amount_above": 500000},
+                    {"debt_amount_above": 0},
                 ]
             },
         },
-        "max_acceptable_debt": 500000,
+        "max_acceptable_debt": 0,
+        "scoring_config": _DEFAULT_SCORING_CONFIG,
     }
+
+
+_DEFAULT_SCORING_CONFIG = {
+    "income_tiers": [
+        {"min": 3000000, "label": "Excelente",    "points": 40},
+        {"min": 2000000, "label": "Alto",          "points": 32},
+        {"min": 1000000, "label": "Medio",         "points": 20},
+        {"min": 500000,  "label": "Bajo",          "points": 10},
+        {"min": 0,       "label": "Insuficiente",  "points": 0},
+    ],
+    "dicom_clean_pts": 20,
+    "dicom_has_debt_pts": 8,
+}
 
 
 async def calculate_financial_score(
@@ -68,77 +69,59 @@ async def calculate_financial_score(
     lead_data: Dict[str, Any],
     broker_id: int,
 ) -> int:
-    """Calculate financial score (0-45) from monthly_income and dicom_status."""
+    """Calculate financial score (0-60) using scoring_config income tiers + DICOM."""
     config_result = await db.execute(
         select(BrokerLeadConfig).where(BrokerLeadConfig.broker_id == broker_id)
     )
     lead_config = config_result.scalars().first()
 
-    if not lead_config or not lead_config.field_weights:
-        income_weight = 25
-        dicom_weight = 20
-        max_acceptable_debt = 500000
-        income_ranges = None
-    else:
-        income_weight = lead_config.field_weights.get("monthly_income", 25)
-        dicom_weight = lead_config.field_weights.get("dicom_status", 20)
-        max_acceptable_debt = lead_config.max_acceptable_debt or 500000
-        income_ranges = lead_config.income_ranges
+    scoring = (
+        lead_config.scoring_config
+        if lead_config and lead_config.scoring_config
+        else _DEFAULT_SCORING_CONFIG
+    )
+    max_acceptable_debt = (
+        lead_config.max_acceptable_debt if lead_config and lead_config.max_acceptable_debt is not None
+        else 0
+    )
 
-    points = 0
     metadata = (
         lead_data.get("metadata", {})
         if isinstance(lead_data.get("metadata"), dict)
         else lead_data
     )
 
+    # Income score — iterate tiers sorted by min descending
+    income_pts = 0
     monthly_income = metadata.get("monthly_income")
     if monthly_income:
         try:
             income = int(monthly_income)
-            if income_ranges:
-                for range_key, range_data in income_ranges.items():
-                    range_min = range_data.get("min", 0)
-                    range_max = range_data.get("max")
-                    if range_max is None:
-                        if income >= range_min:
-                            points += income_weight
-                            break
-                    elif range_min <= income < range_max:
-                        if range_key == "excellent":
-                            points += income_weight
-                        elif range_key == "good":
-                            points += int(income_weight * 0.8)
-                        elif range_key == "medium":
-                            points += int(income_weight * 0.6)
-                        elif range_key == "low":
-                            points += int(income_weight * 0.4)
-                        break
-            else:
-                if income >= 4000000:
-                    points += income_weight
-                elif income >= 2000000:
-                    points += int(income_weight * 0.8)
-                elif income >= 1000000:
-                    points += int(income_weight * 0.6)
-                elif income >= 500000:
-                    points += int(income_weight * 0.4)
+            tiers = sorted(scoring.get("income_tiers", _DEFAULT_SCORING_CONFIG["income_tiers"]),
+                           key=lambda t: -t["min"])
+            for tier in tiers:
+                if income >= tier["min"]:
+                    income_pts = tier["points"]
+                    break
         except (ValueError, TypeError):
             pass
 
+    # DICOM score
+    dicom_pts = 0
+    dicom_clean_pts = scoring.get("dicom_clean_pts", 20)
+    dicom_debt_pts = scoring.get("dicom_has_debt_pts", 8)
     dicom_status = metadata.get("dicom_status")
     if dicom_status == "clean":
-        points += dicom_weight
+        dicom_pts = dicom_clean_pts
     elif dicom_status == "has_debt":
-        morosidad_amount = metadata.get("morosidad_amount", 0)
         try:
-            morosidad = int(morosidad_amount)
+            morosidad = int(metadata.get("morosidad_amount") or 0)
             if morosidad <= max_acceptable_debt:
-                points += int(dicom_weight * 0.5)
+                dicom_pts = dicom_debt_pts
         except (ValueError, TypeError):
             pass
 
-    return min(45, points)
+    return min(60, income_pts + dicom_pts)
 
 
 async def determine_lead_status(

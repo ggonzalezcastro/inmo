@@ -9,6 +9,9 @@ Hands off to FollowUpAgent when appointment is confirmed.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+
+import pytz
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,7 +47,7 @@ class SchedulerAgent(BaseAgent):
     agent_type = AgentType.SCHEDULER
     name = "SchedulerAgent"
 
-    def get_system_prompt(self, context: AgentContext) -> str:
+    def get_system_prompt(self, context: AgentContext, broker_timezone: str = "America/Santiago") -> str:
         lead_data = context.lead_data
         broker_name = lead_data.get("broker_name", "la inmobiliaria")
         agent_name = lead_data.get("agent_name", "Sofía")
@@ -56,11 +59,21 @@ class SchedulerAgent(BaseAgent):
         budget_str = f", presupuesto {budget}" if budget else ""
         lead_summary = f"{name}, interesado en {location}{budget_str}."
 
+        # Current datetime in broker timezone
+        try:
+            tz = pytz.timezone(broker_timezone)
+        except Exception:
+            tz = pytz.timezone("America/Santiago")
+        now_local = datetime.now(tz)
+        current_datetime_str = now_local.strftime("%A %d de %B de %Y, %H:%M") + f" ({broker_timezone})"
+
         return SCHEDULER_SYSTEM_PROMPT.format(
             agent_name=agent_name,
             broker_name=broker_name,
             lead_summary=lead_summary,
             available_projects=_DEFAULT_PROJECTS,
+            current_datetime=current_datetime_str,
+            lead_id=context.lead_id,
         )
 
     async def should_handle(self, context: AgentContext) -> bool:
@@ -81,6 +94,8 @@ class SchedulerAgent(BaseAgent):
     ) -> AgentResponse:
         from app.services.llm.facade import LLMServiceFacade
         from app.services.agents.qualifier import _build_messages
+        from app.models.broker import BrokerPromptConfig
+        from sqlalchemy.future import select
 
         self._log(
             "Processing scheduling message",
@@ -88,7 +103,19 @@ class SchedulerAgent(BaseAgent):
             stage=context.pipeline_stage,
         )
 
-        system_prompt = self.get_system_prompt(context)
+        # Fetch broker timezone from config
+        broker_timezone = "America/Santiago"
+        try:
+            cfg_result = await db.execute(
+                select(BrokerPromptConfig).where(BrokerPromptConfig.broker_id == context.broker_id)
+            )
+            broker_cfg = cfg_result.scalars().first()
+            if broker_cfg and broker_cfg.meeting_config:
+                broker_timezone = broker_cfg.meeting_config.get("timezone", "America/Santiago")
+        except Exception:
+            pass
+
+        system_prompt = self.get_system_prompt(context, broker_timezone=broker_timezone)
 
         try:
             response_text, function_calls = (

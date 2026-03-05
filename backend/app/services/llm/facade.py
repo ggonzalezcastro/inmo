@@ -183,14 +183,15 @@ class LLMServiceFacade:
 
 IMPORTANTE:
 - Solo extrae datos mencionados en este mensaje
-- Si preguntó por renta/sueldo y responde número → salary (NO budget)
+- Cualquier cantidad monetaria mencionada como ingreso, renta, sueldo → salary (NUNCA budget)
+- "budget" siempre es null — no usamos presupuesto, solo sueldo/renta
 - Si preguntó por DICOM y responde "no" → dicom_status="clean"
 
 Retorna JSON con:
 {{
     "qualified": "yes"|"no"|"maybe",
     "interest_level": 1-10,
-    "budget": número o null,
+    "budget": null,
     "timeline": "immediate"|"30days"|"90days"|"just_looking"|"unknown",
     "name": string o null,
     "phone": string o null,
@@ -208,8 +209,11 @@ Retorna JSON con:
             # temperature=0.3 for data extraction — financial data must be precise
             _t0 = time.monotonic()
             with trace_span("llm.qualify", {"provider": pname, "model": model, "lead_id": str(lead_id or "")}):
-                result = await provider.generate_json(analysis_prompt)
+                result, _usage = await provider.generate_json(analysis_prompt)
             _latency = int((time.monotonic() - _t0) * 1000)
+            # Use real token counts from API; fall back to char-length estimate if unavailable
+            _in_tok = (_usage.get("input_tokens") if _usage else None) or len(analysis_prompt) // 4
+            _out_tok = (_usage.get("output_tokens") if _usage else None) or len(str(result)) // 4
             _fire_log(
                 provider_name=pname,
                 model=model,
@@ -218,6 +222,8 @@ Retorna JSON con:
                 latency_ms=_latency,
                 broker_id=broker_id,
                 lead_id=lead_id,
+                input_tokens=_in_tok,
+                output_tokens=_out_tok,
             )
 
             # Ensure all expected fields exist
@@ -452,7 +458,22 @@ Retorna JSON con:
                 logger.debug("[RAG] KB search failed: %s", _rag_exc)
 
         # dynamic context (changes per lead/request)
-        dynamic_context = f"--- CONTEXTO DEL LEAD ---\n{context_summary}{prior_block}"
+        from datetime import datetime
+        import pytz
+        try:
+            broker_tz = pytz.timezone("America/Santiago")
+            now_str = datetime.now(broker_tz).strftime("%A %d de %B de %Y, %H:%M (America/Santiago)")
+        except Exception:
+            now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        lead_id_val = lead_context.get("lead_id") or lead_context.get("id") or "desconocido"
+
+        dynamic_context = (
+            f"--- CONTEXTO OPERACIONAL ---\n"
+            f"Fecha y hora actual: {now_str}\n"
+            f"ID interno del lead (NO mencionar al usuario): {lead_id_val}\n"
+            f"Zona horaria: America/Santiago. NUNCA preguntes al usuario por el lead ID ni la zona horaria.\n\n"
+            f"--- CONTEXTO DEL LEAD ---\n{context_summary}{prior_block}"
+        )
         if kb_block:
             dynamic_context = f"{kb_block}\n\n{dynamic_context}"
 

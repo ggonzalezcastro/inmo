@@ -47,6 +47,7 @@ def recalculate_all_lead_scores(self):
                 
                 updated_count = 0
                 activities_to_log = []
+                hot_advanced_leads = []  # leads that just became HOT and may need stage advance
                 
                 for lead in leads:
                     try:
@@ -56,6 +57,7 @@ def recalculate_all_lead_scores(self):
                         )
                         old_score = lead.lead_score
                         new_score = score_data["total"]
+                        old_status = lead.status
                         
                         lead.lead_score = new_score
                         lead.lead_score_components = {
@@ -84,6 +86,12 @@ def recalculate_all_lead_scores(self):
                             else:
                                 lead.status = LeadStatus.HOT
                         
+                        # Track leads that just became HOT for pipeline auto-advance
+                        if (lead.status == LeadStatus.HOT
+                                and old_status != LeadStatus.HOT
+                                and lead.pipeline_stage in ["perfilamiento", "calificacion_financiera"]):
+                            hot_advanced_leads.append(lead.id)
+                        
                         if new_score != old_score:
                             updated_count += 1
                             activities_to_log.append({
@@ -104,6 +112,15 @@ def recalculate_all_lead_scores(self):
                     logger.error(f"Batch commit failed: {str(e)}", exc_info=True)
                     await db.rollback()
                     return
+                
+                # Trigger pipeline auto-advance for leads that just became HOT
+                if hot_advanced_leads:
+                    from app.services.pipeline.advancement_service import auto_advance_stage
+                    for lead_id in hot_advanced_leads:
+                        try:
+                            await auto_advance_stage(db, lead_id)
+                        except Exception as e:
+                            logger.error(f"Error auto-advancing HOT lead {lead_id}: {str(e)}")
                 
                 # Log activities after commit (each log_activity may commit)
                 for item in activities_to_log:

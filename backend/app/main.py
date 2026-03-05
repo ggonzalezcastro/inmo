@@ -36,6 +36,7 @@ from app.routes.costs import router as costs_router
 from app.routes.admin_tasks import router as admin_tasks_router
 from app.routes.ws import router as ws_router
 from app.routes.knowledge_base import router as kb_router
+from app.routes.conversations import router as conversations_router
 from app.celery_app import celery_app
 
 
@@ -48,6 +49,21 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting up application...")
     await init_db()
+
+    # Validate voice provider credentials (non-blocking — only warns on failure)
+    if getattr(settings, "VAPI_API_KEY", ""):
+        try:
+            from app.services.voice.factory import get_voice_provider
+            provider = await get_voice_provider(provider_type="vapi")
+            valid = await provider.validate_config()
+            if not valid:
+                logger.warning(
+                    "Vapi API key validation failed — voice calls will not work. "
+                    "Check VAPI_API_KEY in your environment."
+                )
+        except Exception as _e:
+            logger.warning("Could not validate Vapi config at startup: %s", _e)
+
     yield
     # Shutdown
     logger.info("Shutting down application...")
@@ -361,6 +377,7 @@ app.include_router(costs_router, prefix="/api/v1/admin/costs", tags=["costs"])
 app.include_router(admin_tasks_router, prefix="/api/v1/admin/tasks", tags=["admin-tasks"])
 app.include_router(ws_router, prefix="/ws", tags=["websocket"])
 app.include_router(kb_router, prefix="/api/v1/kb", tags=["knowledge-base"])
+app.include_router(conversations_router, prefix="/api/v1/conversations", tags=["conversations"])
 
 
 if __name__ == "__main__":

@@ -42,7 +42,11 @@ class ChatMessage(Base, IdMixin, TimestampMixin):
     broker_id = Column(Integer, ForeignKey("brokers.id", ondelete="CASCADE"), nullable=False, index=True)
 
     # Provider
-    provider = Column(SQLEnum(ChatProvider), nullable=False, index=True)
+    provider = Column(
+        SQLEnum(ChatProvider, name="chatprovider", create_type=False,
+                values_callable=lambda obj: [e.value for e in obj]),
+        nullable=False, index=True,
+    )
 
     # Generic channel identifiers
     channel_user_id = Column(String(255), nullable=False, index=True)
@@ -52,12 +56,14 @@ class ChatMessage(Base, IdMixin, TimestampMixin):
     # Message data
     message_text = Column(Text, nullable=False)
     direction = Column(
-        SQLEnum(MessageDirection),
+        SQLEnum(MessageDirection, name="chatmessagedirection", create_type=False,
+                values_callable=lambda obj: [e.value for e in obj]),
         default=MessageDirection.OUTBOUND,
         nullable=False,
     )
     status = Column(
-        SQLEnum(MessageStatus),
+        SQLEnum(MessageStatus, name="chatmessagestatus", create_type=False,
+                values_callable=lambda obj: [e.value for e in obj]),
         default=MessageStatus.SENT,
         nullable=False,
     )

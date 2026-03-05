@@ -21,6 +21,62 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+async def _auto_snapshot_prompt(db: AsyncSession, broker_id: int, user_id: int):
+    """
+    Generate the current effective prompt and save it as a PromptVersion snapshot.
+    Called automatically after any config change. Version tags use auto-incrementing
+    numbers: auto-001, auto-002, etc. The new snapshot is set as active.
+    Non-blocking: errors are logged but do not fail the parent request.
+    """
+    try:
+        from app.services.broker.prompt_service import build_system_prompt
+
+        # Build the current effective prompt
+        prompt_text = await build_system_prompt(db=db, broker_id=broker_id)
+
+        # Find the highest existing auto-N tag for this broker
+        result = await db.execute(
+            select(PromptVersion)
+            .where(
+                PromptVersion.broker_id == broker_id,
+                PromptVersion.version_tag.like("auto-%"),
+            )
+            .order_by(PromptVersion.id.desc())
+            .limit(1)
+        )
+        last = result.scalars().first()
+        next_num = 1
+        if last:
+            try:
+                next_num = int(last.version_tag.split("-")[1]) + 1
+            except Exception:
+                pass
+        version_tag = f"auto-{next_num:03d}"
+
+        # Deactivate previous versions
+        await db.execute(
+            update(PromptVersion)
+            .where(PromptVersion.broker_id == broker_id)
+            .values(is_active=False)
+        )
+
+        # Create new snapshot as active
+        snapshot = PromptVersion(
+            broker_id=broker_id,
+            created_by=user_id,
+            version_tag=version_tag,
+            is_active=True,
+            content=prompt_text,
+        )
+        db.add(snapshot)
+        await db.commit()
+        logger.info(
+            "Auto-snapshot created: broker_id=%s tag=%r", broker_id, version_tag
+        )
+    except Exception as exc:
+        logger.warning("Auto-snapshot failed for broker_id=%s: %s", broker_id, exc)
+
+
 async def _ensure_default_configs(db: AsyncSession, broker_id: int):
     """Ensure default configurations exist for a broker, create them if not"""
     # This function is not used anymore - we'll return None configs and let the endpoint handle defaults
@@ -56,8 +112,8 @@ async def get_broker_config(
                             "id": broker.id,
                             "name": broker.name,
                             "slug": broker.slug,
-                            "email": getattr(broker, 'email', None),
-                            "phone": getattr(broker, 'phone', None)
+                            "contact_email": broker.contact_email,
+                            "contact_phone": broker.contact_phone
                         }
                         for broker in brokers
                     ]
@@ -110,7 +166,7 @@ async def get_broker_config(
                             SELECT identity_prompt, business_context, agent_objective, 
                                    data_collection_prompt, behavior_rules, restrictions, 
                                    situation_handlers, output_format, full_custom_prompt, 
-                                   tools_instructions
+                                   tools_instructions, meeting_config
                             FROM broker_prompt_configs 
                             WHERE broker_id = :broker_id
                             LIMIT 1
@@ -135,7 +191,7 @@ async def get_broker_config(
                 text("""
                     SELECT broker_id, field_weights, cold_max_score, warm_max_score, 
                            hot_min_score, qualified_min_score, field_priority, 
-                           max_acceptable_debt,
+                           max_acceptable_debt, scoring_config,
                            alert_on_hot_lead, alert_on_qualified, alert_score_threshold, alert_email,
                            id, created_at, updated_at
                     FROM broker_lead_configs 
@@ -161,11 +217,10 @@ async def get_broker_config(
                 "id": broker.id,
                 "name": broker.name,
                 "slug": broker.slug,
-                "phone": getattr(broker, 'phone', None),
-                "email": getattr(broker, 'email', None),
-                "logo_url": getattr(broker, 'logo_url', None),
-                "website": getattr(broker, 'website', None),
-                "address": getattr(broker, 'address', None),
+                "contact_phone": broker.contact_phone,
+                "contact_email": broker.contact_email,
+                "business_hours": broker.business_hours,
+                "service_zones": broker.service_zones,
                 "is_active": broker.is_active
             },
             "prompt_config": {
@@ -181,7 +236,8 @@ async def get_broker_config(
                 "output_format": safe_get(prompt_config_data, 'output_format', None),
                 "full_custom_prompt": safe_get(prompt_config_data, 'full_custom_prompt', None),
                 "enable_appointment_booking": safe_get(prompt_config_data, 'enable_appointment_booking', True),
-                "tools_instructions": safe_get(prompt_config_data, 'tools_instructions', None)
+                "tools_instructions": safe_get(prompt_config_data, 'tools_instructions', None),
+                "timezone": (safe_get(prompt_config_data, 'meeting_config') or {}).get('timezone', 'America/Santiago'),
             },
             "lead_config": {
                 "field_weights": safe_get(lead_config_data, 'field_weights', {
@@ -197,7 +253,18 @@ async def get_broker_config(
                 ]),
                 "income_ranges": safe_get(lead_config_data, 'income_ranges', None),
                 "qualification_criteria": safe_get(lead_config_data, 'qualification_criteria', None),
-                "max_acceptable_debt": safe_get(lead_config_data, 'max_acceptable_debt', 500000),
+                "max_acceptable_debt": safe_get(lead_config_data, 'max_acceptable_debt', 0),
+                "scoring_config": safe_get(lead_config_data, 'scoring_config') or {
+                    "income_tiers": [
+                        {"min": 3000000, "label": "Excelente", "points": 40},
+                        {"min": 2000000, "label": "Alto", "points": 32},
+                        {"min": 1000000, "label": "Medio", "points": 20},
+                        {"min": 500000, "label": "Bajo", "points": 10},
+                        {"min": 0, "label": "Insuficiente", "points": 0}
+                    ],
+                    "dicom_clean_pts": 20,
+                    "dicom_has_debt_pts": 8
+                },
                 "alert_on_hot_lead": safe_get(lead_config_data, 'alert_on_hot_lead', True),
                 "alert_on_qualified": safe_get(lead_config_data, 'alert_on_qualified', True),
                 "alert_score_threshold": safe_get(lead_config_data, 'alert_score_threshold', 70),
@@ -240,15 +307,27 @@ async def update_prompt_config(
     
     # Update fields
     update_data = updates.model_dump(exclude_unset=True)
+    timezone = update_data.pop("timezone", None)
     for key, value in update_data.items():
         setattr(prompt_config, key, value)
+    # Persist timezone inside meeting_config JSONB
+    if timezone is not None:
+        current_meeting = dict(prompt_config.meeting_config or {})
+        current_meeting["timezone"] = timezone
+        prompt_config.meeting_config = current_meeting
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(prompt_config, "meeting_config")
     
     await db.commit()
     await db.refresh(prompt_config)
     
     await cache_delete(f"broker_prompt:{broker_id}")
     logger.info(f"Prompt config updated for broker {broker_id} - cache invalidated")
-    
+
+    # Auto-snapshot: save the current effective prompt as a new version
+    user_id = current_user.get("id") or current_user.get("user_id") or 0
+    await _auto_snapshot_prompt(db, broker_id, user_id)
+
     return {
         "message": "Prompt configuration updated successfully",
         "config": {
@@ -291,14 +370,19 @@ async def update_lead_config(
     await db.refresh(lead_config)
     
     logger.info(f"Lead config updated for broker {broker_id} - Changes will be applied immediately in next chat message")
-    
+
+    # Auto-snapshot: save the current effective prompt as a new version
+    user_id = current_user.get("id") or current_user.get("user_id") or 0
+    await _auto_snapshot_prompt(db, broker_id, user_id)
+
     return {
         "message": "Lead configuration updated successfully",
         "config": {
             "field_weights": lead_config.field_weights,
             "cold_max_score": lead_config.cold_max_score,
             "warm_max_score": lead_config.warm_max_score,
-            "hot_min_score": lead_config.hot_min_score
+            "hot_min_score": lead_config.hot_min_score,
+            "scoring_config": lead_config.scoring_config,
         }
     }
 

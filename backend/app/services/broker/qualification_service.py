@@ -32,13 +32,13 @@ async def calcular_calificacion_financiera(
             },
             "potencial": {
                 "min_monthly_income": 500000,
-                "dicom_status": ["clean", "has_debt"],
-                "max_debt_amount": 500000,
+                "dicom_status": ["clean"],
+                "max_debt_amount": 0,
             },
             "no_calificado": {
                 "conditions": [
                     {"monthly_income_below": 500000},
-                    {"debt_amount_above": 500000},
+                    {"debt_amount_above": 0},
                 ]
             },
         }
@@ -91,8 +91,8 @@ async def calcular_calificacion_financiera(
         monthly_income >= potencial_criteria.get("min_monthly_income", 500000)
         and dicom_status
         in potencial_criteria.get("dicom_status", ["clean", "has_debt"])
-        and debt_amount <= potencial_criteria.get("max_debt_amount", 500000)
+        and debt_amount <= potencial_criteria.get("max_debt_amount", 0)
     ):
         return "POTENCIAL"
 
-    return "POTENCIAL"
+    return "NO_CALIFICADO"

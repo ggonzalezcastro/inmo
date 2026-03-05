@@ -7,6 +7,7 @@ from sqlalchemy import and_, or_, func, desc
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 import logging
+from sqlalchemy.orm.attributes import set_committed_value
 from app.models.campaign import (
     Campaign,
     CampaignStep,
@@ -34,7 +35,8 @@ class CampaignService:
         description: Optional[str] = None,
         triggered_by: CampaignTrigger = CampaignTrigger.MANUAL,
         trigger_condition: Optional[Dict[str, Any]] = None,
-        max_contacts: Optional[int] = None
+        max_contacts: Optional[int] = None,
+        created_by: Optional[int] = None
     ) -> Campaign:
         """Create a new campaign"""
 
@@ -46,7 +48,8 @@ class CampaignService:
             triggered_by=triggered_by,
             trigger_condition=trigger_condition or {},
             max_contacts=max_contacts,
-            broker_id=broker_id
+            broker_id=broker_id,
+            created_by=created_by
         )
 
         db.add(campaign)
@@ -64,6 +67,9 @@ class CampaignService:
         action: str,
         delay_hours: int = 0,
         message_template_id: Optional[int] = None,
+        message_text: Optional[str] = None,
+        use_ai_message: bool = False,
+        step_channel: Optional[str] = None,
         conditions: Optional[Dict[str, Any]] = None,
         target_stage: Optional[str] = None
     ) -> CampaignStep:
@@ -84,6 +90,9 @@ class CampaignService:
             action=action,
             delay_hours=delay_hours,
             message_template_id=message_template_id,
+            message_text=message_text,
+            use_ai_message=use_ai_message,
+            step_channel=step_channel,
             conditions=conditions or {},
             target_stage=target_stage
         )
@@ -112,13 +121,13 @@ class CampaignService:
         campaign = result.scalars().first()
 
         if campaign:
-            # Eager load steps
+            # Eager load steps without triggering lazy-load on collection replace
             steps_result = await db.execute(
                 select(CampaignStep)
                 .where(CampaignStep.campaign_id == campaign_id)
                 .order_by(CampaignStep.step_number)
             )
-            campaign.steps = steps_result.scalars().all()
+            set_committed_value(campaign, 'steps', list(steps_result.scalars().all()))
 
         return campaign
 
@@ -155,7 +164,21 @@ class CampaignService:
         query = query.order_by(desc(Campaign.created_at)).offset(skip).limit(limit)
 
         result = await db.execute(query)
-        campaigns = result.scalars().all()
+        campaigns = list(result.scalars().all())
+
+        # Eager-load steps for all campaigns in one query
+        if campaigns:
+            campaign_ids = [c.id for c in campaigns]
+            steps_result = await db.execute(
+                select(CampaignStep)
+                .where(CampaignStep.campaign_id.in_(campaign_ids))
+                .order_by(CampaignStep.step_number)
+            )
+            steps_by_campaign: Dict[int, list] = {cid: [] for cid in campaign_ids}
+            for step in steps_result.scalars().all():
+                steps_by_campaign[step.campaign_id].append(step)
+            for campaign in campaigns:
+                set_committed_value(campaign, 'steps', steps_by_campaign[campaign.id])
 
         return campaigns, total
 

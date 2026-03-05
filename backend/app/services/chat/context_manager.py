@@ -127,22 +127,16 @@ async def compress_context(
     if lead_id and db and new_summary:
         try:
             from app.models.lead import Lead
-            from sqlalchemy import func
+            from sqlalchemy.orm.attributes import flag_modified
 
-            await db.execute(
-                update(Lead)
-                .where(Lead.id == lead_id)
-                .values(
-                    lead_metadata=func.jsonb_set(
-                        Lead.lead_metadata,
-                        "{conversation_summary}",
-                        f'"{new_summary.replace(chr(34), chr(39))}"',
-                        True,
-                    )
-                )
-            )
-            await db.flush()
-            logger.debug("[ContextManager] Summary persisted for lead_id=%s", lead_id)
+            lead = await db.get(Lead, lead_id)
+            if lead:
+                meta = dict(lead.lead_metadata or {})
+                meta["conversation_summary"] = new_summary
+                lead.lead_metadata = meta
+                flag_modified(lead, "lead_metadata")
+                await db.flush()
+                logger.debug("[ContextManager] Summary persisted for lead_id=%s", lead_id)
         except Exception as exc:
             logger.warning(
                 "[ContextManager] Could not persist summary for lead_id=%s: %s",

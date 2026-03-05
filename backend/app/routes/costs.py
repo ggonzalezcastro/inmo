@@ -29,6 +29,7 @@ from app.database import get_db
 from app.middleware.auth import get_current_user
 from app.models.llm_call import LLMCall
 from app.models.broker import Broker
+from app.models.voice_call import VoiceCall
 
 router = APIRouter()
 
@@ -157,6 +158,21 @@ async def cost_summary(
     alert_threshold = _alert_threshold()
     daily_alert = today_cost >= alert_threshold
 
+    # Voice minutes: sum of completed call durations in the period, scoped to this broker
+    from app.models.lead import Lead
+    voice_q = await db.execute(
+        select(func.sum(VoiceCall.duration))
+        .where(VoiceCall.created_at >= start_dt)
+        .where(VoiceCall.created_at <= end_dt)
+        .where(
+            VoiceCall.lead_id.in_(
+                select(Lead.id).where(Lead.broker_id == effective_broker_id)
+            )
+        )
+    )
+    total_voice_seconds = voice_q.scalar() or 0
+    total_voice_minutes = round(total_voice_seconds / 60, 1)
+
     return {
         "broker_id": effective_broker_id,
         "period": period,
@@ -174,6 +190,7 @@ async def cost_summary(
         "daily_cost_usd": round(today_cost, 6),
         "daily_alert": daily_alert,
         "daily_alert_threshold_usd": alert_threshold,
+        "total_voice_minutes": total_voice_minutes,
     }
 
 
@@ -488,3 +505,112 @@ async def cost_calls(
     ]
 
     return {"items": items, "total": total, "page": page, "limit": limit}
+
+
+# ── Voice calls paginated ─────────────────────────────────────────────────────
+
+@router.get("/voice-calls")
+async def cost_voice_calls(
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=100),
+    broker_id: Optional[int] = Query(None),
+    period: str = Query("month"),
+    status: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Paginated list of voice calls scoped to the broker."""
+    from app.models.lead import Lead
+
+    effective_broker_id = _check_admin(current_user, broker_id)
+    start_dt, end_dt = _period_dates(period)
+
+    lead_ids_subq = select(Lead.id).where(Lead.broker_id == effective_broker_id)
+
+    base = (
+        select(VoiceCall)
+        .where(VoiceCall.lead_id.in_(lead_ids_subq))
+        .where(VoiceCall.created_at >= start_dt)
+        .where(VoiceCall.created_at <= end_dt)
+    )
+    if status:
+        base = base.where(VoiceCall.status == status)
+
+    total_result = await db.execute(
+        select(func.count(VoiceCall.id))
+        .where(VoiceCall.lead_id.in_(lead_ids_subq))
+        .where(VoiceCall.created_at >= start_dt)
+        .where(VoiceCall.created_at <= end_dt)
+    )
+    total = total_result.scalar() or 0
+
+    base = base.order_by(VoiceCall.created_at.desc()).offset((page - 1) * limit).limit(limit)
+    result = await db.execute(base)
+    rows = result.scalars().all()
+
+    items = [
+        {
+            "id": r.id,
+            "lead_id": r.lead_id,
+            "status": r.status.value if hasattr(r.status, "value") else r.status,
+            "duration_seconds": r.duration,
+            "phone_number": r.phone_number,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
+
+    return {"items": items, "total": total, "page": page, "limit": limit}
+
+
+# ── Voice summary ─────────────────────────────────────────────────────────────
+
+@router.get("/voice-summary")
+async def cost_voice_summary(
+    period: str = Query("month"),
+    broker_id: Optional[int] = Query(None),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Aggregated voice call metrics for the period, scoped to a broker."""
+    from app.models.lead import Lead
+    from app.models.voice_call import CallStatus
+
+    effective_broker_id = _check_admin(current_user, broker_id)
+    start_dt, end_dt = _period_dates(period)
+
+    lead_ids_subq = select(Lead.id).where(Lead.broker_id == effective_broker_id)
+
+    result = await db.execute(
+        select(VoiceCall)
+        .where(VoiceCall.lead_id.in_(lead_ids_subq))
+        .where(VoiceCall.created_at >= start_dt)
+        .where(VoiceCall.created_at <= end_dt)
+        .order_by(VoiceCall.created_at)
+    )
+    rows = result.scalars().all()
+
+    total_calls = len(rows)
+    completed = sum(1 for r in rows if r.status in (CallStatus.COMPLETED, CallStatus.ANSWERED))
+    failed = sum(1 for r in rows if r.status in (CallStatus.FAILED, CallStatus.NO_ANSWER, CallStatus.BUSY))
+    total_seconds = sum((r.duration or 0) for r in rows)
+    avg_seconds = total_seconds / total_calls if total_calls else 0
+
+    # Daily breakdown
+    from collections import defaultdict
+    daily_calls: dict = defaultdict(lambda: {"calls": 0, "minutes": 0.0})
+    for r in rows:
+        day = r.created_at.date().isoformat() if r.created_at else "unknown"
+        daily_calls[day]["calls"] += 1
+        daily_calls[day]["minutes"] = round(daily_calls[day]["minutes"] + (r.duration or 0) / 60, 2)
+
+    return {
+        "broker_id": effective_broker_id,
+        "period": period,
+        "total_calls": total_calls,
+        "completed_calls": completed,
+        "failed_calls": failed,
+        "total_minutes": round(total_seconds / 60, 1),
+        "avg_duration_seconds": round(avg_seconds, 1),
+        "daily": [{"date": d, **v} for d, v in sorted(daily_calls.items())],
+    }

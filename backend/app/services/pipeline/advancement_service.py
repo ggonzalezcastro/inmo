@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import and_, desc
 
-from app.models.lead import Lead
+from app.models.lead import Lead, LeadStatus
 from app.models.campaign import Campaign, CampaignTrigger
 from app.services.shared import ActivityService
 from app.services.pipeline.constants import PIPELINE_STAGES
@@ -156,6 +156,13 @@ async def auto_advance_stage(
         if has_budget and has_location and has_name:
             new_stage = "calificacion_financiera"
             reason = "Auto-advance: Complete profile information collected"
+        elif lead.status == LeadStatus.HOT:
+            # HOT fast-track: nombre + teléfono + ingreso mensual (sin necesitar presupuesto/ubicación)
+            has_income = bool(metadata.get("monthly_income"))
+            has_phone = bool(lead.phone)
+            if has_name and has_phone and has_income:
+                new_stage = "calificacion_financiera"
+                reason = f"Auto: Lead HOT — avance con ingreso mensual confirmado (score: {lead.lead_score})"
 
     elif current_stage == "calificacion_financiera":
         from app.models.appointment import Appointment, AppointmentStatus
@@ -174,6 +181,17 @@ async def auto_advance_stage(
         if appointment:
             new_stage = "agendado"
             reason = "Auto-advance: Appointment scheduled"
+        elif lead.status == LeadStatus.HOT:
+            # HOT fast-track: si está calificado financieramente, avanzar sin cita y pedir a Sofía que proponga una
+            calificacion = metadata.get("calificacion")
+            if calificacion in ["CALIFICADO", "POTENCIAL"]:
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                metadata["hot_fast_track"] = True
+                lead.lead_metadata = metadata
+                await db.commit()
+                new_stage = "agendado"
+                reason = f"Auto: Lead HOT calificado — Sofía debe proponer visita (score: {lead.lead_score})"
 
     elif current_stage == "agendado":
         from app.models.appointment import Appointment, AppointmentStatus

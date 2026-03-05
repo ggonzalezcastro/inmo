@@ -300,11 +300,13 @@ class GeminiProvider(BaseLLMProvider):
         self,
         prompt: str,
         json_schema: Optional[Dict] = None
-    ) -> Dict[str, Any]:
-        """Generate structured JSON response"""
+    ) -> tuple[Dict[str, Any], Optional[Dict]]:
+        """Generate structured JSON response. Returns (result, usage)."""
         if not self.is_configured:
-            return {}
-        
+            return {}, None
+
+        usage: Optional[Dict] = None
+
         try:
             json_prompt = f"{prompt}\n\nResponde SOLO con JSON válido, sin texto adicional."
             
@@ -318,8 +320,15 @@ class GeminiProvider(BaseLLMProvider):
                 )
             )
             
+            if getattr(response, "usage_metadata", None):
+                um = response.usage_metadata
+                usage = {
+                    "input_tokens": getattr(um, "prompt_token_count", 0) or 0,
+                    "output_tokens": getattr(um, "candidates_token_count", 0) or 0,
+                }
+
             text = response.text.strip()
-            return json.loads(text)
+            return json.loads(text), usage
             
         except json.JSONDecodeError as e:
             logger.warning(f"[Gemini] JSON parse error with response_mime_type: {e}, retrying without it")
@@ -338,17 +347,24 @@ class GeminiProvider(BaseLLMProvider):
                     temperature=0.1
                 )
             )
+
+            if getattr(response, "usage_metadata", None):
+                um = response.usage_metadata
+                usage = {
+                    "input_tokens": getattr(um, "prompt_token_count", 0) or 0,
+                    "output_tokens": getattr(um, "candidates_token_count", 0) or 0,
+                }
             
             text = response.text.strip()
             text = self._clean_json_text(text)
-            return json.loads(text)
+            return json.loads(text), usage
             
         except json.JSONDecodeError as e:
             logger.error(f"[Gemini] JSON parse error after cleanup: {e}")
-            return {}
+            return {}, usage
         except Exception as e:
             logger.error(f"[Gemini] Error in generate_json fallback: {e}", exc_info=True)
-            return {}
+            return {}, None
 
     @staticmethod
     def _clean_json_text(text: str) -> str:

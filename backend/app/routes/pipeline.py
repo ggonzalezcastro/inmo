@@ -95,6 +95,12 @@ async def get_leads_by_stage(
     
     try:
         broker_id = current_user.get("broker_id")
+        current_user_id = current_user.get("user_id") or current_user.get("id")
+        if current_user_id:
+            try:
+                current_user_id = int(current_user_id)
+            except (TypeError, ValueError):
+                pass
         leads, total = await PipelineService.get_leads_by_stage(
             db=db,
             stage=stage,
@@ -109,6 +115,10 @@ async def get_leads_by_stage(
         # Convert leads to dict format, ensuring metadata is a dict
         lead_responses = []
         for lead in leads:
+            meta = lead.lead_metadata if isinstance(lead.lead_metadata, dict) else (lead.lead_metadata or {})
+            # Hide leads taken by another human agent
+            if meta.get("human_mode") and meta.get("human_assigned_to") != current_user_id:
+                continue
             lead_dict = {
                 "id": lead.id,
                 "phone": lead.phone,
@@ -117,10 +127,11 @@ async def get_leads_by_stage(
                 "tags": lead.tags or [],
                 "status": lead.status,
                 "lead_score": lead.lead_score or 0.0,
+                "pipeline_stage": lead.pipeline_stage,
                 "last_contacted": lead.last_contacted,
                 "created_at": lead.created_at,
                 "updated_at": lead.updated_at,
-                "metadata": lead.lead_metadata if isinstance(lead.lead_metadata, dict) else (lead.lead_metadata or {})
+                "metadata": meta
             }
             lead_responses.append(LeadResponse(**lead_dict))
         
@@ -187,6 +198,7 @@ async def get_inactive_leads_in_stage(
                 "tags": lead.tags or [],
                 "status": lead.status,
                 "lead_score": lead.lead_score or 0.0,
+                "pipeline_stage": lead.pipeline_stage,
                 "last_contacted": lead.last_contacted,
                 "created_at": lead.created_at,
                 "updated_at": lead.updated_at,

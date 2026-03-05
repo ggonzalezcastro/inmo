@@ -73,7 +73,7 @@ def build_context(lead, broker_id: int) -> AgentContext:
     return AgentContext(
         lead_id=lead.id,
         broker_id=broker_id,
-        pipeline_stage=metadata.get("pipeline_stage", "entrada"),
+        pipeline_stage=lead.pipeline_stage or metadata.get("pipeline_stage", "entrada"),
         conversation_state=metadata.get("conversation_state", {}).get("state", "GREETING"),
         lead_data={
             "name": lead.name,
@@ -86,6 +86,7 @@ def build_context(lead, broker_id: int) -> AgentContext:
             "morosidad_amount": metadata.get("morosidad_amount"),
             "broker_name": metadata.get("broker_name", ""),
             "agent_name": metadata.get("agent_name", "Sofía"),
+            "hot_fast_track": metadata.get("hot_fast_track", False),
         },
         message_history=metadata.get("message_history", []),
         current_agent=_parse_agent_type(metadata.get("current_agent")),

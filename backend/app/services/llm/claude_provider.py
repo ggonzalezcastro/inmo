@@ -233,10 +233,10 @@ class ClaudeProvider(BaseLLMProvider):
         self,
         prompt: str,
         json_schema: Optional[Dict] = None
-    ) -> Dict[str, Any]:
-        """Generate structured JSON response"""
+    ) -> tuple[Dict[str, Any], Optional[Dict]]:
+        """Generate structured JSON response. Returns (result, usage)."""
         if not self.is_configured:
-            return {}
+            return {}, None
         
         try:
             json_prompt = f"{prompt}\n\nResponde SOLO con JSON válido, sin texto adicional ni bloques de código."
@@ -246,6 +246,13 @@ class ClaudeProvider(BaseLLMProvider):
                 max_tokens=self.max_tokens,
                 messages=[{"role": "user", "content": json_prompt}]
             )
+
+            usage = None
+            if getattr(message, "usage", None):
+                usage = {
+                    "input_tokens": message.usage.input_tokens or 0,
+                    "output_tokens": message.usage.output_tokens or 0,
+                }
             
             text = message.content[0].text.strip()
             
@@ -254,14 +261,14 @@ class ClaudeProvider(BaseLLMProvider):
                 lines = text.split("\n")
                 text = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
             
-            return json.loads(text)
+            return json.loads(text), usage
             
         except json.JSONDecodeError as e:
             logger.error(f"[Claude] JSON parse error: {e}")
-            return {}
+            return {}, None
         except Exception as e:
             logger.error(f"[Claude] Error in generate_json: {e}", exc_info=True)
-            return {}
+            return {}, None
     
     def _convert_messages_to_native(self, messages: List[LLMMessage]) -> List[Dict]:
         """Convert unified messages to Claude format"""

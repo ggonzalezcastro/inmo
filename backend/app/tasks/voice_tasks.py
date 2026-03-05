@@ -1,5 +1,12 @@
 """
-Voice call processing tasks for Celery
+Voice call processing tasks for Celery.
+
+POOL REQUIREMENT: These tasks use asyncio.run() to run async SQLAlchemy sessions.
+This is compatible ONLY with Celery's prefork pool (default).
+Do NOT run these workers with --pool=gevent or --pool=eventlet.
+
+Start workers with:
+    celery -A app.celery_app worker --pool=prefork --loglevel=info
 """
 from celery import shared_task
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
@@ -68,10 +75,38 @@ def process_end_of_call_report(
                     )
                     return
 
+                # Idempotency guard — skip if already processed
+                if voice_call.post_processed:
+                    logger.info(
+                        "Call %s already processed, skipping.", external_call_id
+                    )
+                    return
+
+                # Truncate excessively long transcripts before sending to LLM
+                MAX_TRANSCRIPT_CHARS = 12_000
+                effective_transcript = transcript or ""
+                if len(effective_transcript) > MAX_TRANSCRIPT_CHARS:
+                    logger.warning(
+                        "Transcript for call %s exceeds %d chars (%d), truncating.",
+                        external_call_id,
+                        MAX_TRANSCRIPT_CHARS,
+                        len(effective_transcript),
+                    )
+                    effective_transcript = (
+                        effective_transcript[:MAX_TRANSCRIPT_CHARS] + "\n[TRANSCRIPT TRUNCADO]"
+                    )
+
                 await VoiceCallService.update_call_transcript(
                     db=db,
                     voice_call_id=voice_call.id,
-                    transcript=transcript or "",
+                    transcript=effective_transcript,
+                )
+
+                await VoiceCallService.store_transcript_lines(
+                    db=db,
+                    voice_call_id=voice_call.id,
+                    artifact_messages=artifact_messages or [],
+                    transcript_text=effective_transcript,
                 )
 
                 if recording_url:
@@ -101,7 +136,7 @@ def process_end_of_call_report(
                 }
 
                 summary_data = await CallAgentService.generate_call_summary(
-                    full_transcript=transcript or "",
+                    full_transcript=effective_transcript,
                     lead_context=lead_context,
                 )
 
@@ -145,6 +180,7 @@ def process_end_of_call_report(
                             "Error moving lead to stage: %s", str(e)
                         )
 
+                voice_call.post_processed = True
                 await db.commit()
                 logger.info(
                     "End-of-call-report processed for external_call_id=%s",

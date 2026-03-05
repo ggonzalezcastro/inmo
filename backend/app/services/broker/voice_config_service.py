@@ -13,7 +13,7 @@ from sqlalchemy.future import select
 from app.models.broker import Broker
 from app.models.broker_voice_config import BrokerVoiceConfig
 from app.services.broker.config_service import BrokerConfigService
-from app.core.cache import cache_get, cache_set, cache_get_json, cache_set_json
+from app.core.cache import cache_get, cache_set, cache_get_json, cache_set_json, cache_delete
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -164,6 +164,16 @@ class BrokerVoiceConfigService:
         )
 
     @staticmethod
+    async def invalidate_cache(broker_id: int) -> None:
+        """Invalidate cached voice config for broker."""
+        cache_key = f"{BROKER_VOICE_CACHE_PREFIX}{broker_id}"
+        try:
+            await cache_delete(cache_key)
+            logger.info("Voice config cache invalidated for broker_id=%s", broker_id)
+        except Exception as e:
+            logger.warning("Failed to invalidate voice config cache: %s", e)
+
+    @staticmethod
     def adapt_prompt_for_voice(prompt: str) -> str:
         """
         Adapt chat prompt for voice: remove tools section, add voice instructions.
@@ -256,6 +266,11 @@ class BrokerVoiceConfigService:
             "voice": {
                 "provider": voice_cfg.get("provider", "azure"),
                 "voiceId": voice_id,
+                "fallbackPlan": {
+                    "voices": [
+                        {"provider": "openai", "voiceId": "alloy"}
+                    ]
+                },
             },
             "firstMessage": first_message,
             "firstMessageMode": "assistant-speaks-first",
