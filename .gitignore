@@ -15,6 +15,10 @@ eggs/
 .eggs/
 lib/
 lib64/
+!frontend/src/**/lib/
+!frontend/src/**/lib/**
+!src/**/lib/
+!src/**/lib/**
 parts/
 sdist/
 var/
@@ -83,6 +87,8 @@ yarn-error.log*
 dist/
 dist-ssr/
 *.local
+!frontend/dist/
+!frontend/dist/**
 
 # IDEs
 .vscode/
