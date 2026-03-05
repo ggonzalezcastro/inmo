@@ -107,7 +107,7 @@ async def register(user_data: UserRegister, db: AsyncSession = Depends(get_db)):
         email=user_data.email,
         hashed_password=hashed_password,
         name=user_data.broker_name,  # Mapear broker_name a name
-        role=UserRole.AGENT,  # Temporal, se cambiará a ADMIN después
+        role=UserRole.ADMIN,
         is_active=True
     )
     
