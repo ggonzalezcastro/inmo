@@ -160,6 +160,8 @@ export const costsAPI = {
     api.get('/api/v1/admin/costs/export', { params, responseType: 'blob' }),
   getByBroker: (params) => api.get('/api/v1/admin/costs/by-broker', { params }),
   getCalls: (params) => api.get('/api/v1/admin/costs/calls', { params }),
+  getVoiceCalls: (params) => api.get('/api/v1/admin/costs/voice-calls', { params }),
+  getVoiceSummary: (params) => api.get('/api/v1/admin/costs/voice-summary', { params }),
 };
 
 export default api;

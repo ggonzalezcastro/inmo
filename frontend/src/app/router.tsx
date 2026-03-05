@@ -31,9 +31,9 @@ const CampaignsPage = lazy(() =>
 const AppointmentsPage = lazy(() =>
   import('@/features/appointments').then((m) => ({ default: m.AppointmentsPage }))
 )
-const TemplatesPage = lazy(() =>
+/* const TemplatesPage = lazy(() =>
   import('@/features/templates').then((m) => ({ default: m.TemplatesPage }))
-)
+) */
 const SettingsPage = lazy(() =>
   import('@/features/settings').then((m) => ({ default: m.SettingsPage }))
 )
@@ -48,6 +48,9 @@ const CostsDashboardPage = lazy(() =>
 )
 const ChatPage = lazy(() =>
   import('@/features/chat').then((m) => ({ default: m.ChatPage }))
+)
+const ConversationsPage = lazy(() =>
+  import('@/features/conversations').then((m) => ({ default: m.ConversationsPage }))
 )
 
 function SuspenseWrapper({ children }: { children: React.ReactNode }) {
@@ -73,9 +76,9 @@ function PrivateLayout() {
 }
 
 export const router = createBrowserRouter([
-  // Public routes
-  { path: '/login', element: <LoginPage /> },
-  { path: '/register', element: <RegisterPage /> },
+  // Public routes — también lazy, necesitan Suspense
+  { path: '/login', element: <SuspenseWrapper><LoginPage /></SuspenseWrapper> },
+  { path: '/register', element: <SuspenseWrapper><RegisterPage /></SuspenseWrapper> },
   { path: '/403', element: <ForbiddenPage /> },
 
   // Protected layout
@@ -107,17 +110,21 @@ export const router = createBrowserRouter([
         path: '/appointments',
         element: <SuspenseWrapper><AppointmentsPage /></SuspenseWrapper>,
       },
-      {
-        path: '/templates',
-        element: (
-          <RoleGuard allowedRoles={['admin', 'superadmin']}>
-            <SuspenseWrapper><TemplatesPage /></SuspenseWrapper>
-          </RoleGuard>
-        ),
-      },
+      // {
+      //   path: '/templates',
+      //   element: (
+      //     <RoleGuard allowedRoles={['admin', 'superadmin']}>
+      //       <SuspenseWrapper><TemplatesPage /></SuspenseWrapper>
+      //     </RoleGuard>
+      //   ),
+      // },
       {
         path: '/chat',
         element: <SuspenseWrapper><ChatPage /></SuspenseWrapper>,
+      },
+      {
+        path: '/conversations',
+        element: <SuspenseWrapper><ConversationsPage /></SuspenseWrapper>,
       },
       {
         path: '/costs',

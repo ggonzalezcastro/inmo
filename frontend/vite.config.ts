@@ -13,34 +13,15 @@ export default defineConfig({
   },
 
   // ── Dep pre-bundling ────────────────────────────────────────────────────────
-  // noDiscovery: true → Vite NO escanea source files en busca de deps.
-  // Solo pre-bundlea lo listado en `include`. Esto acelera el cold start
-  // porque evita el análisis estático de todo el proyecto al arrancar.
-  //
-  // Incluimos SOLO las deps que aparecen en la ruta de renderizado inicial
-  // (router + AppShell + LoginPage + AuthGuard). Las deps de páginas lazy
-  // se descubren cuando esa página se carga por primera vez (una sola vez,
-  // el resultado queda cacheado en node_modules/.vite).
+  // Dejamos que Vite descubra deps automáticamente (scan de imports).
+  // Solo forzamos `include` para paquetes CJS/mixtos que Vite no detecta
+  // bien o que causan "new dependency found → full reload" en runtime.
   optimizeDeps: {
     include: [
-      // Core runtime
-      'react',
-      'react-dom',
-      'react-dom/client',
-      'react-router-dom',
-      'zustand',
-      'axios',
-      'sonner',
-      // Shared UI components usados en el layout y login
-      'clsx',
-      'tailwind-merge',
-      'class-variance-authority',
-      'lucide-react',
-      // Radix primitives usados en LoginPage (Card, Input, Button, Label)
-      '@radix-ui/react-slot',
-      '@radix-ui/react-label',
-      // Lazy pages se pre-bundlean de forma diferida (sin noDiscovery),
-      // así Vite sólo hace el trabajo pesado para lo que realmente se necesita.
+      'recharts',
+      'react-is',
+      'es-toolkit',
+      'es-toolkit/compat',
     ],
   },
 
@@ -77,6 +58,8 @@ export default defineConfig({
   // ── Build (producción) ──────────────────────────────────────────────────────
   build: {
     target: 'esnext',
+    sourcemap: false,
+    chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
         manualChunks: {

@@ -18,12 +18,15 @@ export function useLogin() {
       const user = tokenToUser(access_token, credentials.email)
       if (!user) throw new Error('Token inválido')
 
-      // Try to get full user profile
+      // Set auth immediately so the token is available for subsequent requests
+      setAuth(user, access_token)
+
+      // Enrich with full user profile from DB (token is now set)
       try {
         const fullUser = await authService.getCurrentUser()
         setAuth(fullUser, access_token)
       } catch {
-        setAuth(user, access_token)
+        // Fall through — decoded token data already set above
       }
 
       navigate('/dashboard')

@@ -325,7 +325,7 @@ async def update_prompt_config(
     logger.info(f"Prompt config updated for broker {broker_id} - cache invalidated")
 
     # Auto-snapshot: save the current effective prompt as a new version
-    user_id = current_user.get("id") or current_user.get("user_id") or 0
+    user_id = int(current_user.get("id") or current_user.get("user_id") or 0)
     await _auto_snapshot_prompt(db, broker_id, user_id)
 
     return {
@@ -372,7 +372,7 @@ async def update_lead_config(
     logger.info(f"Lead config updated for broker {broker_id} - Changes will be applied immediately in next chat message")
 
     # Auto-snapshot: save the current effective prompt as a new version
-    user_id = current_user.get("id") or current_user.get("user_id") or 0
+    user_id = int(current_user.get("id") or current_user.get("user_id") or 0)
     await _auto_snapshot_prompt(db, broker_id, user_id)
 
     return {

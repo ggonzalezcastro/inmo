@@ -1,8 +1,10 @@
 # Auditoría del Sistema Vapi — Inmo CRM
 
 > Auditoría inicial: 2026-02-28
-> Correcciones aplicadas: 2026-02-28
-> Estado: **10 fixes aplicados** — pendientes 4 ítems de baja prioridad
+> Correcciones aplicadas: 2026-02-28 / 2026-03-01
+> Estado: **13 fixes aplicados** — pendientes 2 ítems de baja prioridad
+>
+> Documentación de implementación completa: [`VAPI_IMPLEMENTATION.md`](./VAPI_IMPLEMENTATION.md)
 
 ---
 
@@ -324,10 +326,14 @@ VOICE_PROVIDER=vapi
 - **Problema original:** Sin autenticación, cualquiera podía descubrir assistant IDs por phone_number_id.
 - **Estado:** Cubierto automáticamente por C1. Con `VAPI_WEBHOOK_SECRET` configurado, solo Vapi puede llamar a este endpoint.
 
-#### M4 — `CallTranscript` table nunca se popula ⏳ PENDIENTE
-- **Dónde:** `voice.py:236–242`, `voice_call.py:96–133`
-- **Problema:** El modelo existe, la ruta `GET /{call_id}` la consulta, pero ningún código escribe en ella. Siempre devuelve `"transcript_lines": []`.
-- **Fix sugerido:** Parsear el transcript string de Vapi (formato `"Bot: ...\nUser: ..."`) al procesar el `end-of-call-report`, o eliminar la tabla y el endpoint si no se implementará.
+#### M4 — `CallTranscript` table nunca se populaba ✅ CORREGIDO
+- **Dónde:** `services/voice/call_service.py` + `tasks/voice_tasks.py`
+- **Problema original:** El modelo y la ruta `GET /{call_id}` existían, pero nadie escribía en la tabla. Siempre devolvía `"transcript_lines": []`.
+- **Corrección aplicada:** Nuevo método `VoiceCallService.store_transcript_lines()`:
+  - **Fuente primaria:** `artifact_messages` de Vapi (lista estructurada con `role`, `message`, `secondsFromStart`). Roles `tool`/`tool_call`/`system` se omiten.
+  - **Fallback:** Parseo del string plano `"Bot: ...\nUser: ..."` si `artifact_messages` está vacío; timestamps se asignan secuencialmente.
+  - Se llama desde `process_end_of_call_report` inmediatamente después de `update_call_transcript`.
+  - El endpoint `GET /api/v1/calls/{call_id}` ya devuelve `transcript_lines` correctamente sin cambios.
 
 #### M5 — `provider_credentials` en `BrokerVoiceConfig` sin implementar ⏳ PENDIENTE
 - **Dónde:** `broker_voice_config.py:24`
@@ -338,20 +344,22 @@ VOICE_PROVIDER=vapi
 
 ### BAJO — pendientes
 
-#### B1 — `validate_config()` siempre retorna `True` ⏳ PENDIENTE
-- **Dónde:** `base_provider.py:35–37`
-- **Problema:** No hay validación de credenciales al inicio de la app. Los errores se descubren en el primer intento de llamada real.
-- **Fix sugerido:** Implementar `validate_config()` en `VapiProvider` y llamarla en el startup event de FastAPI.
+#### B1 — `validate_config()` siempre retornaba `True` ✅ CORREGIDO
+- **Dónde:** `providers/vapi/provider.py` + `main.py`
+- **Problema original:** El método del base class no validaba nada. Los errores de API key se descubrían en el primer intento de llamada real.
+- **Corrección aplicada:**
+  - `VapiProvider.validate_config()`: hace `GET /call?limit=1` con timeout de 5s. 200 → válido; 401 → inválido (log error); error de red → warning sin bloquear.
+  - `main.py` lifespan: llama `validate_config()` en startup si `VAPI_API_KEY` está configurado. Si falla, loguea warning sin detener la app.
 
 #### B2 — Ambigüedad `broker_id` en la capa de voz ⏳ PENDIENTE
 - **Dónde:** `call_service.py`, `voice_call.py`, `provider.py`
 - **Problema:** `VoiceCall.broker_id` es FK a `users.id` (agente), pero el parámetro también se llama `broker_id`. `company_broker_id` (empresa) es una variable interna. Tres conceptos con el mismo nombre.
 - **Fix sugerido:** Renombrar internamente a `agent_user_id` / `company_broker_id` de forma consistente (requiere migración de DB).
 
-#### B3 — `asyncio.run()` en Celery tasks puede fallar con ciertos pools ⏳ PENDIENTE
-- **Dónde:** `voice_tasks.py`
-- **Problema:** Puede fallar con `gevent`, `eventlet`, o `solo+uvloop`. El proyecto usa prefork, que lo soporta, pero no está documentado.
-- **Fix sugerido:** Documentar `CELERY_WORKER_POOL=prefork` como requerimiento, o migrar a `asgiref.sync.async_to_sync`.
+#### B3 — `asyncio.run()` en Celery tasks podía fallar con ciertos pools ✅ DOCUMENTADO
+- **Dónde:** `tasks/voice_tasks.py`
+- **Problema original:** Incompatible con `gevent`/`eventlet`, sin documentación del requisito.
+- **Corrección aplicada:** Docstring de módulo en `voice_tasks.py` documenta explícitamente el requisito de `--pool=prefork` y advierte sobre pools incompatibles. Documentado también en `VAPI_IMPLEMENTATION.md` §14.
 
 ---
 
@@ -373,10 +381,10 @@ VOICE_PROVIDER=vapi
 | Endpoint crear Vapi assistant | ✅ Implementado | Fix M2 | `POST /config/voice/assistant` |
 | Consistencia endpoints webhook | ✅ Corregido | Fix A3 | Ambos usan factory async |
 | `generate_call_transcript_and_summary` | ✅ Deprecado | Fix A2 | No-op con warning |
-| `CallTranscript` table (líneas) | ❌ Dead end | — | Nunca se popula |
+| `CallTranscript` table (líneas) | ✅ Implementado | Fix M4 | Pobla desde `artifact_messages` o texto plano |
+| `validate_config()` en startup | ✅ Implementado | Fix B1 | `GET /call?limit=1` con timeout 5s |
 | API key por broker | ❌ Faltante | — | Siempre usa `VAPI_API_KEY` global |
 | WebSocket al frontend en call events | ❌ Faltante | — | No hay `ws_manager.broadcast()` |
-| `validate_config()` en startup | ❌ Faltante | — | Errores de config detectados tarde |
 
 ---
 
@@ -396,6 +404,9 @@ VOICE_PROVIDER=vapi
 | A4 | — | Error message en `get_call_status()` ya era correcto — sin cambio |
 | M1 | `services/voice/call_agent.py` | JSON parsing: `json.loads()` directo + regex anidado como fallback |
 | M2 | `routes/broker_config.py` | Nuevo `POST /config/voice/assistant` → `VapiAssistantService` |
+| M4 | `services/voice/call_service.py`, `tasks/voice_tasks.py` | `store_transcript_lines()`: pobla `call_transcripts` desde `artifact_messages` (o fallback texto plano) |
+| B1 | `providers/vapi/provider.py`, `main.py` | `validate_config()` con `GET /call?limit=1`; llamada en lifespan startup |
+| B3 | `tasks/voice_tasks.py` | Docstring de módulo documenta requisito `--pool=prefork` |
 
 ---
 

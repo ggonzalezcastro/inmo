@@ -36,6 +36,7 @@ export interface CostSummary {
   daily_cost_usd: number;
   daily_alert: boolean;
   daily_alert_threshold_usd: number;
+  total_voice_minutes: number;
 }
 
 /** One day in the daily breakdown */
@@ -88,4 +89,41 @@ export interface CostCallsPage {
   total: number;
   page: number;
   limit: number;
+}
+
+/** One voice call row */
+export interface VoiceCallItem {
+  id: number;
+  lead_id: number | null;
+  status: string;
+  duration_seconds: number | null;
+  phone_number: string | null;
+  created_at: string;
+}
+
+/** Paginated voice calls response */
+export interface VoiceCallsPage {
+  items: VoiceCallItem[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+/** Voice daily point */
+export interface VoiceDailyPoint {
+  date: string;
+  calls: number;
+  minutes: number;
+}
+
+/** Voice summary response */
+export interface VoiceSummary {
+  broker_id: number;
+  period: string;
+  total_calls: number;
+  completed_calls: number;
+  failed_calls: number;
+  total_minutes: number;
+  avg_duration_seconds: number;
+  daily: VoiceDailyPoint[];
 }

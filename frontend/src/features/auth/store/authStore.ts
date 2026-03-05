@@ -55,7 +55,9 @@ let initialToken: string | null = null
 if (storedToken) {
   initialToken = storedToken
   try {
-    initialUser = storedUserRaw ? (JSON.parse(storedUserRaw) as AuthUser) : tokenToUser(storedToken)
+    const parsed = storedUserRaw ? (JSON.parse(storedUserRaw) as AuthUser) : tokenToUser(storedToken)
+    // Normalize role to lowercase in case it was stored with uppercase (backend returns ADMIN/AGENT)
+    initialUser = parsed ? { ...parsed, role: (parsed.role?.toLowerCase() as AuthUser['role']) || 'agent' } : null
   } catch {
     initialUser = tokenToUser(storedToken)
   }
@@ -68,11 +70,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isLoading: false,
 
   setAuth: (user, token) => {
+    // Normalize role to lowercase — backend returns ADMIN/AGENT (uppercase)
+    const normalized: AuthUser = { ...user, role: (user.role?.toLowerCase() as AuthUser['role']) || 'agent' }
     // Keep localStorage in sync so the legacy api.js interceptor works (ChatTest.jsx)
     localStorage.setItem('token', token)
-    localStorage.setItem('user', JSON.stringify(user))
+    localStorage.setItem('user', JSON.stringify(normalized))
     setTokenGetter(() => token)
-    set({ user, token, isAuthenticated: true })
+    set({ user: normalized, token, isAuthenticated: true })
   },
 
   clearAuth: () => {

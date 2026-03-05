@@ -13,7 +13,6 @@ export function CostTable() {
   const [loading, setLoading] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [filters, setFilters] = useState({
-    provider: '',
     status: '',
   });
 
@@ -23,7 +22,6 @@ export function CostTable() {
       page,
       limit: PAGE_SIZE,
       broker_id: selectedBrokerId ?? undefined,
-      provider: filters.provider || undefined,
       status: filters.status || undefined,
     })
       .then((res) => {
@@ -35,7 +33,7 @@ export function CostTable() {
         setTotal(0);
       })
       .finally(() => setLoading(false));
-  }, [page, selectedBrokerId, filters.provider, filters.status]);
+  }, [page, selectedBrokerId, filters.status]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -43,16 +41,6 @@ export function CostTable() {
     <div className="bg-white shadow rounded-lg p-6 mt-8">
       <h2 className="text-lg font-medium text-gray-900 mb-4">Detalle de llamadas LLM</h2>
       <div className="flex gap-4 mb-4">
-        <select
-          value={filters.provider}
-          onChange={(e) => setFilters((f) => ({ ...f, provider: e.target.value }))}
-          className="rounded border-gray-300 text-sm"
-        >
-          <option value="">Todos los providers</option>
-          <option value="gemini">Gemini</option>
-          <option value="claude">Claude</option>
-          <option value="openai">OpenAI</option>
-        </select>
         <select
           value={filters.status}
           onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
@@ -73,8 +61,7 @@ export function CostTable() {
                 <tr className="text-left text-gray-500">
                   <th className="px-2 py-2">Timestamp</th>
                   <th className="px-2 py-2">Lead</th>
-                  <th className="px-2 py-2">Provider</th>
-                  <th className="px-2 py-2">Modelo</th>
+                  <th className="px-2 py-2">Tipo</th>
                   <th className="px-2 py-2 text-right">Input</th>
                   <th className="px-2 py-2 text-right">Output</th>
                   <th className="px-2 py-2 text-right">Costo USD</th>
@@ -98,8 +85,7 @@ export function CostTable() {
                         {row.created_at ? new Date(row.created_at).toLocaleString() : '—'}
                       </td>
                       <td className="px-2 py-2">{row.lead_id ?? '—'}</td>
-                      <td className="px-2 py-2">{row.provider}</td>
-                      <td className="px-2 py-2">{row.model}</td>
+                      <td className="px-2 py-2">{row.call_type ?? '—'}</td>
                       <td className="px-2 py-2 text-right">{row.input_tokens ?? '—'}</td>
                       <td className="px-2 py-2 text-right">{row.output_tokens ?? '—'}</td>
                       <td className="px-2 py-2 text-right">
@@ -133,7 +119,7 @@ export function CostTable() {
                     </tr>
                     {expandedId === row.id && (
                       <tr>
-                        <td colSpan={10} className="px-2 py-2 bg-gray-50 text-xs">
+                        <td colSpan={8} className="px-2 py-2 bg-gray-50 text-xs">
                           <pre className="whitespace-pre-wrap">
                             {JSON.stringify(
                               {

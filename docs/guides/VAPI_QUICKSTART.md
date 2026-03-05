@@ -13,7 +13,7 @@
 ## 📦 Lo que se implementó
 
 ### 1. Nuevo Proveedor de Voz: `VapiProvider`
-- Localización: `backend/app/services/voice_provider.py`
+- Localización: `backend/app/services/voice/providers/vapi/provider.py` (entrada vía `app.services.voice.provider` y `factory.get_voice_provider()`)
 - Funciones:
   - ✅ Hacer llamadas outbound
   - ✅ Obtener estado de llamadas
@@ -21,7 +21,7 @@
   - ✅ Procesamiento de transcripciones en tiempo real
 
 ### 2. Servicio de Asistentes: `VapiAssistantService`
-- Localización: `backend/app/services/vapi_assistant_service.py`
+- Localización: `backend/app/services/voice/providers/vapi/assistant_service.py`
 - Funciones:
   - ✅ Crear asistentes de IA personalizados
   - ✅ Configuración optimizada para español
@@ -41,9 +41,10 @@
 - Default cambiado a Vapi
 
 ### 5. Scripts de Utilidad
-- `scripts/create_vapi_assistant.py` - Crear asistente
-- `scripts/test_vapi_call.py` - Probar llamadas
-- `scripts/list_vapi_assistants.py` - Listar asistentes
+- `backend/scripts/create_vapi_assistant.py` - Crear asistente
+- `backend/scripts/test_vapi_call.py` - Probar llamadas
+- `backend/scripts/list_vapi_assistants.py` - Listar asistentes
+- `backend/scripts/verify_vapi_setup.py` - Verificar configuración
 
 ---
 
@@ -132,15 +133,16 @@ El código ya está integrado. Cuando haces una llamada desde tu sistema:
 
 ```python
 # En tu código existente
-from app.services.voice_call_service import VoiceCallService
+from app.services.voice.call_service import VoiceCallService
 
 voice_call = await VoiceCallService.initiate_call(
     db=db,
     lead_id=lead_id,
-    campaign_id=campaign_id,
+    campaign_id=campaign_id,  # opcional
     broker_id=broker_id,
-    agent_type="vapi"  # Usa Vapi automáticamente
+    agent_type="vapi",       # opcional; default desde config
 )
+# Referencia completa: technical/backend/VAPI_IMPLEMENTATION.md
 ```
 
 ---
@@ -172,7 +174,7 @@ voice_call = await VoiceCallService.initiate_call(
 
 ### Personalizar Voces
 
-En `vapi_assistant_service.py`, línea ~170:
+En `backend/app/services/voice/providers/vapi/assistant_service.py` (configuración del asistente):
 
 ```python
 "voice": {
@@ -205,7 +207,7 @@ En `vapi_assistant_service.py`, línea ~170:
 Para que el asistente pueda llamar funciones de tu sistema (ej: agendar citas, buscar propiedades):
 
 ```python
-# En vapi_assistant_service.py, agregar:
+# En assistant_service.py (providers/vapi/), agregar:
 "functions": [
     {
         "name": "agendar_cita",
@@ -230,7 +232,8 @@ Luego manejar en el webhook (`voice.py`).
 ### Documentación
 - **Vapi Docs**: https://docs.vapi.ai
 - **Dashboard**: https://dashboard.vapi.ai
-- **Guía Completa**: Ver `VAPI_MIGRATION_GUIDE.md`
+- **Referencia técnica (canónica)**: [VAPI_IMPLEMENTATION.md](../technical/backend/VAPI_IMPLEMENTATION.md) — mapa de archivos, flujos, webhooks, tareas Celery.
+- **Migración histórica**: [VAPI_MIGRATION_GUIDE.md](../technical/backend/VAPI_MIGRATION_GUIDE.md)
 
 ### Scripts Útiles
 ```bash

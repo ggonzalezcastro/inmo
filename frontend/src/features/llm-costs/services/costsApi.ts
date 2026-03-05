@@ -6,6 +6,7 @@ import type {
   CostPeriod,
   CostByBrokerResponse,
   CostCallsPage,
+  VoiceCallsPage,
 } from '../types/costs.types';
 
 export type { CostSummary, CostDailyResponse, CostOutliersResponse, CostPeriod };
@@ -88,4 +89,25 @@ export async function getCalls(params: {
 }): Promise<CostCallsPage> {
   const { data } = await costsAPI.getCalls(params);
   return data as CostCallsPage;
+}
+
+/** Fetch paginated voice calls */
+export async function getVoiceCalls(params: {
+  page?: number;
+  limit?: number;
+  broker_id?: number | null;
+  period?: CostPeriod;
+  status?: string;
+}): Promise<VoiceCallsPage> {
+  const { data } = await costsAPI.getVoiceCalls(params);
+  return data as VoiceCallsPage;
+}
+
+/** Fetch voice call summary */
+export async function getVoiceSummary(params: {
+  period?: CostPeriod;
+  broker_id?: number | null;
+}): Promise<import('../types/costs.types').VoiceSummary> {
+  const { data } = await costsAPI.getVoiceSummary(params);
+  return data;
 }

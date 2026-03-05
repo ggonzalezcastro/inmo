@@ -10,15 +10,19 @@ export interface CreateUserDto {
 
 export const usersService = {
   async getAll(): Promise<AuthUser[]> {
-    return apiClient.get('/api/broker/users')
+    const res = await apiClient.get<{ users: AuthUser[] } | AuthUser[]>('/api/broker/users')
+    // Backend returns { users: [...] }, handle both shapes for safety
+    return Array.isArray(res) ? res : (res as { users: AuthUser[] }).users ?? []
   },
 
   async create(data: CreateUserDto): Promise<AuthUser> {
-    return apiClient.post('/api/broker/users', data)
+    const res = await apiClient.post<{ user: AuthUser } | AuthUser>('/api/broker/users', data)
+    return (res as { user: AuthUser }).user ?? (res as AuthUser)
   },
 
   async update(userId: number, data: Partial<CreateUserDto & { is_active: boolean }>): Promise<AuthUser> {
-    return apiClient.put(`/api/broker/users/${userId}`, data)
+    const res = await apiClient.put<{ user: AuthUser } | AuthUser>(`/api/broker/users/${userId}`, data)
+    return (res as { user: AuthUser }).user ?? (res as AuthUser)
   },
 
   async delete(userId: number): Promise<void> {

@@ -29,6 +29,10 @@ CRM inmobiliario multi-tenant con inteligencia artificial para calificación de 
 | [API - Overview](api/overview.md) | Descripción general de la API REST |
 | [API - Endpoints](api/endpoints.md) | Documentación detallada de endpoints |
 | [API - Webhooks](api/webhooks.md) | Payloads de webhooks (Telegram, WhatsApp, VAPI) |
+| [Voz (VAPI)](technical/backend/VAPI_IMPLEMENTATION.md) | Referencia técnica canónica: flujos, webhooks, tareas Celery |
+| [VAPI - Inicio rápido](guides/VAPI_QUICKSTART.md) | Guía rápida de configuración Vapi.ai |
+| [Frontend - Referencia](technical/frontend/FRONTEND_QUICK_REFERENCE.md) | Estructura, API client, Zustand, permisos |
+| [Seguridad](security/SECRETS_MANAGEMENT.md) | Gestión de secretos y variables de entorno |
 | [Guía de Inicio](guides/getting-started.md) | Instalación y configuración |
 | [Guía de Desarrollo](guides/development.md) | Guía para desarrolladores |
 | [Guía de Despliegue](guides/deployment.md) | Despliegue en producción |

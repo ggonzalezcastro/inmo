@@ -1243,7 +1243,7 @@ async def test_calculate_lead_score_complete(db_session, test_lead):
 #### **2. Documentación Fragmentada**
 ```bash
 # 49 archivos .md en root ⚠️
-VAPI_RESUMEN_EJECUTIVO.md
+VAPI_IMPLEMENTATION.md
 BACKEND_BROKER_CONFIG.md
 DEPLOYMENT_CHECKLIST.md
 GOOGLE_CALENDAR_SETUP.md

@@ -1,0 +1,1 @@
+function t(r){if(r&&typeof r=="object"&&"response"in r){const e=r.response?.data?.detail;if(typeof e=="string")return e;if(Array.isArray(e))return e.map(s=>s.msg).join(", ")}return r instanceof Error?r.message:"Ha ocurrido un error inesperado"}export{t as g};
