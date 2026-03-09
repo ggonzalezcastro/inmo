@@ -161,14 +161,34 @@ class AgentToolsService:
             appointment_type=AppointmentType.VIRTUAL_MEETING,  # Default to virtual
             duration_minutes=duration_minutes
         )
-        
-        # Format slots for LLM
-        formatted_slots = AppointmentService.format_slots_for_llm(slots, max_slots=20)
-        
+
+        # Fallback: if no slots are configured in DB, generate generic availability
+        # so the agent can still confirm whatever time the lead proposes.
+        if not slots:
+            fallback_slots = []
+            current = start_date
+            for _ in range(min(days_ahead, 14)):
+                if current.weekday() < 6:  # Mon–Sat
+                    for hour in (9, 10, 11, 14, 15, 16, 17):
+                        fallback_slots.append({
+                            "date": current.isoformat(),
+                            "time": f"{hour:02d}:00",
+                            "datetime": f"{current.isoformat()}T{hour:02d}:00:00",
+                            "available": True,
+                        })
+                current = current + timedelta(days=1)
+            slots = fallback_slots
+            formatted_slots = (
+                "Disponibilidad general: lunes a sábado de 9:00 a 18:00. "
+                "Confirma el día y hora que te acomode."
+            )
+        else:
+            formatted_slots = AppointmentService.format_slots_for_llm(slots, max_slots=20)
+
         return {
             "success": True,
             "result": {
-                "slots": slots[:20],  # Return first 20 slots
+                "slots": slots[:20],
                 "formatted": formatted_slots,
                 "count": len(slots),
                 "date_range": {
