@@ -69,7 +69,8 @@ def build_context(lead, broker_id: int) -> AgentContext:
     lead    : Lead SQLAlchemy model instance
     broker_id : The broker that owns this conversation
     """
-    metadata = lead.lead_metadata or {}
+    from app.core.encryption import decrypt_metadata_fields
+    metadata = decrypt_metadata_fields(lead.lead_metadata or {}) or {}
     # Use lead.pipeline_stage only when it's a non-empty string (guard against MagicMock / None)
     _stage = lead.pipeline_stage if isinstance(lead.pipeline_stage, str) and lead.pipeline_stage else None
     return AgentContext(
