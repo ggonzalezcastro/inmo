@@ -82,7 +82,10 @@ class SchedulerAgent(BaseAgent):
             return True
         if context.conversation_state in _OWN_CONV_STATES:
             return True
-        # Take over when handed off from qualifier
+        # Sticky: was handed off to this agent (current_agent already set to SCHEDULER)
+        if context.current_agent == AgentType.SCHEDULER:
+            return True
+        # Take over when qualifier signals readiness (handoff not yet persisted)
         if context.current_agent == AgentType.QUALIFIER and context.is_appointment_ready():
             return True
         return False

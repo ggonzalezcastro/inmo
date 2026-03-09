@@ -7,6 +7,7 @@ export type WSEventType =
   | 'lead_assigned'
   | 'lead_hot'
   | 'typing'
+  | 'ai_response'
 
 export interface WSEvent<T = unknown> {
   type: WSEventType
@@ -26,7 +27,7 @@ const BASE_WS_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000')
 const MAX_BACKOFF_MS = 30_000
 
 export function useWebSocket({ onMessage, enabled = true }: UseWebSocketOptions) {
-  const brokerId = useAuthStore((s) => s.user?.broker_id)
+  const user = useAuthStore((s) => s.user)
   const wsRef = useRef<WebSocket | null>(null)
   const attemptRef = useRef(0)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -35,24 +36,37 @@ export function useWebSocket({ onMessage, enabled = true }: UseWebSocketOptions)
   useEffect(() => { onMessageRef.current = onMessage })
 
   const connect = useCallback(() => {
-    if (!brokerId || !enabled) return
+    if (!user?.broker_id || !enabled) return
 
     const token = localStorage.getItem('token')
-    const url = `${BASE_WS_URL}/ws/${brokerId}${token ? `?token=${token}` : ''}`
+    const userId = String(user.id ?? 'dashboard')
+    // Backend endpoint: /ws/{broker_id}/{user_id}
+    // Auth: send {"token": "..."} as the first message after connecting
+    const url = `${BASE_WS_URL}/ws/${user.broker_id}/${userId}`
     const ws = new WebSocket(url)
     wsRef.current = ws
+
+    ws.onopen = () => {
+      attemptRef.current = 0
+      // Send token as first message per the backend protocol
+      if (token) {
+        ws.send(JSON.stringify({ token }))
+      }
+    }
 
     ws.onmessage = (e) => {
       try {
         const parsed = JSON.parse(e.data) as WSEvent
-        onMessageRef.current(parsed)
+        // Ignore handshake / heartbeat frames
+        if ((parsed as any).event === 'connected' || (parsed as any).event === 'ping') return
+        // Backend broadcasts with {event, data} shape; normalise to {type, data}
+        const normalised: WSEvent = (parsed as any).event
+          ? { type: (parsed as any).event as WSEventType, data: (parsed as any).data }
+          : parsed
+        onMessageRef.current(normalised)
       } catch {
         // ignore malformed frames
       }
-    }
-
-    ws.onopen = () => {
-      attemptRef.current = 0
     }
 
     ws.onclose = () => {
@@ -66,15 +80,15 @@ export function useWebSocket({ onMessage, enabled = true }: UseWebSocketOptions)
     ws.onerror = () => {
       ws.close()
     }
-  }, [brokerId, enabled])
+  }, [user?.broker_id, user?.id, enabled])
 
   useEffect(() => {
-    if (!enabled || !brokerId) return
+    if (!enabled || !user?.broker_id) return
     connect()
     return () => {
       timerRef.current && clearTimeout(timerRef.current)
       wsRef.current?.close()
       wsRef.current = null
     }
-  }, [connect, enabled, brokerId])
+  }, [connect, enabled, user?.broker_id])
 }

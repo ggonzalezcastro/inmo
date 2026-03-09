@@ -124,8 +124,17 @@ class AgentSupervisor:
             )
             hops += 1
 
-            # After a handoff we do NOT process the same user message again
-            # (the new agent generates an intro / confirmation response internally)
+            # After a handoff, update agent_type to the target so the orchestrator
+            # persists the correct current_agent for the next message routing.
+            last_response = AgentResponse(
+                message=last_response.message,
+                agent_type=handoff.target_agent,
+                context_updates=last_response.context_updates,
+                handoff=None,
+                function_calls=last_response.function_calls,
+            )
+            # Do NOT process the same user message with the new agent —
+            # the new agent starts on the next inbound message.
             break
 
         if last_response is None:

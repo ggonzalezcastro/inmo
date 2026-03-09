@@ -306,34 +306,54 @@ class ChatOrchestratorService:
         from app.models.broker import BrokerPromptConfig
         from sqlalchemy.future import select as _select
 
-        # Load broker custom agent prompt overrides from situation_handlers
+        # Load broker config: prompt overrides + broker_name + agent_name
         _broker_overrides: dict = {}
+        _broker_name = ""
+        _agent_name = "Sofía"
         try:
+            from app.models.broker import Broker
             _cfg_res = await db.execute(
                 _select(BrokerPromptConfig).where(BrokerPromptConfig.broker_id == broker_id)
             )
             _broker_cfg = _cfg_res.scalars().first()
-            if _broker_cfg and isinstance(_broker_cfg.situation_handlers, dict):
-                for _k, _v in _broker_cfg.situation_handlers.items():
-                    if _k.startswith("_agent_") and _v:
-                        _broker_overrides[_k[len("_agent_"):]] = _v
+            if _broker_cfg:
+                if isinstance(_broker_cfg.situation_handlers, dict):
+                    for _k, _v in _broker_cfg.situation_handlers.items():
+                        if _k.startswith("_agent_") and _v:
+                            _broker_overrides[_k[len("_agent_"):]] = _v
+                _agent_name = _broker_cfg.agent_name or "Sofía"
+            # Load broker name from Broker table
+            _br_res = await db.execute(
+                _select(Broker).where(Broker.id == broker_id)
+            )
+            _broker = _br_res.scalars().first()
+            if _broker:
+                _broker_name = _broker.name or ""
         except Exception as _ov_exc:
-            logger.debug("[Orchestrator] Could not load agent overrides: %s", _ov_exc)
+            logger.debug("[Orchestrator] Could not load broker config: %s", _ov_exc)
 
-        agent_context = build_context(lead, broker_id, broker_overrides=_broker_overrides)
+        # message_history comes from ChatMessage records (already fetched above)
+        _message_history = context.get("message_history", [])
+
+        agent_context = build_context(
+            lead, broker_id,
+            broker_overrides=_broker_overrides,
+            message_history=_message_history,
+            broker_name=_broker_name,
+            agent_name=_agent_name,
+        )
         agent_result = await AgentSupervisor.process(message, agent_context, db)
         ai_response = agent_result.message
         function_calls = agent_result.function_calls or []
 
-        # Persist context_updates from agent into lead metadata
-        if agent_result.context_updates:
-            refreshed_metadata = dict(lead.lead_metadata or {})
-            for k, v in agent_result.context_updates.items():
-                refreshed_metadata[k] = v
-            refreshed_metadata["current_agent"] = agent_result.agent_type.value
-            lead.lead_metadata = encrypt_metadata_fields(refreshed_metadata)
-            await db.commit()
-            await db.refresh(lead)
+        # Always persist current_agent + any context_updates from the agent
+        refreshed_metadata = dict(lead.lead_metadata or {})
+        for k, v in (agent_result.context_updates or {}).items():
+            refreshed_metadata[k] = v
+        refreshed_metadata["current_agent"] = agent_result.agent_type.value
+        lead.lead_metadata = encrypt_metadata_fields(refreshed_metadata)
+        await db.commit()
+        await db.refresh(lead)
 
         if new_score != old_score:
             await ActivityService.log_activity(

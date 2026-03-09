@@ -60,7 +60,27 @@ def get_priority_agents() -> list[BaseAgent]:
     ]
 
 
-def build_context(lead, broker_id: int, broker_overrides: dict | None = None) -> AgentContext:
+def _parse_conv_state(value) -> str:
+    """Normalise conversation_state regardless of how it was stored.
+
+    The state machine stores it as a plain string (e.g. "interest_check"),
+    but older metadata entries may store it as {"state": "..."}.
+    """
+    if isinstance(value, str) and value:
+        return value.upper()
+    if isinstance(value, dict):
+        return value.get("state", "GREETING")
+    return "GREETING"
+
+
+def build_context(
+    lead,
+    broker_id: int,
+    broker_overrides: dict | None = None,
+    message_history: list | None = None,
+    broker_name: str = "",
+    agent_name: str = "Sofía",
+) -> AgentContext:
     """
     Convenience factory: build an AgentContext from a Lead ORM object.
 
@@ -69,16 +89,22 @@ def build_context(lead, broker_id: int, broker_overrides: dict | None = None) ->
     lead             : Lead SQLAlchemy model instance
     broker_id        : The broker that owns this conversation
     broker_overrides : Optional dict with _custom_*_prompt keys loaded from DB
+    message_history  : Conversation history from ChatMessage records (preferred
+                       over what may be stale in lead_metadata)
+    broker_name      : Human-readable broker name (from Broker.name)
+    agent_name       : AI persona name (from BrokerPromptConfig.agent_name)
     """
     from app.core.encryption import decrypt_metadata_fields
     metadata = decrypt_metadata_fields(lead.lead_metadata or {}) or {}
     # Use lead.pipeline_stage only when it's a non-empty string (guard against MagicMock / None)
     _stage = lead.pipeline_stage if isinstance(lead.pipeline_stage, str) and lead.pipeline_stage else None
+    # Prefer explicitly passed message_history (from DB records); fall back to metadata
+    _history = message_history if message_history is not None else metadata.get("message_history", [])
     return AgentContext(
         lead_id=lead.id,
         broker_id=broker_id,
         pipeline_stage=_stage or metadata.get("pipeline_stage", "entrada"),
-        conversation_state=metadata.get("conversation_state", {}).get("state", "GREETING"),
+        conversation_state=_parse_conv_state(metadata.get("conversation_state")),
         lead_data={
             "name": lead.name,
             "phone": lead.phone,
@@ -88,15 +114,15 @@ def build_context(lead, broker_id: int, broker_overrides: dict | None = None) ->
             "location": metadata.get("location"),
             "dicom_status": metadata.get("dicom_status"),
             "morosidad_amount": metadata.get("morosidad_amount"),
-            "broker_name": metadata.get("broker_name", ""),
-            "agent_name": metadata.get("agent_name", "Sofía"),
+            "broker_name": broker_name or metadata.get("broker_name", ""),
+            "agent_name": agent_name or metadata.get("agent_name", "Sofía"),
             "hot_fast_track": metadata.get("hot_fast_track", False),
             # Broker-level custom prompt overrides (passed from orchestrator)
             "_custom_qualifier_prompt": (broker_overrides or {}).get("qualifier"),
             "_custom_scheduler_prompt": (broker_overrides or {}).get("scheduler"),
             "_custom_follow_up_prompt": (broker_overrides or {}).get("follow_up"),
         },
-        message_history=metadata.get("message_history", []),
+        message_history=_history,
         current_agent=_parse_agent_type(metadata.get("current_agent")),
     )
 

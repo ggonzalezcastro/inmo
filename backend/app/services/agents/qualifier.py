@@ -51,7 +51,34 @@ class QualifierAgent(BaseAgent):
         agent_name = lead_data.get("agent_name", "Sofía")
         # Use broker custom override if available
         template = lead_data.get("_custom_qualifier_prompt") or QUALIFIER_SYSTEM_PROMPT
-        return template.format(agent_name=agent_name, broker_name=broker_name)
+        base_prompt = template.format(agent_name=agent_name, broker_name=broker_name)
+
+        # Inject already-collected fields so the LLM never asks for them again
+        _dicom_labels = {"clean": "Limpio (sin deudas)", "dirty": "Con deudas morosas", "unknown": "No especificado"}
+        collected: list[str] = []
+        if lead_data.get("name"):
+            collected.append(f"- Nombre: {lead_data['name']}")
+        if lead_data.get("phone"):
+            collected.append(f"- Teléfono: {lead_data['phone']}")
+        if lead_data.get("email"):
+            collected.append(f"- Email: {lead_data['email']}")
+        if lead_data.get("location"):
+            collected.append(f"- Ubicación: {lead_data['location']}")
+        if lead_data.get("salary") or lead_data.get("budget"):
+            val = lead_data.get("salary") or lead_data.get("budget")
+            collected.append(f"- Renta mensual: {val}")
+        if lead_data.get("dicom_status"):
+            label = _dicom_labels.get(lead_data["dicom_status"], lead_data["dicom_status"])
+            collected.append(f"- DICOM: {label}")
+
+        if collected:
+            base_prompt += (
+                "\n\n## DATOS YA RECOPILADOS — NO volver a preguntar estos campos\n"
+                + "\n".join(collected)
+                + "\n\nContinúa desde el primer campo pendiente en la lista de DATOS A RECOPILAR."
+            )
+
+        return base_prompt
 
     async def should_handle(self, context: AgentContext) -> bool:
         # Own pipeline stages
@@ -105,7 +132,6 @@ class QualifierAgent(BaseAgent):
             if val and not context.lead_data.get(field):
                 updates[field] = val
 
-        # Generate response from the LLM
         merged_data = {**context.lead_data, **updates}
         temp_context = AgentContext(
             lead_id=context.lead_id,
@@ -117,29 +143,40 @@ class QualifierAgent(BaseAgent):
             current_agent=AgentType.QUALIFIER,
         )
 
-        system_prompt = self.get_system_prompt(temp_context)
-
-        try:
-            response_text, function_calls = (
-                await LLMServiceFacade.generate_response_with_function_calling(
-                    system_prompt=system_prompt,
-                    contents=_build_messages(context.message_history, message),
-                    tools=[],
-                    broker_id=context.broker_id,
-                    lead_id=context.lead_id,
-                )
-            )
-        except Exception as exc:
-            self._log(f"LLM response failed: {exc}", level="error")
-            response_text = "Disculpa, estoy teniendo dificultades técnicas. Por favor intenta en unos minutos."
-            function_calls = []
-
-        # Check for DICOM violation: if lead has dirty DICOM, no handoff
+        # Check handoff BEFORE generating response so we can tailor the message
         dirty_dicom = merged_data.get("dicom_status") == "dirty"
+        ready_for_handoff = not dirty_dicom and temp_context.is_appointment_ready()
 
-        # Decide on handoff
+        if ready_for_handoff:
+            # Generate a transition message — don't ask for more fields
+            name = merged_data.get("name", "")
+            greeting = f"¡Excelente{', ' + name if name else ''}! " if name else "¡Excelente! "
+            response_text = (
+                f"{greeting}Con tu renta y DICOM limpio calificás perfectamente para financiamiento. "
+                "Voy a proponerte una visita a nuestros proyectos disponibles. "
+                "¿Qué días y horario te quedan mejor esta semana?"
+            )
+            function_calls = []
+        else:
+            # Generate normal next-step response from LLM
+            system_prompt = self.get_system_prompt(temp_context)
+            try:
+                response_text, function_calls = (
+                    await LLMServiceFacade.generate_response_with_function_calling(
+                        system_prompt=system_prompt,
+                        contents=_build_messages(context.message_history, message),
+                        tools=[],
+                        broker_id=context.broker_id,
+                        lead_id=context.lead_id,
+                    )
+                )
+            except Exception as exc:
+                self._log(f"LLM response failed: {exc}", level="error")
+                response_text = "Disculpa, estoy teniendo dificultades técnicas. Por favor intenta en unos minutos."
+                function_calls = []
+
         handoff: HandoffSignal | None = None
-        if not dirty_dicom and temp_context.is_appointment_ready():
+        if ready_for_handoff:
             self._log("Qualification complete — signalling handoff to Scheduler",
                       lead_id=context.lead_id)
             handoff = HandoffSignal(

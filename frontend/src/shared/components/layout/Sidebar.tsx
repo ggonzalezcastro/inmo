@@ -22,6 +22,7 @@ import { cn } from '@/shared/lib/utils'
 import { useAuthStore } from '@/features/auth'
 import { usePermissions } from '@/shared/hooks/usePermissions'
 import { getInitials } from '@/shared/lib/utils'
+import { useSofiaActivity, type SofiaStatus } from '@/shared/hooks/useSofiaActivity'
 
 interface SidebarProps {
   collapsed: boolean
@@ -50,9 +51,19 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/brokers', label: 'Brokers', icon: Building2, roles: ['superadmin'] },
 ]
 
+const STATUS_COLORS: Record<SofiaStatus, { dot: string; bg: string; text: string; detail: string }> = {
+  idle:         { dot: '#1A56DB', bg: '#EBF2FF', text: '#1A56DB', detail: '#4B72B8' },
+  receiving:    { dot: '#F59E0B', bg: '#FFFBEB', text: '#92400E', detail: '#B45309' },
+  thinking:     { dot: '#8B5CF6', bg: '#F5F3FF', text: '#5B21B6', detail: '#7C3AED' },
+  responded:    { dot: '#10B981', bg: '#ECFDF5', text: '#065F46', detail: '#059669' },
+  stage_change: { dot: '#3B82F6', bg: '#EFF6FF', text: '#1E40AF', detail: '#2563EB' },
+  hot_lead:     { dot: '#EF4444', bg: '#FEF2F2', text: '#991B1B', detail: '#DC2626' },
+}
+
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { user, clearAuth } = useAuthStore()
   const { role } = usePermissions()
+  const sofia = useSofiaActivity()
 
   const visibleItems = NAV_ITEMS.filter((item) => {
     if (!item.roles) return true
@@ -137,23 +148,48 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         )}
       >
         {/* Agent Status — only when expanded */}
-        {!collapsed && (
-          <div className="flex items-center gap-3 bg-[#EBF2FF] rounded-lg px-3 py-2.5 mx-1">
-            <div className="relative shrink-0">
-              <div className="w-[7px] h-[7px] bg-[#1A56DB] rounded-full" />
-              <div className="absolute inset-0 w-[7px] h-[7px] bg-[#1A56DB] rounded-full animate-ping opacity-40" />
+        {!collapsed && (() => {
+          const c = STATUS_COLORS[sofia.status]
+          return (
+            <div
+              className="flex items-center gap-3 rounded-lg px-3 py-2.5 mx-1 transition-colors duration-500"
+              style={{ background: c.bg }}
+            >
+              {/* Animated dot */}
+              <div className="relative shrink-0 w-[7px] h-[7px]">
+                <div className="w-[7px] h-[7px] rounded-full" style={{ background: c.dot }} />
+                {sofia.status !== 'idle' && (
+                  <div
+                    className="absolute inset-0 w-[7px] h-[7px] rounded-full animate-ping"
+                    style={{ background: c.dot, opacity: 0.45 }}
+                  />
+                )}
+              </div>
+
+              {/* Text */}
+              <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                <span className="text-[11px] font-semibold leading-tight transition-colors duration-500" style={{ color: c.text }}>
+                  Sofía · {sofia.label}
+                </span>
+                {sofia.detail ? (
+                  <span className="text-[10px] leading-tight truncate transition-colors duration-500" style={{ color: c.detail }}>
+                    {sofia.detail}
+                  </span>
+                ) : sofia.eventCount > 0 ? (
+                  <span className="text-[10px] leading-tight" style={{ color: c.detail }}>
+                    {sofia.eventCount} {sofia.eventCount === 1 ? 'evento' : 'eventos'} hoy
+                  </span>
+                ) : (
+                  <span className="text-[10px] leading-tight" style={{ color: c.detail }}>
+                    esperando actividad
+                  </span>
+                )}
+              </div>
+
+              <Cpu size={12} className="shrink-0 transition-colors duration-500" style={{ color: c.dot, opacity: 0.6 }} />
             </div>
-            <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-              <span className="text-[#1A56DB] text-[11px] font-semibold leading-tight">
-                Sofía · activa
-              </span>
-              <span className="text-[#4B72B8] text-[10px] leading-tight truncate">
-                Analizando leads
-              </span>
-            </div>
-            <Cpu size={12} className="text-[#1A56DB]/60 shrink-0" />
-          </div>
-        )}
+          )
+        })()}
 
         {/* User Profile */}
         <div
