@@ -114,9 +114,12 @@ class QualifierAgent(BaseAgent):
         )
 
         try:
+            # Include message_history so the analysis LLM has context for
+            # short answers like "no" (DICOM question) or "sí" (interest)
+            analysis_context = {**context.lead_data, "message_history": context.message_history}
             analysis = await LLMServiceFacade.analyze_lead_qualification(
                 message=message,
-                lead_context=context.lead_data,
+                lead_context=analysis_context,
                 broker_id=context.broker_id,
                 lead_id=context.lead_id,
             )

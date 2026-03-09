@@ -161,14 +161,20 @@ class LLMServiceFacade:
 
         context_note = f"\n\nDatos existentes del lead:\n{existing_data}" if existing_data else "\n\nNo hay datos previos del lead."
 
-        # Get last bot message for context
+        # Get last bot message for context (supports both list and legacy string formats)
         last_bot_message = ""
         if lead_context and lead_context.get("message_history"):
             try:
                 history = lead_context.get("message_history", "")
-                if isinstance(history, str):
-                    parts = history.split("|")
-                    for part in reversed(parts):
+                if isinstance(history, list):
+                    # Structured format: [{"role": "assistant"|"user", "content": "..."}]
+                    for msg in reversed(history):
+                        if msg.get("role") == "assistant":
+                            last_bot_message = msg.get("content", "")
+                            break
+                elif isinstance(history, str):
+                    # Legacy pipe-delimited format: "B:message|U:message|..."
+                    for part in reversed(history.split("|")):
                         if part.startswith("B:"):
                             last_bot_message = part[2:]
                             break
