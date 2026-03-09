@@ -14,7 +14,7 @@ export function HotLeadsList({ leads, isLoading }: HotLeadsListProps) {
   const navigate = useNavigate()
 
   return (
-    <div className="flex flex-col bg-white border border-[#D1D9E6] rounded-xl overflow-hidden">
+    <div className="flex flex-col bg-white border border-[#D1D9E6] rounded-xl overflow-hidden shadow-sm">
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-[#E8EEF6]">
         <div className="flex items-center gap-2">

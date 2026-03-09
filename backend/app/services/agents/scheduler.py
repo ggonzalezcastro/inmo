@@ -117,20 +117,62 @@ class SchedulerAgent(BaseAgent):
 
         system_prompt = self.get_system_prompt(context, broker_timezone=broker_timezone)
 
+        # Build tool definitions for appointment scheduling
+        tools = []
+        tool_executor = None
+        try:
+            from app.services.shared import AgentToolsService
+            function_declarations = AgentToolsService.get_function_declarations()
+            from google.genai import types as genai_types
+            tools = [genai_types.Tool(function_declarations=function_declarations)]
+
+            async def _tool_executor(tool_name: str, arguments: dict):
+                try:
+                    async with db.begin_nested():
+                        return await AgentToolsService.execute_tool(
+                            db=db,
+                            tool_name=tool_name,
+                            arguments=arguments,
+                            lead_id=context.lead_id,
+                            agent_id=None,
+                        )
+                except Exception as _te:
+                    logger.error("SchedulerAgent tool %s error: %s", tool_name, _te)
+                    return {"error": str(_te), "success": False}
+
+            tool_executor = _tool_executor
+        except Exception as _tools_exc:
+            logger.warning("SchedulerAgent: could not load tools (%s), proceeding without", _tools_exc)
+            tools = []
+
         try:
             response_text, function_calls = (
                 await LLMServiceFacade.generate_response_with_function_calling(
                     system_prompt=system_prompt,
                     contents=_build_messages(context.message_history, message),
-                    tools=[],
+                    tools=tools,
+                    tool_executor=tool_executor,
                     broker_id=context.broker_id,
                     lead_id=context.lead_id,
                 )
             )
         except Exception as exc:
             self._log(f"LLM response failed: {exc}", level="error")
-            response_text = "Disculpa, estoy teniendo dificultades para mostrarte los horarios. Por favor contáctame directamente."
-            function_calls = []
+            # Retry without tools on failure
+            try:
+                response_text, function_calls = (
+                    await LLMServiceFacade.generate_response_with_function_calling(
+                        system_prompt=system_prompt,
+                        contents=_build_messages(context.message_history, message),
+                        tools=[],
+                        broker_id=context.broker_id,
+                        lead_id=context.lead_id,
+                    )
+                )
+            except Exception as exc2:
+                self._log(f"LLM retry also failed: {exc2}", level="error")
+                response_text = "Disculpa, estoy teniendo dificultades para mostrarte los horarios. Por favor contáctame directamente."
+                function_calls = []
 
         # Detect appointment confirmation keywords
         appointment_confirmed = _is_appointment_confirmed(message, response_text)

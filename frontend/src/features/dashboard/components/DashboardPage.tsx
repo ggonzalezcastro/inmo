@@ -49,31 +49,34 @@ export function DashboardPage() {
   })
 
   return (
-    <div className="flex flex-col gap-8 p-10 h-full">
+    <div className="flex flex-col gap-7 p-8 h-full">
       {/* ── Header ── */}
-      <div className="flex items-end justify-between w-full">
-        <div className="flex flex-col gap-[5px]">
-          <h1 className="text-[#111827] text-[26px] font-bold leading-tight">
-            {user?.name ? `Bienvenido, ${user.name}` : 'Dashboard'}
-          </h1>
-          <p className="text-[#9CA3AF] text-[13px]">
-            {today} · Agente Sofía procesando leads activos
-          </p>
-        </div>
-
-        <div className="flex items-center gap-[10px]">
-          {/* Search */}
-          <div className="flex items-center gap-2 bg-white border border-[#D1D9E6] rounded-lg px-4 py-[9px]">
-            <Search size={14} className="text-[#9CA3AF] shrink-0" />
-            <span className="text-[#9CA3AF] text-[13px]">Buscar lead...</span>
+      <div>
+        <div className="flex items-center justify-between w-full mb-4">
+          <div>
+            <h1 className="text-[1.4375rem] font-bold text-[#111827] tracking-tight leading-tight">
+              {user?.name ? `Bienvenido, ${user.name}` : 'Dashboard'}
+            </h1>
+            <p className="text-[#9CA3AF] text-[13px] mt-0.5">
+              {today} · Sofía procesando leads activos
+            </p>
           </div>
 
-          {/* CTA */}
-          <button className="flex items-center gap-2 bg-[#1A56DB] hover:bg-[#1447C4] active:bg-[#1040B5] text-white rounded-lg px-[18px] py-[9px] transition-colors">
-            <Plus size={14} className="text-white shrink-0" />
-            <span className="text-white text-[13px] font-semibold">Nuevo lead</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Search */}
+            <div className="flex items-center gap-2 bg-white border border-[#D1D9E6] rounded-lg px-3.5 py-2 shadow-sm">
+              <Search size={13} className="text-[#C4CDD8] shrink-0" />
+              <span className="text-[#C4CDD8] text-[13px]">Buscar lead...</span>
+            </div>
+
+            {/* CTA */}
+            <button className="flex items-center gap-1.5 bg-[#1A56DB] hover:bg-[#1447C4] active:bg-[#1040B5] text-white rounded-lg px-4 py-2 transition-colors shadow-sm">
+              <Plus size={14} className="shrink-0" />
+              <span className="text-[13px] font-semibold">Nuevo lead</span>
+            </button>
+          </div>
         </div>
+        <div className="h-px bg-[#D1D9E6]" />
       </div>
 
       {/* ── KPI Cards ── */}

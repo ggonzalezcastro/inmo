@@ -169,7 +169,7 @@ export function BrokersPage() {
     <div className="p-8 space-y-6">
       <PageHeader
         title="Inmobiliarias"
-        description="Gestión global de brokers (solo Superadmin)"
+        description={isLoading ? 'Cargando...' : `${brokers.length} inmobiliarias · ${brokers.filter(b => b.is_active).length} activas`}
         actions={
           <Button size="sm" onClick={() => setShowCreate(true)}>
             <Plus className="mr-2 h-4 w-4" />

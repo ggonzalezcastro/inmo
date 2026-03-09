@@ -48,16 +48,16 @@ export function DataTable<TData>({
 
   return (
     <div className={cn('flex flex-col gap-4', className)}>
-      <div className="rounded-md border overflow-hidden">
+      <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-muted/50">
+            <thead>
               {table.getHeaderGroups().map((headerGroup) => (
-                <tr key={headerGroup.id}>
+                <tr key={headerGroup.id} className="border-b border-border bg-[#F8FAFC]">
                   {headerGroup.headers.map((header) => (
                     <th
                       key={header.id}
-                      className="px-4 py-3 text-left font-medium text-muted-foreground whitespace-nowrap"
+                      className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap"
                     >
                       {header.isPlaceholder
                         ? null
@@ -67,7 +67,7 @@ export function DataTable<TData>({
                 </tr>
               ))}
             </thead>
-            <tbody className="divide-y divide-border bg-background">
+            <tbody className="divide-y divide-border bg-card">
               {isLoading ? (
                 <tr>
                   <td colSpan={columns.length} className="py-16 text-center">
@@ -84,10 +84,10 @@ export function DataTable<TData>({
                 table.getRowModel().rows.map((row) => (
                   <tr
                     key={row.id}
-                    className="hover:bg-muted/30 transition-colors"
+                    className="hover:bg-[#F5F8FF] transition-colors"
                   >
                     {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="px-4 py-3 whitespace-nowrap">
+                      <td key={cell.id} className="px-4 py-3.5 whitespace-nowrap text-[13px]">
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     ))}
@@ -100,33 +100,33 @@ export function DataTable<TData>({
       </div>
 
       {showPagination && (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>
+        <div className="flex items-center justify-between">
+          <span className="text-[12px] text-muted-foreground">
             Mostrando {Math.min((page - 1) * limit + 1, total)}–{Math.min(page * limit, total)} de {total}
           </span>
           <div className="flex items-center gap-1">
             <Button
               variant="outline"
               size="icon"
-              className="h-8 w-8"
+              className="h-8 w-8 border-border"
               aria-label="Página anterior"
               onClick={() => onPageChange(page - 1)}
               disabled={page <= 1}
             >
-              <ChevronLeft className="h-4 w-4" />
+              <ChevronLeft className="h-3.5 w-3.5" />
             </Button>
-            <span className="px-3 py-1 font-medium">
+            <span className="px-3 py-1 text-[12px] font-medium text-foreground">
               {page} / {totalPages}
             </span>
             <Button
               variant="outline"
               size="icon"
-              className="h-8 w-8"
+              className="h-8 w-8 border-border"
               aria-label="Página siguiente"
               onClick={() => onPageChange(page + 1)}
               disabled={page >= totalPages}
             >
-              <ChevronRight className="h-4 w-4" />
+              <ChevronRight className="h-3.5 w-3.5" />
             </Button>
           </div>
         </div>

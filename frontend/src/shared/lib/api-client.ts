@@ -26,7 +26,9 @@ instance.interceptors.request.use((config) => {
 instance.interceptors.response.use(
   (res) => res,
   (error) => {
-    if (error.response?.status === 401) {
+    const requestUrl = error.config?.url ?? ''
+    const isAuthEndpoint = requestUrl.includes('/auth/login') || requestUrl.includes('/auth/register')
+    if (error.response?.status === 401 && !isAuthEndpoint) {
       // Clear token and redirect to login
       localStorage.removeItem('token')
       localStorage.removeItem('user')

@@ -32,12 +32,12 @@ export function KanbanColumn({
   const otherStages = PIPELINE_STAGES.filter((s) => s.key !== stage)
 
   return (
-    <div className="flex flex-col flex-1 min-w-[100px] bg-slate-50 rounded-lg border border-border min-h-0">
+    <div className="flex flex-col flex-1 min-w-[100px] bg-[#F8FAFC] rounded-xl border border-[#D1D9E6] shadow-sm min-h-0">
       {/* Column header */}
-      <div className={cn('px-3 py-2.5 rounded-t-lg border-b border-border', config.color)}>
+      <div className={cn('px-3 py-2.5 rounded-t-xl border-b border-[#D1D9E6]', config.color)}>
         <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wide">{config.label}</span>
-          <span className="text-xs font-bold bg-white/60 rounded-full px-1.5 py-0.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wider">{config.label}</span>
+          <span className="text-[11px] font-bold bg-white/70 rounded-full px-2 py-0.5 tabular-nums">
             {leads.length}
           </span>
         </div>

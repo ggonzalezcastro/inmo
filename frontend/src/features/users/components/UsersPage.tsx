@@ -192,7 +192,7 @@ export function UsersPage() {
     <div className="p-8 space-y-6">
       <PageHeader
         title="Usuarios"
-        description="Gestiona los agentes y administradores del equipo"
+        description={isLoading ? 'Cargando...' : `${users.length} usuarios · ${users.filter(u => u.is_active).length} activos`}
         actions={
           <Button size="sm" onClick={() => setShowCreate(true)}>
             <Plus className="mr-2 h-4 w-4" />

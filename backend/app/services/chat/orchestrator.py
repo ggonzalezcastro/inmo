@@ -303,91 +303,121 @@ class ChatOrchestratorService:
         context = await LeadContextService.get_lead_context(db, lead.id)
         broker_id = current_user.get("broker_id") if current_user else None
 
-        # 7b. Semantic cache check (skip for PII / complex messages)
-        _semantic_cache_hit = False
-        if broker_id:
-            _cached_response = await SemanticCache.lookup(message, broker_id)
-            if _cached_response:
-                logger.debug("[Orchestrator] Semantic cache HIT for broker_id=%s", broker_id)
-                _semantic_cache_hit = True
-                ai_response = _cached_response
-                function_calls = []
+        # Check multi-agent feature flag
+        import os
+        _multi_agent_enabled = os.getenv("MULTI_AGENT_ENABLED", "false").lower() == "true"
 
-        system_prompt, contents, static_system_prompt = await LLMServiceFacade.build_llm_prompt(
-            context, message, db=db, broker_id=broker_id
-        )
-        from google.genai import types as genai_types
+        if _multi_agent_enabled:
+            # ── Multi-agent path: AgentSupervisor generates the response ─────
+            logger.debug("[Orchestrator] MULTI_AGENT_ENABLED — routing to AgentSupervisor")
+            try:
+                from app.services.agents import AgentSupervisor, build_context
+                agent_context = build_context(lead, broker_id)
+                agent_result = await AgentSupervisor.process(message, agent_context, db)
+                ai_response = agent_result.message
+                function_calls = agent_result.function_calls or []
 
-        # ai_response / function_calls may already be set by semantic cache hit
-        if not _semantic_cache_hit:
-            if _MCP_AVAILABLE and MCPClientAdapter is not None:
-                async with MCPClientAdapter() as mcp_client:
-                    tool_definitions = await mcp_client.list_tools()
+                # Persist context_updates from agent into lead metadata
+                if agent_result.context_updates:
+                    refreshed_metadata = dict(lead.lead_metadata or {})
+                    for k, v in agent_result.context_updates.items():
+                        refreshed_metadata[k] = v
+                    refreshed_metadata["current_agent"] = agent_result.agent_type.value
+                    lead.lead_metadata = encrypt_metadata_fields(refreshed_metadata)
+                    await db.commit()
+                    await db.refresh(lead)
+            except Exception as _ma_exc:
+                logger.error("[Orchestrator] Multi-agent error, falling back to monolithic: %s", _ma_exc)
+                _multi_agent_enabled = False  # fall through to monolithic below
+
+        if not _multi_agent_enabled:
+            # ── Monolithic path: LLMServiceFacade generates the response ─────
+
+            # 7b. Semantic cache check (skip for PII / complex messages)
+            _semantic_cache_hit = False
+            if broker_id:
+                _cached_response = await SemanticCache.lookup(message, broker_id)
+                if _cached_response:
+                    logger.debug("[Orchestrator] Semantic cache HIT for broker_id=%s", broker_id)
+                    _semantic_cache_hit = True
+                    ai_response = _cached_response
+                    function_calls = []
+
+            system_prompt, contents, static_system_prompt = await LLMServiceFacade.build_llm_prompt(
+                context, message, db=db, broker_id=broker_id
+            )
+            from google.genai import types as genai_types
+
+            # ai_response / function_calls may already be set by semantic cache hit
+            if not _semantic_cache_hit:
+                if _MCP_AVAILABLE and MCPClientAdapter is not None:
+                    async with MCPClientAdapter() as mcp_client:
+                        tool_definitions = await mcp_client.list_tools()
+
+                        async def tool_executor(tool_name: str, arguments: dict):
+                            try:
+                                arguments["lead_id"] = current_lead_id
+                                return await mcp_client.call_tool(tool_name, arguments)
+                            except Exception as e:
+                                logger.error("Error executing MCP tool %s: %s", tool_name, e)
+                                return {"error": str(e), "success": False}
+
+                        ai_response, function_calls = await LLMServiceFacade.generate_response_with_function_calling(
+                            system_prompt=system_prompt,
+                            contents=contents,
+                            tools=tool_definitions,
+                            tool_executor=tool_executor,
+                            broker_id=broker_id,
+                            lead_id=current_lead_id,
+                            static_system_prompt=static_system_prompt,
+                        )
+                else:
+                    # Fallback without MCP: try with AgentToolsService tools; if SDK validation fails, generate without tools
+                    function_declarations = AgentToolsService.get_function_declarations()
+                    tools = [genai_types.Tool(function_declarations=function_declarations)]
 
                     async def tool_executor(tool_name: str, arguments: dict):
                         try:
-                            arguments["lead_id"] = current_lead_id
-                            return await mcp_client.call_tool(tool_name, arguments)
+                            async with db.begin_nested():
+                                return await AgentToolsService.execute_tool(
+                                    db=db,
+                                    tool_name=tool_name,
+                                    arguments=arguments,
+                                    lead_id=current_lead_id,
+                                    agent_id=None,
+                                )
                         except Exception as e:
-                            logger.error("Error executing MCP tool %s: %s", tool_name, e)
+                            logger.error("Error executing tool %s: %s", tool_name, e)
                             return {"error": str(e), "success": False}
 
-                    ai_response, function_calls = await LLMServiceFacade.generate_response_with_function_calling(
-                        system_prompt=system_prompt,
-                        contents=contents,
-                        tools=tool_definitions,
-                        tool_executor=tool_executor,
-                        broker_id=broker_id,
-                        lead_id=current_lead_id,
-                        static_system_prompt=static_system_prompt,
-                    )
-            else:
-                # Fallback without MCP: try with AgentToolsService tools; if SDK validation fails, generate without tools
-                function_declarations = AgentToolsService.get_function_declarations()
-                tools = [genai_types.Tool(function_declarations=function_declarations)]
-
-                async def tool_executor(tool_name: str, arguments: dict):
                     try:
-                        async with db.begin_nested():
-                            return await AgentToolsService.execute_tool(
-                                db=db,
-                                tool_name=tool_name,
-                                arguments=arguments,
-                                lead_id=current_lead_id,
-                                agent_id=None,
-                            )
+                        ai_response, function_calls = await LLMServiceFacade.generate_response_with_function_calling(
+                            system_prompt=system_prompt,
+                            contents=contents,
+                            tools=tools,
+                            tool_executor=tool_executor,
+                            broker_id=broker_id,
+                            lead_id=current_lead_id,
+                            static_system_prompt=static_system_prompt,
+                        )
                     except Exception as e:
-                        logger.error("Error executing tool %s: %s", tool_name, e)
-                        return {"error": str(e), "success": False}
+                        logger.warning("generate_response_with_function_calling failed (%s), retrying without tools", e)
+                        ai_response, function_calls = await LLMServiceFacade.generate_response_with_function_calling(
+                            system_prompt=system_prompt,
+                            contents=contents,
+                            tools=[],
+                            tool_executor=None,
+                            broker_id=broker_id,
+                            lead_id=current_lead_id,
+                            static_system_prompt=static_system_prompt,
+                        )
 
-                try:
-                    ai_response, function_calls = await LLMServiceFacade.generate_response_with_function_calling(
-                        system_prompt=system_prompt,
-                        contents=contents,
-                        tools=tools,
-                        tool_executor=tool_executor,
-                        broker_id=broker_id,
-                        lead_id=current_lead_id,
-                        static_system_prompt=static_system_prompt,
-                    )
-                except Exception as e:
-                    logger.warning("generate_response_with_function_calling failed (%s), retrying without tools", e)
-                    ai_response, function_calls = await LLMServiceFacade.generate_response_with_function_calling(
-                        system_prompt=system_prompt,
-                        contents=contents,
-                        tools=[],
-                        tool_executor=None,
-                        broker_id=broker_id,
-                        lead_id=current_lead_id,
-                        static_system_prompt=static_system_prompt,
-                    )
-
-            # Store non-PII responses in semantic cache for future hits
-            if broker_id and ai_response:
-                try:
-                    await SemanticCache.store(message, ai_response, broker_id)
-                except Exception as _sc_exc:
-                    logger.debug("[Orchestrator] SemanticCache.store failed: %s", _sc_exc)
+                # Store non-PII responses in semantic cache for future hits
+                if broker_id and ai_response:
+                    try:
+                        await SemanticCache.store(message, ai_response, broker_id)
+                    except Exception as _sc_exc:
+                        logger.debug("[Orchestrator] SemanticCache.store failed: %s", _sc_exc)
 
         if new_score != old_score:
             await ActivityService.log_activity(

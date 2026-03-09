@@ -3,7 +3,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, AsyncGenerator
+from typing import Optional, AsyncGenerator, Dict, Any
 import json
 import asyncio
 import logging
@@ -55,6 +55,7 @@ class ChatResponse(BaseModel):
     lead_id: int
     lead_score: float
     lead_status: str
+    debug_info: Optional[Dict[str, Any]] = None
 
 
 @router.post(
@@ -108,11 +109,22 @@ async def test_chat(
             lead_id=chat_message.lead_id,
             provider_name=provider_name,
         )
+        lead = await LeadService.get_lead(db, result.lead_id)
+        metadata = (lead.lead_metadata or {}) if lead else {}
+        debug_info = {
+            "conversation_state": metadata.get("conversation_state"),
+            "last_analysis": metadata.get("last_analysis"),
+            "key_points": metadata.get("key_points", []),
+            "conversation_summary": metadata.get("conversation_summary"),
+            "human_mode": metadata.get("human_mode", False),
+            "pipeline_stage": getattr(lead, "pipeline_stage", None) if lead else None,
+        }
         return ChatResponse(
             response=result.response,
             lead_id=result.lead_id,
             lead_score=result.lead_score,
             lead_status=getattr(result.lead_status, "value", str(result.lead_status)) or "cold",
+            debug_info=debug_info,
         )
     except ValueError as e:
         if "not found" in str(e).lower():

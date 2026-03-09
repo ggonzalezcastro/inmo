@@ -69,7 +69,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* Brand */}
       <div
         className={cn(
-          'flex items-center gap-[10px] pt-7 pb-0',
+          'flex items-center gap-[10px] pt-6 pb-5 border-b border-[#E2EAF4]',
           collapsed ? 'px-[14px] justify-center' : 'px-[18px]'
         )}
       >
@@ -77,7 +77,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           <Building2 size={14} className="text-white" />
         </div>
         {!collapsed && (
-          <span className="text-[#111827] text-base font-bold leading-none flex-1">Captame.cl</span>
+          <span className="text-[#111827] text-[15px] font-bold leading-none tracking-tight flex-1">Captame.cl</span>
         )}
         <button
           onClick={onToggle}
@@ -94,8 +94,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* Navigation */}
       <nav
         className={cn(
-          'flex flex-col gap-0.5 mt-9 flex-1 overflow-y-auto',
-          collapsed ? 'px-[10px]' : 'px-[18px]'
+          'flex flex-col gap-0.5 mt-4 flex-1 overflow-y-auto',
+          collapsed ? 'px-[10px]' : 'px-[10px]'
         )}
       >
         {visibleItems.map((item) => (
@@ -105,11 +105,11 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             title={collapsed ? item.label : undefined}
             className={({ isActive }) =>
               cn(
-                'flex items-center rounded-lg text-[13px] font-medium transition-colors',
-                collapsed ? 'justify-center h-9 w-9 mx-auto' : 'gap-[10px] h-[38px] px-3',
+                'flex items-center rounded-lg text-[13px] font-medium transition-all',
+                collapsed ? 'justify-center h-9 w-9 mx-auto' : 'gap-[10px] h-[36px] px-3',
                 isActive
-                  ? 'bg-[#EBF2FF] text-[#1A56DB] font-semibold border border-[#BFCFFF]'
-                  : 'text-[#6B7280] hover:bg-[#F5F8FF] hover:text-[#1A56DB] border border-transparent'
+                  ? 'bg-[#EBF2FF] text-[#1A56DB] font-semibold'
+                  : 'text-[#6B7280] hover:bg-[#F5F8FF] hover:text-[#374151]'
               )
             }
           >
@@ -138,17 +138,20 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       >
         {/* Agent Status — only when expanded */}
         {!collapsed && (
-          <div className="flex items-center gap-[10px] bg-[#F0F7FF] border border-[#BFCFFF] rounded-[10px] px-3.5 py-2.5">
-            <div className="w-[7px] h-[7px] bg-[#1A56DB] rounded-full shrink-0 animate-pulse" />
-            <div className="flex flex-col gap-0.5 min-w-0">
-              <span className="text-[#1A56DB] text-[12px] font-semibold leading-tight">
-                Agente activo
+          <div className="flex items-center gap-3 bg-[#EBF2FF] rounded-lg px-3 py-2.5 mx-1">
+            <div className="relative shrink-0">
+              <div className="w-[7px] h-[7px] bg-[#1A56DB] rounded-full" />
+              <div className="absolute inset-0 w-[7px] h-[7px] bg-[#1A56DB] rounded-full animate-ping opacity-40" />
+            </div>
+            <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+              <span className="text-[#1A56DB] text-[11px] font-semibold leading-tight">
+                Sofía · activa
               </span>
-              <span className="text-[#6B7280] text-[11px] leading-tight truncate">
-                Sofia analizando leads
+              <span className="text-[#4B72B8] text-[10px] leading-tight truncate">
+                Analizando leads
               </span>
             </div>
-            <Cpu size={13} className="text-[#1A56DB] shrink-0 ml-auto" />
+            <Cpu size={12} className="text-[#1A56DB]/60 shrink-0" />
           </div>
         )}
 

@@ -106,7 +106,7 @@ async def build_system_prompt(
         sections.append(f"## OBJETIVO\n{agent_objective}")
     else:
         sections.append(
-            "## OBJETIVO\nObtener NOMBRE, TELÉFONO, EMAIL, RENTA/SUELDO mensual, UBICACIÓN del inmueble deseado."
+            "## OBJETIVO\nCalificar al lead en 5-7 intercambios. Recopilar nombre, teléfono, email, ubicación y renta mensual. Si califica, agendar cita."
         )
 
     data_collection_prompt = safe_get(prompt_config_data, "data_collection_prompt")
@@ -150,7 +150,12 @@ async def build_system_prompt(
         sections.append(f"## REGLAS\n{behavior_rules}")
     else:
         sections.append(
-            "## REGLAS\n- Responde en español, corto (1-2 oraciones)\n- Sé conversacional y amigable\n- NO preguntes info ya mencionada\n- Confirma brevemente lo que ya tienes y pregunta lo que falta\n- SOLO pregunta por RENTA/SUELDO mensual, NO por presupuesto del inmueble\n- LEE el contexto antes de preguntar para evitar repetir"
+            "## REGLAS\n"
+            "- Responde en español chileno, máximo 2-3 oraciones.\n"
+            "- Una pregunta a la vez; espera respuesta antes de continuar.\n"
+            "- Lee el contexto antes de preguntar — nunca repitas info ya mencionada.\n"
+            "- Pregunta solo RENTA/SUELDO mensual, nunca presupuesto del inmueble.\n"
+            "- Si el lead dice 'No' a DICOM, es buena noticia — nunca preguntes por monto de deuda."
         )
 
     restrictions = safe_get(prompt_config_data, "restrictions")
@@ -158,7 +163,10 @@ async def build_system_prompt(
         sections.append(f"## RESTRICCIONES\n{restrictions}")
     else:
         sections.append(
-            "## RESTRICCIONES\n- NO inventes precios\n- NO hagas promesas\n- NO des asesoría legal o financiera"
+            "## RESTRICCIONES\n"
+            "- No inventes precios ni disponibilidad.\n"
+            "- No prometas aprobación crediticia ni des asesoría legal o financiera.\n"
+            "- No reveles criterios internos de aprobación."
         )
 
     situation_handlers = safe_get(prompt_config_data, "situation_handlers")

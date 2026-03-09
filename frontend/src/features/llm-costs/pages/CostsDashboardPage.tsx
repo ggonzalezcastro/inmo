@@ -1,5 +1,6 @@
 import { useEffect, useState, Fragment } from 'react';
 import { Link } from 'react-router-dom';
+import { cn } from '@/shared/lib/utils';
 import {
   MessageSquare, Phone, DollarSign, Zap, Clock, TrendingUp,
   CheckCircle, PhoneOff,
@@ -48,7 +49,7 @@ function StatCard({
 }) {
   return (
     <div
-      className={`flex flex-col gap-3 rounded-xl p-6 flex-1 ${
+      className={`flex flex-col gap-3 rounded-xl p-6 flex-1 shadow-sm ${
         accent ? 'bg-[#1A56DB]' : 'bg-white border border-[#D1D9E6]'
       }`}
     >
@@ -71,7 +72,7 @@ function StatCard({
 // ─── Chart card wrapper ───────────────────────────────────────────────────────
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white border border-[#D1D9E6] rounded-xl p-6">
+    <div className="bg-white border border-[#D1D9E6] rounded-xl p-6 shadow-sm">
       <h3 className="text-sm font-semibold text-[#111827] mb-4">{title}</h3>
       {children}
     </div>
@@ -418,12 +419,15 @@ export function CostsDashboardPage() {
     <div className="flex flex-col gap-0 p-10 h-full">
       <div className="max-w-7xl w-full mx-auto flex flex-col gap-6">
         {/* Header */}
-        <div className="flex items-end justify-between">
-          <div>
-            <h1 className="text-[#111827] text-[26px] font-bold leading-tight">Costos</h1>
-            <p className="text-[#9CA3AF] text-[13px] mt-1">Monitorea el uso y costo de todos los canales de IA</p>
+        <div className="mb-2">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-[1.4375rem] font-bold text-[#111827] tracking-tight leading-tight">Costos LLM</h1>
+              <p className="text-[13px] text-[#6B7280] mt-0.5">Monitorea el uso y costo de todos los canales de IA</p>
+            </div>
+            <PeriodSelector value={period} onChange={setPeriod} />
           </div>
-          <PeriodSelector value={period} onChange={setPeriod} />
+          <div className="mt-4 h-px bg-[#D1D9E6]" />
         </div>
 
         {isSuperadmin && selectedBrokerId == null && (
@@ -436,28 +440,30 @@ export function CostsDashboardPage() {
         )}
 
         {/* Tab bar */}
-        <div className="border-b border-[#D1D9E6]">
-          <nav className="flex gap-8">
-            {tabs.map(tab => {
-              const Icon = tab.icon;
-              const active = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 pb-3 text-sm font-semibold border-b-2 transition-all -mb-px whitespace-nowrap ${
-                    active
-                      ? 'border-[#1A56DB] text-[#1A56DB]'
-                      : 'border-transparent text-[#9CA3AF] hover:text-[#374151] hover:border-[#D1D9E6]'
-                  }`}
-                >
-                  <Icon size={15} />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </nav>
+        <div className="relative flex gap-1 border-b border-[#D1D9E6]">
+          {tabs.map(tab => {
+            const Icon = tab.icon;
+            const active = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  'flex items-center gap-2 px-5 py-3 text-sm font-medium transition-colors relative',
+                  active
+                    ? 'text-[#1A56DB]'
+                    : 'text-[#6B7280] hover:text-[#374151]'
+                )}
+              >
+                {active && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#1A56DB] rounded-full" />
+                )}
+                <Icon size={15} />
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
 
         {/* Tab content */}
@@ -468,9 +474,7 @@ export function CostsDashboardPage() {
   );
 }
 
-function PeriodSelector({
-  value, onChange,
-}: { value: string; onChange: (p: CostPeriod) => void }) {
+function PeriodSelector({ value, onChange }: { value: string; onChange: (p: CostPeriod) => void }) {
   const options: { label: string; period: CostPeriod }[] = [
     { label: 'Hoy', period: 'today' },
     { label: '7 días', period: 'week' },
@@ -478,12 +482,22 @@ function PeriodSelector({
     { label: '90 días', period: 'quarter' },
   ];
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value as CostPeriod)}
-      className="rounded-lg border border-[#D1D9E6] bg-white px-3 py-2 text-sm text-[#374151] focus:outline-none focus:ring-2 focus:ring-[#1A56DB] focus:border-[#1A56DB] shadow-sm"
-    >
-      {options.map(opt => <option key={opt.period} value={opt.period}>{opt.label}</option>)}
-    </select>
+    <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-[#E2EAF4]">
+      {options.map(opt => (
+        <button
+          key={opt.period}
+          type="button"
+          onClick={() => onChange(opt.period)}
+          className={cn(
+            'px-3 py-1.5 text-[12px] font-medium rounded-md transition-all',
+            value === opt.period
+              ? 'bg-white text-[#1A56DB] shadow-sm font-semibold'
+              : 'text-[#6B7280] hover:text-[#374151]'
+          )}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
   );
 }

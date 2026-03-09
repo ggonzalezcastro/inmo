@@ -190,7 +190,7 @@ export function AppointmentsPage() {
     <div className="p-8 space-y-6">
       <PageHeader
         title="Citas"
-        description="Gestión de visitas y reuniones"
+        description={isLoading ? 'Cargando...' : `${appointments.length} citas · ${appointments.filter(a => a.status === 'scheduled').length} pendientes`}
         actions={
           <Button size="sm" onClick={() => setShowCreate(true)}>
             <Plus className="mr-2 h-4 w-4" />

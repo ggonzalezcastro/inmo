@@ -20,7 +20,7 @@ export function PipelineSummary({ metrics, isLoading }: PipelineSummaryProps) {
   const total = metrics?.total ?? 0
 
   return (
-    <div className="flex flex-col bg-white border border-[#D1D9E6] rounded-xl overflow-hidden">
+    <div className="flex flex-col bg-white border border-[#D1D9E6] rounded-xl overflow-hidden shadow-sm">
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-[#E8EEF6]">
         <span className="text-[#111827] text-[14px] font-bold">Estado del Pipeline</span>
@@ -63,17 +63,17 @@ export function PipelineSummary({ metrics, isLoading }: PipelineSummaryProps) {
                 <div className="h-1.5 rounded-full bg-[#F0F4F8] overflow-hidden w-24 shrink-0">
                   <div
                     className="h-full rounded-full transition-all duration-500"
-                    style={{
-                      width: `${pct}%`,
-                      backgroundColor: dotColor,
-                    }}
+                    style={{ width: `${pct}%`, backgroundColor: dotColor }}
                   />
                 </div>
 
-                {/* Count */}
-                <span className="text-[#111827] text-[13px] font-semibold w-6 text-right shrink-0">
-                  {count}
-                </span>
+                {/* Percentage + count */}
+                <div className="flex items-center gap-2 shrink-0 w-16 justify-end">
+                  <span className="text-[#9CA3AF] text-[11px] tabular-nums">{pct}%</span>
+                  <span className="text-[#111827] text-[13px] font-semibold tabular-nums w-5 text-right">
+                    {count}
+                  </span>
+                </div>
               </div>
             )
           })

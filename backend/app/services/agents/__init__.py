@@ -70,10 +70,12 @@ def build_context(lead, broker_id: int) -> AgentContext:
     broker_id : The broker that owns this conversation
     """
     metadata = lead.lead_metadata or {}
+    # Use lead.pipeline_stage only when it's a non-empty string (guard against MagicMock / None)
+    _stage = lead.pipeline_stage if isinstance(lead.pipeline_stage, str) and lead.pipeline_stage else None
     return AgentContext(
         lead_id=lead.id,
         broker_id=broker_id,
-        pipeline_stage=lead.pipeline_stage or metadata.get("pipeline_stage", "entrada"),
+        pipeline_stage=_stage or metadata.get("pipeline_stage", "entrada"),
         conversation_state=metadata.get("conversation_state", {}).get("state", "GREETING"),
         lead_data={
             "name": lead.name,

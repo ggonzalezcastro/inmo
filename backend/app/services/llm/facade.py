@@ -542,11 +542,11 @@ Retorna JSON con:
 
         summary_parts = []
         if info_collected:
-            summary_parts.append(f"✅ DATOS RECOPILADOS:\n" + "\n".join(info_collected))
+            summary_parts.append("DATOS RECOPILADOS:\n" + "\n".join(info_collected))
         if info_needed:
-            summary_parts.append(f"⚠️ DATOS PENDIENTES:\n{', '.join(info_needed)}")
+            summary_parts.append(f"DATOS PENDIENTES: {', '.join(info_needed)}")
         else:
-            summary_parts.append("✅ TODOS LOS DATOS RECOPILADOS")
+            summary_parts.append("TODOS LOS DATOS RECOPILADOS")
 
         return "\n\n".join(summary_parts)
 
