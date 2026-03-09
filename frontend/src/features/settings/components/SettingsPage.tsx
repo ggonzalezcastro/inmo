@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  Save, Loader2, TrendingUp, Wallet, Database, ListOrdered,
+  Save, Loader2, TrendingUp, Database, ListOrdered,
   AlertTriangle, GripVertical, ChevronRight, Bot,
 } from 'lucide-react'
 import {
@@ -155,7 +155,6 @@ export function SettingsPage() {
   const [isSaving, setIsSaving]   = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('scoring')
   const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 })
-  const [isLoadingPreview, setIsLoadingPreview] = useState(false)
   const [agentPrompts, setAgentPrompts] = useState<AgentPromptsConfig | null>(null)
   const [agentCustom, setAgentCustom] = useState({ qualifier: '', scheduler: '', follow_up: '' })
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({})
@@ -173,20 +172,10 @@ export function SettingsPage() {
       .finally(() => setIsLoading(false))
   }, [])
 
-  // When switching to prompt tab, load monolith preview + agent prompts
+  // When switching to prompt tab, load agent prompts
   useEffect(() => {
-    if (activeTab !== 'prompt' || !isAdmin || !cfg) return
+    if (activeTab !== 'prompt' || !isAdmin) return
 
-    // Load monolith preview if empty
-    if (!cfg.full_custom_prompt) {
-      setIsLoadingPreview(true)
-      settingsService.getPromptPreview()
-        .then((prompt) => setCfg((prev) => prev ? { ...prev, full_custom_prompt: prompt } : prev))
-        .catch(() => { /* non-critical */ })
-        .finally(() => setIsLoadingPreview(false))
-    }
-
-    // Load agent prompts
     settingsService.getAgentPrompts()
       .then((data) => {
         setAgentPrompts(data)
@@ -625,21 +614,15 @@ export function SettingsPage() {
             {/* Status banner */}
             <div
               className="flex items-center gap-3 rounded-xl px-4 py-3 border mb-6"
-              style={agentPrompts.multi_agent_enabled
-                ? { background: '#F0FDF4', borderColor: '#86EFAC' }
-                : { background: '#FEF3C7', borderColor: '#FDE68A' }}
+              style={{ background: '#F0FDF4', borderColor: '#86EFAC' }}
             >
-              <span className="text-lg">{agentPrompts.multi_agent_enabled ? '✅' : '⚠️'}</span>
+              <span className="text-lg">✅</span>
               <div>
-                <p className="text-sm font-semibold" style={{ color: agentPrompts.multi_agent_enabled ? '#166534' : '#92400E' }}>
-                  {agentPrompts.multi_agent_enabled
-                    ? 'Multi-agente activo — los prompts de abajo son los que usa Sofía'
-                    : 'Multi-agente desactivado — se usa el prompt monolítico (sección inferior)'}
+                <p className="text-sm font-semibold" style={{ color: '#166534' }}>
+                  Multi-agente activo — los prompts de abajo son los que usa Sofía
                 </p>
-                <p className="text-xs mt-0.5" style={{ color: agentPrompts.multi_agent_enabled ? '#4ADE80' : '#FCD34D', color: '#6B7280' }}>
-                  {agentPrompts.multi_agent_enabled
-                    ? 'Cada agente usa su propio prompt según la etapa del lead. Deja el campo vacío para usar el prompt por defecto.'
-                    : 'Para activar multi-agente, establece MULTI_AGENT_ENABLED=true en las variables de entorno.'}
+                <p className="text-xs mt-0.5" style={{ color: '#6B7280' }}>
+                  Cada agente usa su propio prompt según la etapa del lead. Deja el campo vacío para usar el prompt por defecto.
                 </p>
               </div>
             </div>
@@ -725,41 +708,6 @@ export function SettingsPage() {
           </div>
         )}
 
-        {/* ── Monolith prompt (used when multi-agent is off) ───────────────── */}
-        <div>
-          <SectionLabel>Prompt monolítico {agentPrompts?.multi_agent_enabled ? '(inactivo con multi-agente)' : '(activo)'}</SectionLabel>
-          <p className="text-sm text-[#6B7280] mb-2">
-            {agentPrompts?.multi_agent_enabled
-              ? 'Este prompt solo se usa si desactivas el multi-agente (MULTI_AGENT_ENABLED=false).'
-              : 'Prompt único que maneja toda la conversación. Se pre-carga con las instrucciones actuales.'}
-          </p>
-          <div className="rounded-xl p-3 border mb-4" style={{ background: '#FEF3C7', borderColor: '#FDE68A' }}>
-            <p className="text-xs font-medium text-[#92400E]">
-              ⚠️ Solo el administrador puede editar este campo. Al guardar reemplazará el prompt generado automáticamente.
-            </p>
-          </div>
-          {isLoadingPreview ? (
-            <div className="flex items-center justify-center min-h-[200px] rounded-xl border" style={{ borderColor: border, background: '#FAFAFA' }}>
-              <div className="flex items-center gap-2 text-sm text-[#9CA3AF]">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Cargando prompt actual…
-              </div>
-            </div>
-          ) : (
-            <Textarea
-              value={cfg?.full_custom_prompt ?? ''}
-              onChange={(e) => set('full_custom_prompt', e.target.value)}
-              placeholder="Eres Sofía, una asesora inmobiliaria experta de [nombre inmobiliaria]..."
-              className="min-h-[280px] font-mono text-sm resize-y"
-              style={{ borderColor: border, opacity: agentPrompts?.multi_agent_enabled ? 0.6 : 1 }}
-            />
-          )}
-          <p className="text-xs text-[#9CA3AF] mt-2">
-            {(cfg?.full_custom_prompt ?? '').length > 0
-              ? `${(cfg?.full_custom_prompt ?? '').length} caracteres`
-              : 'Vacío — se usará el prompt generado automáticamente'}
-          </p>
-        </div>
       </div>
     ),
   }
