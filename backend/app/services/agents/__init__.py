@@ -60,14 +60,15 @@ def get_priority_agents() -> list[BaseAgent]:
     ]
 
 
-def build_context(lead, broker_id: int) -> AgentContext:
+def build_context(lead, broker_id: int, broker_overrides: dict | None = None) -> AgentContext:
     """
     Convenience factory: build an AgentContext from a Lead ORM object.
 
     Parameters
     ----------
-    lead    : Lead SQLAlchemy model instance
-    broker_id : The broker that owns this conversation
+    lead             : Lead SQLAlchemy model instance
+    broker_id        : The broker that owns this conversation
+    broker_overrides : Optional dict with _custom_*_prompt keys loaded from DB
     """
     from app.core.encryption import decrypt_metadata_fields
     metadata = decrypt_metadata_fields(lead.lead_metadata or {}) or {}
@@ -90,6 +91,10 @@ def build_context(lead, broker_id: int) -> AgentContext:
             "broker_name": metadata.get("broker_name", ""),
             "agent_name": metadata.get("agent_name", "Sofía"),
             "hot_fast_track": metadata.get("hot_fast_track", False),
+            # Broker-level custom prompt overrides (passed from orchestrator)
+            "_custom_qualifier_prompt": (broker_overrides or {}).get("qualifier"),
+            "_custom_scheduler_prompt": (broker_overrides or {}).get("scheduler"),
+            "_custom_follow_up_prompt": (broker_overrides or {}).get("follow_up"),
         },
         message_history=metadata.get("message_history", []),
         current_agent=_parse_agent_type(metadata.get("current_agent")),

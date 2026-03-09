@@ -43,7 +43,8 @@ class FollowUpAgent(BaseAgent):
         location = lead_data.get("location", "el proyecto")
         lead_summary = f"{name} visitó un proyecto en {location}."
 
-        base_prompt = FOLLOW_UP_SYSTEM_PROMPT.format(
+        template = lead_data.get("_custom_follow_up_prompt") or FOLLOW_UP_SYSTEM_PROMPT
+        base_prompt = template.format(
             agent_name=agent_name,
             broker_name=broker_name,
             lead_summary=lead_summary,

@@ -312,7 +312,24 @@ class ChatOrchestratorService:
             logger.debug("[Orchestrator] MULTI_AGENT_ENABLED — routing to AgentSupervisor")
             try:
                 from app.services.agents import AgentSupervisor, build_context
-                agent_context = build_context(lead, broker_id)
+                from app.models.broker import BrokerPromptConfig
+                from sqlalchemy.future import select as _select
+
+                # Load broker custom agent prompt overrides from situation_handlers
+                _broker_overrides: dict = {}
+                try:
+                    _cfg_res = await db.execute(
+                        _select(BrokerPromptConfig).where(BrokerPromptConfig.broker_id == broker_id)
+                    )
+                    _broker_cfg = _cfg_res.scalars().first()
+                    if _broker_cfg and isinstance(_broker_cfg.situation_handlers, dict):
+                        for _k, _v in _broker_cfg.situation_handlers.items():
+                            if _k.startswith("_agent_") and _v:
+                                _broker_overrides[_k[len("_agent_"):]] = _v
+                except Exception as _ov_exc:
+                    logger.debug("[Orchestrator] Could not load agent overrides: %s", _ov_exc)
+
+                agent_context = build_context(lead, broker_id, broker_overrides=_broker_overrides)
                 agent_result = await AgentSupervisor.process(message, agent_context, db)
                 ai_response = agent_result.message
                 function_calls = agent_result.function_calls or []

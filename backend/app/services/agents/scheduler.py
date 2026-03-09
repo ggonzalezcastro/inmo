@@ -67,7 +67,8 @@ class SchedulerAgent(BaseAgent):
         now_local = datetime.now(tz)
         current_datetime_str = now_local.strftime("%A %d de %B de %Y, %H:%M") + f" ({broker_timezone})"
 
-        return SCHEDULER_SYSTEM_PROMPT.format(
+        template = lead_data.get("_custom_scheduler_prompt") or SCHEDULER_SYSTEM_PROMPT
+        return template.format(
             agent_name=agent_name,
             broker_name=broker_name,
             lead_summary=lead_summary,

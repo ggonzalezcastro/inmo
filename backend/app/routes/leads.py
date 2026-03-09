@@ -11,12 +11,23 @@ from app.middleware.permissions import Permissions
 from app.services.leads import LeadService, ScoringService
 from app.services.pipeline import PipelineService
 from app.schemas.lead import LeadCreate, LeadUpdate, LeadResponse, LeadDetailResponse
+from app.core.encryption import decrypt_metadata_fields
 from sqlalchemy.future import select
 from app.models.lead import Lead
 from app.models.user import User
 
 
 router = APIRouter()
+
+
+def _safe_metadata(raw) -> dict:
+    """Return a decrypted, plain-dict version of lead_metadata safe for API responses."""
+    if not isinstance(raw, dict):
+        try:
+            raw = dict(raw) if raw and hasattr(raw, '__dict__') else {}
+        except (TypeError, ValueError):
+            raw = {}
+    return decrypt_metadata_fields(raw) or {}
 
 
 @router.get("", response_model=dict)
@@ -95,26 +106,13 @@ async def list_leads(
         # Convert leads to response format
         lead_responses = []
         for lead in leads:
-            # Ensure metadata is a dict
-            metadata_value = lead.lead_metadata
-            if not isinstance(metadata_value, dict):
-                metadata_value = metadata_value if metadata_value else {}
-                if not isinstance(metadata_value, dict):
-                    try:
-                        if hasattr(metadata_value, '__dict__'):
-                            metadata_value = dict(metadata_value)
-                        else:
-                            metadata_value = {}
-                    except (TypeError, ValueError):
-                        metadata_value = {}
-            
             lead_dict = {
                 "id": lead.id,
                 "phone": lead.phone,
                 "name": lead.name,
                 "email": lead.email,
                 "tags": lead.tags if lead.tags else [],
-                "metadata": metadata_value,
+                "metadata": _safe_metadata(lead.lead_metadata),
                 "status": lead.status,
                 "lead_score": lead.lead_score,
                 "last_contacted": lead.last_contacted,
@@ -157,26 +155,13 @@ async def get_lead(
     )
     activities = activities_result.scalars().all()
     
-    # Ensure metadata is a dict
-    metadata_value = lead.lead_metadata
-    if not isinstance(metadata_value, dict):
-        metadata_value = metadata_value if metadata_value else {}
-        if not isinstance(metadata_value, dict):
-            try:
-                if hasattr(metadata_value, '__dict__'):
-                    metadata_value = dict(metadata_value)
-                else:
-                    metadata_value = {}
-            except (TypeError, ValueError):
-                metadata_value = {}
-    
     lead_dict = {
         "id": lead.id,
         "phone": lead.phone,
         "name": lead.name,
         "email": lead.email,
         "tags": lead.tags if lead.tags else [],
-        "metadata": metadata_value,
+        "metadata": _safe_metadata(lead.lead_metadata),
         "status": lead.status,
         "lead_score": lead.lead_score,
         "lead_score_components": lead.lead_score_components if lead.lead_score_components else {},
@@ -207,25 +192,13 @@ async def create_lead(
     try:
         lead = await LeadService.create_lead(db, lead_data)
         # Ensure metadata is a dict
-        metadata_value = lead.lead_metadata
-        if not isinstance(metadata_value, dict):
-            metadata_value = metadata_value if metadata_value else {}
-            if not isinstance(metadata_value, dict):
-                try:
-                    if hasattr(metadata_value, '__dict__'):
-                        metadata_value = dict(metadata_value)
-                    else:
-                        metadata_value = {}
-                except (TypeError, ValueError):
-                    metadata_value = {}
-        
         lead_dict = {
             "id": lead.id,
             "phone": lead.phone,
             "name": lead.name,
             "email": lead.email,
             "tags": lead.tags if lead.tags else [],
-            "metadata": metadata_value,
+            "metadata": _safe_metadata(lead.lead_metadata),
             "status": lead.status,
             "lead_score": lead.lead_score,
             "last_contacted": lead.last_contacted,
@@ -249,27 +222,13 @@ async def update_lead(
         lead = await LeadService.update_lead(db, lead_id, lead_data)
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
-        
-        # Ensure metadata is a dict
-        metadata_value = lead.lead_metadata
-        if not isinstance(metadata_value, dict):
-            metadata_value = metadata_value if metadata_value else {}
-            if not isinstance(metadata_value, dict):
-                try:
-                    if hasattr(metadata_value, '__dict__'):
-                        metadata_value = dict(metadata_value)
-                    else:
-                        metadata_value = {}
-                except (TypeError, ValueError):
-                    metadata_value = {}
-        
         lead_dict = {
             "id": lead.id,
             "phone": lead.phone,
             "name": lead.name,
             "email": lead.email,
             "tags": lead.tags if lead.tags else [],
-            "metadata": metadata_value,
+            "metadata": _safe_metadata(lead.lead_metadata),
             "status": lead.status,
             "lead_score": lead.lead_score,
             "last_contacted": lead.last_contacted,

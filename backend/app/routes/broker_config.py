@@ -433,6 +433,116 @@ async def preview_prompt(
         )
 
 
+@router.get("/config/agent-prompts")
+async def get_agent_prompts(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return the default agent prompts and any broker-level custom overrides.
+    Custom overrides are stored in situation_handlers under _agent_* keys.
+    """
+    import os
+    from app.services.agents.prompts.qualifier_prompt import QUALIFIER_SYSTEM_PROMPT
+    from app.services.agents.prompts.scheduler_prompt import SCHEDULER_SYSTEM_PROMPT
+    from app.services.agents.prompts.follow_up_prompt import FOLLOW_UP_SYSTEM_PROMPT
+
+    broker_id = current_user.get("broker_id")
+    if not broker_id:
+        raise HTTPException(status_code=404, detail="User does not belong to a broker")
+
+    # Load broker custom overrides from situation_handlers
+    overrides = {}
+    try:
+        result = await db.execute(
+            select(BrokerPromptConfig).where(BrokerPromptConfig.broker_id == broker_id)
+        )
+        cfg = result.scalars().first()
+        if cfg and isinstance(cfg.situation_handlers, dict):
+            overrides = {
+                k[len("_agent_"):]: v
+                for k, v in cfg.situation_handlers.items()
+                if k.startswith("_agent_") and v
+            }
+    except Exception as e:
+        logger.warning("Could not load agent prompt overrides: %s", e)
+
+    multi_agent_enabled = os.getenv("MULTI_AGENT_ENABLED", "false").lower() == "true"
+
+    # Build preview placeholders for display
+    preview_data = {
+        "qualifier": {
+            "default": QUALIFIER_SYSTEM_PROMPT.replace("{agent_name}", "Sofía").replace("{broker_name}", "tu inmobiliaria"),
+            "custom": overrides.get("qualifier", ""),
+        },
+        "scheduler": {
+            "default": SCHEDULER_SYSTEM_PROMPT.replace("{agent_name}", "Sofía").replace("{broker_name}", "tu inmobiliaria").replace("{current_datetime}", "[fecha actual]").replace("{lead_id}", "[id]").replace("{lead_summary}", "[resumen del lead]").replace("{available_projects}", "[proyectos disponibles]"),
+            "custom": overrides.get("scheduler", ""),
+        },
+        "follow_up": {
+            "default": FOLLOW_UP_SYSTEM_PROMPT.replace("{agent_name}", "Sofía").replace("{broker_name}", "tu inmobiliaria").replace("{lead_summary}", "[resumen del lead]"),
+            "custom": overrides.get("follow_up", ""),
+        },
+        "multi_agent_enabled": multi_agent_enabled,
+    }
+    return preview_data
+
+
+@router.put("/config/agent-prompts")
+async def save_agent_prompts(
+    body: dict = Body(...),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Save broker-level custom overrides for the agent prompts.
+    Pass empty string to reset to default for a given agent.
+    """
+    broker_id = current_user.get("broker_id")
+    if not broker_id:
+        raise HTTPException(status_code=404, detail="User does not belong to a broker")
+
+    qualifier_custom = (body.get("qualifier") or "").strip()
+    scheduler_custom = (body.get("scheduler") or "").strip()
+    follow_up_custom = (body.get("follow_up") or "").strip()
+
+    try:
+        result = await db.execute(
+            select(BrokerPromptConfig).where(BrokerPromptConfig.broker_id == broker_id)
+        )
+        cfg = result.scalars().first()
+        if not cfg:
+            raise HTTPException(status_code=404, detail="No prompt config found for this broker")
+
+        handlers = dict(cfg.situation_handlers or {})
+        # Store / clear overrides
+        for key, val in [
+            ("_agent_qualifier", qualifier_custom),
+            ("_agent_scheduler", scheduler_custom),
+            ("_agent_follow_up", follow_up_custom),
+        ]:
+            if val:
+                handlers[key] = val
+            else:
+                handlers.pop(key, None)
+
+        cfg.situation_handlers = handlers
+        await db.commit()
+
+        # Invalidate broker prompt cache
+        from app.core.cache import cache_delete
+        await cache_delete(f"broker_prompt:{broker_id}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error("Error saving agent prompts: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {"ok": True}
+
+
 @router.get("/config/defaults")
 async def get_default_config(
     current_user: dict = Depends(get_current_user),

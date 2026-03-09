@@ -21,7 +21,7 @@ import { Textarea } from '@/shared/components/ui/textarea'
 import { LoadingSpinner } from '@/shared/components/common/LoadingSpinner'
 import { getErrorMessage } from '@/shared/types/api'
 import { useAuthStore } from '@/features/auth/store/authStore'
-import { settingsService, type QualificationConfig, type ScoringConfig, type IncomeTier, DEFAULT_SCORING_CONFIG } from '../services/settings.service'
+import { settingsService, type QualificationConfig, type ScoringConfig, type IncomeTier, type AgentPromptsConfig, DEFAULT_SCORING_CONFIG } from '../services/settings.service'
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const blue   = '#1A56DB'
@@ -156,6 +156,8 @@ export function SettingsPage() {
   const [activeTab, setActiveTab] = useState<TabId>('scoring')
   const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 })
   const [isLoadingPreview, setIsLoadingPreview] = useState(false)
+  const [agentPrompts, setAgentPrompts] = useState<AgentPromptsConfig | null>(null)
+  const [agentCustom, setAgentCustom] = useState({ qualifier: '', scheduler: '', follow_up: '' })
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const isAdmin = useAuthStore((s) => s.isAdmin())
 
@@ -171,15 +173,30 @@ export function SettingsPage() {
       .finally(() => setIsLoading(false))
   }, [])
 
-  // When switching to prompt tab, load the preview prompt as a starting point
+  // When switching to prompt tab, load monolith preview + agent prompts
   useEffect(() => {
     if (activeTab !== 'prompt' || !isAdmin || !cfg) return
-    if (cfg.full_custom_prompt) return // already has content, don't overwrite
-    setIsLoadingPreview(true)
-    settingsService.getPromptPreview()
-      .then((prompt) => setCfg((prev) => prev ? { ...prev, full_custom_prompt: prompt } : prev))
+
+    // Load monolith preview if empty
+    if (!cfg.full_custom_prompt) {
+      setIsLoadingPreview(true)
+      settingsService.getPromptPreview()
+        .then((prompt) => setCfg((prev) => prev ? { ...prev, full_custom_prompt: prompt } : prev))
+        .catch(() => { /* non-critical */ })
+        .finally(() => setIsLoadingPreview(false))
+    }
+
+    // Load agent prompts
+    settingsService.getAgentPrompts()
+      .then((data) => {
+        setAgentPrompts(data)
+        setAgentCustom({
+          qualifier: data.qualifier.custom,
+          scheduler: data.scheduler.custom,
+          follow_up: data.follow_up.custom,
+        })
+      })
       .catch(() => { /* non-critical */ })
-      .finally(() => setIsLoadingPreview(false))
   }, [activeTab, isAdmin])
 
   // Animate tab indicator
@@ -222,6 +239,9 @@ export function SettingsPage() {
     setIsSaving(true)
     try {
       await settingsService.saveConfig(cfg)
+      if (activeTab === 'prompt') {
+        await settingsService.saveAgentPrompts(agentCustom)
+      }
       toast.success('Configuración guardada')
     } catch (e) {
       toast.error(getErrorMessage(e))
@@ -597,19 +617,129 @@ export function SettingsPage() {
 
     // ── TAB 4: PROMPT IA (admin only) ─────────────────────────────────────────
     prompt: (
-      <div className="space-y-6">
+      <div className="space-y-8">
+
+        {/* ── Multi-agent section ──────────────────────────────────────────── */}
+        {agentPrompts && (
+          <div>
+            {/* Status banner */}
+            <div
+              className="flex items-center gap-3 rounded-xl px-4 py-3 border mb-6"
+              style={agentPrompts.multi_agent_enabled
+                ? { background: '#F0FDF4', borderColor: '#86EFAC' }
+                : { background: '#FEF3C7', borderColor: '#FDE68A' }}
+            >
+              <span className="text-lg">{agentPrompts.multi_agent_enabled ? '✅' : '⚠️'}</span>
+              <div>
+                <p className="text-sm font-semibold" style={{ color: agentPrompts.multi_agent_enabled ? '#166534' : '#92400E' }}>
+                  {agentPrompts.multi_agent_enabled
+                    ? 'Multi-agente activo — los prompts de abajo son los que usa Sofía'
+                    : 'Multi-agente desactivado — se usa el prompt monolítico (sección inferior)'}
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: agentPrompts.multi_agent_enabled ? '#4ADE80' : '#FCD34D', color: '#6B7280' }}>
+                  {agentPrompts.multi_agent_enabled
+                    ? 'Cada agente usa su propio prompt según la etapa del lead. Deja el campo vacío para usar el prompt por defecto.'
+                    : 'Para activar multi-agente, establece MULTI_AGENT_ENABLED=true en las variables de entorno.'}
+                </p>
+              </div>
+            </div>
+
+            <SectionLabel>Prompts por agente</SectionLabel>
+            <p className="text-sm text-[#6B7280] mb-5">
+              Cada agente usa un prompt especializado según la etapa del lead. Deja el campo vacío para usar el prompt por defecto del sistema.
+            </p>
+
+            {/* Agent prompt editors */}
+            {([
+              {
+                key: 'qualifier' as const,
+                label: 'QualifierAgent',
+                subtitle: 'Etapas: entrada → perfilamiento',
+                description: 'Recopila datos del lead (nombre, teléfono, email, renta, DICOM) y decide si califica para agendar.',
+                color: '#1A56DB',
+                bg: '#EBF2FF',
+              },
+              {
+                key: 'scheduler' as const,
+                label: 'SchedulerAgent',
+                subtitle: 'Etapa: calificacion_financiera',
+                description: 'Convierte leads calificados en visitas agendadas. Usa herramientas de calendario.',
+                color: '#7C3AED',
+                bg: '#F5F3FF',
+              },
+              {
+                key: 'follow_up' as const,
+                label: 'FollowUpAgent',
+                subtitle: 'Etapas: agendado → seguimiento → referidos',
+                description: 'Seguimiento post-visita, resolución de dudas y solicitud de referidos.',
+                color: '#059669',
+                bg: '#F0FDF4',
+              },
+            ]).map(({ key, label, subtitle, description, color, bg }) => {
+              const defaultPrompt = agentPrompts[key].default
+              const customVal = agentCustom[key]
+              return (
+                <div key={key} className="rounded-xl border overflow-hidden mb-4" style={{ borderColor: border }}>
+                  {/* Header */}
+                  <div className="flex items-start justify-between px-5 py-3 border-b" style={{ background: bg, borderColor: border }}>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold uppercase tracking-widest" style={{ color }}>{label}</span>
+                        {customVal
+                          ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: color, color: '#fff' }}>personalizado</span>
+                          : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded border" style={{ borderColor: color, color }}>por defecto</span>
+                        }
+                      </div>
+                      <p className="text-xs text-[#6B7280] mt-0.5">{subtitle} — {description}</p>
+                    </div>
+                    {customVal && (
+                      <button
+                        onClick={() => setAgentCustom(prev => ({ ...prev, [key]: '' }))}
+                        className="text-xs text-[#EF4444] hover:underline shrink-0 ml-3"
+                      >
+                        Restablecer
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Editor */}
+                  <div className="p-4" style={{ background: '#FAFAFA' }}>
+                    <Textarea
+                      value={customVal || defaultPrompt}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setAgentCustom(prev => ({ ...prev, [key]: val === defaultPrompt ? '' : val }))
+                      }}
+                      className="min-h-[220px] font-mono text-xs resize-y"
+                      style={{ borderColor: border }}
+                    />
+                    <p className="text-xs text-[#9CA3AF] mt-1.5">
+                      {customVal
+                        ? `Prompt personalizado · ${customVal.length} caracteres`
+                        : 'Mostrando prompt por defecto — edita para personalizar'}
+                    </p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ── Monolith prompt (used when multi-agent is off) ───────────────── */}
         <div>
-          <SectionLabel>Prompt base del agente</SectionLabel>
+          <SectionLabel>Prompt monolítico {agentPrompts?.multi_agent_enabled ? '(inactivo con multi-agente)' : '(activo)'}</SectionLabel>
           <p className="text-sm text-[#6B7280] mb-2">
-            Esta es la parte editable del prompt. Se pre-carga con las instrucciones actuales del agente — modifícala y guarda para aplicar los cambios.
+            {agentPrompts?.multi_agent_enabled
+              ? 'Este prompt solo se usa si desactivas el multi-agente (MULTI_AGENT_ENABLED=false).'
+              : 'Prompt único que maneja toda la conversación. Se pre-carga con las instrucciones actuales.'}
           </p>
           <div className="rounded-xl p-3 border mb-4" style={{ background: '#FEF3C7', borderColor: '#FDE68A' }}>
             <p className="text-xs font-medium text-[#92400E]">
-              ⚠️ Modo de prueba — solo el administrador puede editar este campo. Al guardar, este prompt reemplazará el generado automáticamente.
+              ⚠️ Solo el administrador puede editar este campo. Al guardar reemplazará el prompt generado automáticamente.
             </p>
           </div>
           {isLoadingPreview ? (
-            <div className="flex items-center justify-center min-h-[420px] rounded-xl border" style={{ borderColor: border, background: '#FAFAFA' }}>
+            <div className="flex items-center justify-center min-h-[200px] rounded-xl border" style={{ borderColor: border, background: '#FAFAFA' }}>
               <div className="flex items-center gap-2 text-sm text-[#9CA3AF]">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Cargando prompt actual…
@@ -620,8 +750,8 @@ export function SettingsPage() {
               value={cfg?.full_custom_prompt ?? ''}
               onChange={(e) => set('full_custom_prompt', e.target.value)}
               placeholder="Eres Sofía, una asesora inmobiliaria experta de [nombre inmobiliaria]..."
-              className="min-h-[420px] font-mono text-sm resize-y"
-              style={{ borderColor: border }}
+              className="min-h-[280px] font-mono text-sm resize-y"
+              style={{ borderColor: border, opacity: agentPrompts?.multi_agent_enabled ? 0.6 : 1 }}
             />
           )}
           <p className="text-xs text-[#9CA3AF] mt-2">
@@ -629,35 +759,6 @@ export function SettingsPage() {
               ? `${(cfg?.full_custom_prompt ?? '').length} caracteres`
               : 'Vacío — se usará el prompt generado automáticamente'}
           </p>
-        </div>
-
-        {/* Dynamic context reference */}
-        <div>
-          <SectionLabel>Contexto dinámico (se agrega automáticamente)</SectionLabel>
-          <p className="text-sm text-[#6B7280] mb-3">
-            Esta sección se adjunta automáticamente al final de tu prompt en cada conversación. No es editable — es generada en tiempo real con los datos del lead.
-          </p>
-          <div className="rounded-xl border overflow-hidden" style={{ borderColor: border }}>
-            <div className="px-4 py-2.5 border-b flex items-center gap-2" style={{ borderColor: border, background: '#F8FAFC' }}>
-              <span className="text-[10px] font-bold uppercase tracking-widest text-[#9CA3AF]">Solo lectura — se inyecta en cada mensaje</span>
-            </div>
-            <pre className="px-5 py-4 font-mono text-xs text-[#6B7280] leading-relaxed overflow-x-auto whitespace-pre-wrap" style={{ background: '#FAFAFA' }}>{`--- CONTEXTO OPERACIONAL ---
-Fecha y hora actual: [Jueves 05 de marzo de 2026, 12:30 (America/Santiago)]
-ID interno del lead: [ID numérico, no se menciona al usuario]
-Zona horaria: America/Santiago
-
---- CONTEXTO DEL LEAD ---
-Nombre: [nombre del lead si está disponible]
-Teléfono: [teléfono]
-Email: [email]
-Renta mensual: [monto]
-Estado DICOM: [clean / has_debt / unknown]
-Etapa pipeline: [entrada / perfilamiento / calificacion_financiera / ...]
-Score actual: [0-100]
-
-[Si hay base de conocimiento: fragmentos relevantes de propiedades/proyectos]
-[Si es lead recurrente: resumen de conversaciones anteriores]`}</pre>
-          </div>
         </div>
       </div>
     ),

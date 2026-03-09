@@ -49,10 +49,9 @@ class QualifierAgent(BaseAgent):
         lead_data = context.lead_data
         broker_name = lead_data.get("broker_name", "la inmobiliaria")
         agent_name = lead_data.get("agent_name", "Sofía")
-        return QUALIFIER_SYSTEM_PROMPT.format(
-            agent_name=agent_name,
-            broker_name=broker_name,
-        )
+        # Use broker custom override if available
+        template = lead_data.get("_custom_qualifier_prompt") or QUALIFIER_SYSTEM_PROMPT
+        return template.format(agent_name=agent_name, broker_name=broker_name)
 
     async def should_handle(self, context: AgentContext) -> bool:
         # Own pipeline stages

@@ -64,6 +64,18 @@ interface ApiConfigResponse {
   prompt_config?: { timezone?: string; full_custom_prompt?: string }
 }
 
+export interface AgentPromptEntry {
+  default: string
+  custom: string
+}
+
+export interface AgentPromptsConfig {
+  qualifier: AgentPromptEntry
+  scheduler: AgentPromptEntry
+  follow_up: AgentPromptEntry
+  multi_agent_enabled: boolean
+}
+
 export const settingsService = {
   async getConfig(): Promise<QualificationConfig> {
     const res = await apiClient.get<ApiConfigResponse>('/api/broker/config')
@@ -88,6 +100,14 @@ export const settingsService = {
   async getPromptPreview(): Promise<string> {
     const res = await apiClient.get<{ prompt: string }>('/api/broker/config/prompt/preview')
     return res.prompt
+  },
+
+  async getAgentPrompts(): Promise<AgentPromptsConfig> {
+    return apiClient.get<AgentPromptsConfig>('/api/broker/config/agent-prompts')
+  },
+
+  async saveAgentPrompts(prompts: { qualifier: string; scheduler: string; follow_up: string }): Promise<void> {
+    await apiClient.put('/api/broker/config/agent-prompts', prompts)
   },
 
   async saveConfig(cfg: QualificationConfig): Promise<void> {
