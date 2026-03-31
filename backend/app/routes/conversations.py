@@ -262,6 +262,16 @@ async def send_human_message(
         provider_name = "webchat"
         channel_user_id = "0"
         send_result = None
+    elif provider_name == "whatsapp":
+        # Use the global WhatsAppService (same credentials used by the AI reply path)
+        from app.services.chat.whatsapp_service import WhatsAppService
+        wa = WhatsAppService()
+        try:
+            await wa.send_text_message(channel_user_id, body.text)
+            send_result = type("R", (), {"success": True, "error": None})()
+        except Exception as exc:
+            logger.warning("Failed to send WhatsApp human message: %s", exc)
+            send_result = type("R", (), {"success": False, "error": str(exc)})()
     else:
         send_result = await ChatService.send_message(
             db=db,

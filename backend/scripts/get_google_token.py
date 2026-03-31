@@ -53,7 +53,7 @@ print("Se abrirá el navegador para autenticarte con el Gmail compartido.")
 print("Asegúrate de iniciar sesión con la cuenta correcta.\n")
 
 flow = InstalledAppFlow.from_client_secrets_file(str(credentials_path), SCOPES)
-creds = flow.run_local_server(port=0)
+creds = flow.run_local_server(port=8080)
 
 # Leer client_id y client_secret del archivo de credenciales
 with open(credentials_path) as f:
