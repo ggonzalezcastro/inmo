@@ -111,11 +111,13 @@ def process_whatsapp_message(
                 provider_name="whatsapp",
             )
 
-            # 5. Send AI reply
-            wa = WhatsAppService()
-            await wa.send_text_message(from_number, chat_result.response)
+            # 5. Send AI reply (skip if human agent has taken control)
+            if chat_result.response and chat_result.response != "[human_mode]":
+                wa = WhatsAppService()
+                await wa.send_text_message(from_number, chat_result.response)
 
             # 6. Mark original message as read
+            wa = WhatsAppService()
             await wa.mark_as_read(wamid)
 
         try:
