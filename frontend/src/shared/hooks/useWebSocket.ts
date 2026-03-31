@@ -8,6 +8,8 @@ export type WSEventType =
   | 'lead_hot'
   | 'typing'
   | 'ai_response'
+  | 'human_mode_changed'
+  | 'human_mode_incoming'
 
 export interface WSEvent<T = unknown> {
   type: WSEventType

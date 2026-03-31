@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { conversationService, type ConversationLead } from '../services/conversation.service'
 import { chatService, type ChatMessage } from '@/features/pipeline/services/chat.service'
 import { pipelineService } from '@/features/pipeline/services/pipeline.service'
-import { Button } from '@/shared/components/ui/button'
 import { cn } from '@/shared/lib/utils'
+import { useWebSocket } from '@/shared/hooks/useWebSocket'
 import {
   Bot, User, Search, Send, RefreshCw,
   MessageSquare, Inbox, ChevronDown,
@@ -243,7 +243,9 @@ function ConversationDetail({
   const [stage, setStage] = useState(lead.pipeline_stage ?? 'entrada')
   const [stageChanging, setStageChanging] = useState(false)
   const [toggling, setToggling] = useState(false)
+  const [typing, setTyping] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const loadMessages = useCallback(async () => {
     try {
@@ -262,6 +264,25 @@ function ConversationDetail({
     setStage(lead.pipeline_stage ?? 'entrada')
     loadMessages()
   }, [lead.id, loadMessages])
+
+  // Real-time WebSocket: receive inbound messages and typing indicator
+  useWebSocket({
+    onMessage: useCallback((event) => {
+      const leadId = (event.data as any)?.lead_id
+      if (leadId !== lead.id) return
+
+      if (event.type === 'new_message' || event.type === 'human_mode_incoming') {
+        loadMessages()
+      } else if (event.type === 'typing') {
+        if (lead.human_mode) return // suppress typing indicator during human mode
+        setTyping(true)
+        typingTimerRef.current && clearTimeout(typingTimerRef.current)
+        typingTimerRef.current = setTimeout(() => setTyping(false), 4000)
+      }
+    }, [lead.id, lead.human_mode, loadMessages]),
+  })
+
+  useEffect(() => () => { typingTimerRef.current && clearTimeout(typingTimerRef.current) }, [])
 
   async function handleSend() {
     if (!text.trim() || sending) return
@@ -423,6 +444,18 @@ function ConversationDetail({
         ) : (
           messages.map((msg) => <MessageBubble key={msg.id} msg={msg} />)
         )}
+        {typing && (
+          <div className="flex items-center gap-2 mb-4">
+            <div className="h-7 w-7 rounded-full bg-[#DBEAFE] flex items-center justify-center shrink-0">
+              <Sparkles size={11} className="text-[#1A56DB]" />
+            </div>
+            <div className="bg-white border border-[#E2EAF4] rounded-2xl rounded-bl-sm px-4 py-2.5 shadow-sm flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#94A3B8] animate-bounce" style={{ animationDelay: '0ms' }} />
+              <span className="h-1.5 w-1.5 rounded-full bg-[#94A3B8] animate-bounce" style={{ animationDelay: '150ms' }} />
+              <span className="h-1.5 w-1.5 rounded-full bg-[#94A3B8] animate-bounce" style={{ animationDelay: '300ms' }} />
+            </div>
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
 
@@ -523,6 +556,19 @@ export function ConversationsPage() {
     const found = leads.find((l) => l.id === selectedId) ?? null
     setSelectedLead(found)
   }, [selectedId, leads])
+
+  // Real-time WebSocket: refresh lead list on new messages or mode changes
+  useWebSocket({
+    onMessage: useCallback((event) => {
+      if (
+        event.type === 'new_message' ||
+        event.type === 'human_mode_incoming' ||
+        event.type === 'human_mode_changed'
+      ) {
+        load()
+      }
+    }, [load]),
+  })
 
   const humanCount = leads.filter((l) => l.human_mode).length
   const totalUnread = leads.reduce((a, l) => a + l.unread_count, 0)
