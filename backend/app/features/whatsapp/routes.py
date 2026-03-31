@@ -51,7 +51,7 @@ async def whatsapp_webhook(request: Request):
     try:
         payload = json.loads(body)
         from_number, message_text, wamid, phone_number_id = _extract_message(payload)
-        if from_number and message_text:
+        if from_number and message_text and phone_number_id:
             from app.tasks.whatsapp_tasks import process_whatsapp_message  # lazy import
             process_whatsapp_message.delay(
                 from_number=from_number,
@@ -60,7 +60,12 @@ async def whatsapp_webhook(request: Request):
                 phone_number_id=phone_number_id,
             )
         else:
-            logger.debug("WhatsApp webhook: no actionable message in payload")
+            logger.info(
+                "WhatsApp webhook: skipped task (from=%s text=%s phone_number_id=%s)",
+                bool(from_number),
+                bool(message_text),
+                phone_number_id,
+            )
     except Exception:
         logger.exception("WhatsApp webhook: error processing payload")
 
@@ -119,7 +124,9 @@ def _extract_message(payload: dict) -> tuple[Optional[str], Optional[str], Optio
 
         from_number = msg.get("from")
         wamid = msg.get("id")
-        phone_number_id = value.get("metadata", {}).get("phone_number_id")
+        raw_pid = value.get("metadata", {}).get("phone_number_id")
+        # Meta often sends phone_number_id as JSON number; JSONB ->> is text — compare as str only.
+        phone_number_id = str(raw_pid) if raw_pid is not None else None
         return from_number, message_text, wamid, phone_number_id
     except Exception:
         logger.exception("WhatsApp webhook: error extracting message")

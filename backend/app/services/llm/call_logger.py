@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 # ── Cost table (USD per 1 000 tokens, input / output) ─────────────────────────
 # Sources: public pricing pages as of 2026-02-21
 _COST_TABLE: dict[str, tuple[float, float]] = {
+    "gemini-3.1-pro":                     (0.001250, 0.010000),
+    "gemini-2.5-pro":                     (0.001250, 0.010000),
     "gemini-2.5-flash":                   (0.000075, 0.000300),
     "gemini-2.0-flash":                   (0.000075, 0.000300),
     "gemini-1.5-flash":                   (0.000075, 0.000300),
@@ -72,7 +74,9 @@ async def log_llm_call(
     observability failures never propagate to the chat pipeline.
     """
     try:
-        from app.database import AsyncSessionLocal
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+        from app.config import settings
         from app.models.llm_call import LLMCall
 
         estimated_cost = None
@@ -93,9 +97,19 @@ async def log_llm_call(
             error=error,
         )
 
-        async with AsyncSessionLocal() as db:
-            db.add(row)
-            await db.commit()
+        # Create a local engine bound to the current event loop so this works
+        # both in FastAPI (shared loop) and Celery tasks (asyncio.run per task).
+        _engine = create_async_engine(settings.DATABASE_URL, echo=False, pool_size=1, max_overflow=0)
+        _session = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+        try:
+            async with _session() as db:
+                db.add(row)
+                await db.commit()
+        finally:
+            try:
+                await _engine.dispose()
+            except Exception:
+                pass
 
     except Exception as exc:  # noqa: BLE001
         logger.warning("[LLMCallLogger] Failed to persist call row: %s", exc)

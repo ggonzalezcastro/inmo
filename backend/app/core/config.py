@@ -1,10 +1,19 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
 from typing import Optional
 import os
 
 
 class Settings(BaseSettings):
+    # backend/.env primero; ../.env (raíz del repo) sobrescribe — útil si editás .env en la raíz
+    # y corrés uvicorn desde backend/
+    model_config = SettingsConfigDict(
+        env_file=(".env", "../.env"),
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
+    )
+
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://user:password@localhost:5432/lead_agent"
     DB_POOL_SIZE: int = 20
@@ -25,7 +34,7 @@ class Settings(BaseSettings):
 
     # Google Gemini
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
     # 1500 tokens: system prompt (~400t) + history (~600t) + response (~500t).
     # Previous value of 600 caused silent truncation mid-sentence.
     GEMINI_MAX_TOKENS: int = int(os.getenv("GEMINI_MAX_TOKENS", "1500"))
@@ -79,6 +88,11 @@ class Settings(BaseSettings):
     GOOGLE_REFRESH_TOKEN: str = os.getenv("GOOGLE_REFRESH_TOKEN", "")
     GOOGLE_CALENDAR_ID: str = os.getenv("GOOGLE_CALENDAR_ID", "primary")
     GOOGLE_CREDENTIALS_PATH: Optional[str] = os.getenv("GOOGLE_CREDENTIALS_PATH", None)
+    # OAuth callback — must be registered in Google Cloud Console as authorized redirect URI
+    # Example: https://yourdomain.com/broker/calendar/callback
+    GOOGLE_OAUTH_REDIRECT_URI: str = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "http://localhost:8000/api/broker/calendar/callback")
+    # Frontend URL — used to redirect after OAuth flow completes
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
     # Voice provider selection (vapi, bland, retell, etc.)
     VOICE_PROVIDER: str = os.getenv("VOICE_PROVIDER", "vapi")
@@ -118,11 +132,6 @@ class Settings(BaseSettings):
         "ALLOWED_ORIGINS",
         "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000"
     )
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
-        extra = "ignore"  # Ignore extra fields from .env that aren't in the model
 
     @field_validator('DATABASE_URL', mode='before')
     @classmethod

@@ -27,6 +27,7 @@ import { useSofiaActivity, type SofiaStatus } from '@/shared/hooks/useSofiaActiv
 interface SidebarProps {
   collapsed: boolean
   onToggle: () => void
+  onMobileClose?: () => void
 }
 
 interface NavItem {
@@ -60,7 +61,7 @@ const STATUS_COLORS: Record<SofiaStatus, { dot: string; bg: string; text: string
   hot_lead:     { dot: '#EF4444', bg: '#FEF2F2', text: '#991B1B', detail: '#DC2626' },
 }
 
-export function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export function Sidebar({ collapsed, onToggle, onMobileClose }: SidebarProps) {
   const { user, clearAuth } = useAuthStore()
   const { role } = usePermissions()
   const sofia = useSofiaActivity()
@@ -114,6 +115,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             key={item.path}
             to={item.path}
             title={collapsed ? item.label : undefined}
+            onClick={onMobileClose}
             className={({ isActive }) =>
               cn(
                 'flex items-center rounded-lg text-[13px] font-medium transition-all',

@@ -32,7 +32,7 @@ export function LeadsPage() {
   return (
     <div className="flex h-full">
       {/* Main content */}
-      <div className="flex-1 p-8 overflow-y-auto">
+      <div className="flex-1 p-4 sm:p-8 overflow-y-auto">
         <PageHeader
           title="Leads"
           description={`${total} leads en total`}

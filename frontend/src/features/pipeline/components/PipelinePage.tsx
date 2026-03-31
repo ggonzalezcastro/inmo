@@ -79,7 +79,7 @@ export function PipelinePage() {
   const totalLeads = Object.values(leadsByStage).reduce((sum, arr) => sum + arr.length, 0)
 
   return (
-    <div className="p-8 h-full flex flex-col">
+    <div className="p-4 sm:p-8 h-full flex flex-col">
       <PageHeader
         title="Pipeline"
         description={`${totalLeads} leads en pipeline`}

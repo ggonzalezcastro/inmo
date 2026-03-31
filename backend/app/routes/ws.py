@@ -100,7 +100,10 @@ async def websocket_endpoint(ws: WebSocket, broker_id: int, user_id: str):
 
     user = await _authenticate(ws, broker_id)
     if not user:
-        await ws.close(code=4001, reason="Unauthorized")
+        try:
+            await ws.close(code=4001, reason="Unauthorized")
+        except Exception:
+            pass
         return
 
     await ws_manager.connect(broker_id, user_id, ws)

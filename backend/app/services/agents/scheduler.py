@@ -132,14 +132,13 @@ class SchedulerAgent(BaseAgent):
 
             async def _tool_executor(tool_name: str, arguments: dict):
                 try:
-                    async with db.begin_nested():
-                        return await AgentToolsService.execute_tool(
-                            db=db,
-                            tool_name=tool_name,
-                            arguments=arguments,
-                            lead_id=context.lead_id,
-                            agent_id=None,
-                        )
+                    return await AgentToolsService.execute_tool(
+                        db=db,
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        lead_id=context.lead_id,
+                        agent_id=None,
+                    )
                 except Exception as _te:
                     logger.error("SchedulerAgent tool %s error: %s", tool_name, _te)
                     return {"error": str(_te), "success": False}

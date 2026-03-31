@@ -1,8 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   Save, Loader2, TrendingUp, Database, ListOrdered,
-  AlertTriangle, GripVertical, ChevronRight, Bot,
+  AlertTriangle, GripVertical, ChevronRight, Bot, Calendar,
+  CheckCircle2, XCircle, ExternalLink, Plus, Trash2, Clock,
 } from 'lucide-react'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/shared/components/ui/dialog'
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor,
   useSensor, useSensors, type DragEndEvent,
@@ -21,7 +25,7 @@ import { Textarea } from '@/shared/components/ui/textarea'
 import { LoadingSpinner } from '@/shared/components/common/LoadingSpinner'
 import { getErrorMessage } from '@/shared/types/api'
 import { useAuthStore } from '@/features/auth/store/authStore'
-import { settingsService, type QualificationConfig, type ScoringConfig, type IncomeTier, type AgentPromptsConfig, DEFAULT_SCORING_CONFIG } from '../services/settings.service'
+import { settingsService, type QualificationConfig, type ScoringConfig, type IncomeTier, type AgentPromptsConfig, type AvailabilitySlot, type AppointmentBlock, DEFAULT_SCORING_CONFIG } from '../services/settings.service'
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const blue   = '#1A56DB'
@@ -145,6 +149,7 @@ const TABS = [
   { id: 'weights',  label: 'Scoring',       icon: Database    },
   { id: 'agent',    label: 'Agente IA',    icon: ListOrdered },
   { id: 'prompt',   label: 'Prompt',        icon: Bot         },
+  { id: 'calendar', label: 'Google Calendar', icon: Calendar  },
 ] as const
 type TabId = (typeof TABS)[number]['id']
 
@@ -157,6 +162,21 @@ export function SettingsPage() {
   const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 })
   const [agentPrompts, setAgentPrompts] = useState<AgentPromptsConfig | null>(null)
   const [agentCustom, setAgentCustom] = useState({ qualifier: '', scheduler: '', follow_up: '' })
+  const [calendarStatus, setCalendarStatus] = useState<{ connected: boolean; email: string | null; calendar_id: string | null } | null>(null)
+  const [calendarLoading, setCalendarLoading] = useState(false)
+
+  // Availability
+  const [slots, setSlots] = useState<AvailabilitySlot[]>([])
+  const [blocks, setBlocks] = useState<AppointmentBlock[]>([])
+  const [slotsLoading, setSlotsLoading] = useState(false)
+  // Slot dialog
+  const [slotDialog, setSlotDialog] = useState<{ open: boolean; editing: AvailabilitySlot | null; day: number }>({ open: false, editing: null, day: 0 })
+  const [slotForm, setSlotForm] = useState({ day_of_week: 0, start_time: '09:00', end_time: '18:00', slot_duration_minutes: 60 })
+  const [slotSaving, setSlotSaving] = useState(false)
+  // Block dialog
+  const [blockDialog, setBlockDialog] = useState(false)
+  const [blockForm, setBlockForm] = useState({ start_time: '', end_time: '', reason: '' })
+  const [blockSaving, setBlockSaving] = useState(false)
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const isAdmin = useAuthStore((s) => s.isAdmin())
 
@@ -171,6 +191,37 @@ export function SettingsPage() {
       .catch((e) => toast.error(getErrorMessage(e)))
       .finally(() => setIsLoading(false))
   }, [])
+
+  // Detect OAuth callback return (?tab=calendar&status=success)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('tab') === 'calendar') {
+      setActiveTab('calendar')
+      if (params.get('status') === 'success') {
+        toast.success('Google Calendar conectado correctamente')
+      } else if (params.get('status') === 'error') {
+        toast.error('Error al conectar Google Calendar')
+      }
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [])
+
+  // Load calendar status + availability when switching to calendar tab
+  useEffect(() => {
+    if (activeTab !== 'calendar') return
+    settingsService.getCalendarStatus()
+      .then(setCalendarStatus)
+      .catch(() => { /* non-critical */ })
+    setSlotsLoading(true)
+    Promise.all([
+      settingsService.getAvailabilitySlots(),
+      settingsService.getBlocks(),
+    ])
+      .then(([s, b]) => { setSlots(s); setBlocks(b) })
+      .catch(() => { /* non-critical */ })
+      .finally(() => setSlotsLoading(false))
+  }, [activeTab])
 
   // When switching to prompt tab, load agent prompts
   useEffect(() => {
@@ -472,10 +523,10 @@ export function SettingsPage() {
               return (
                 <div
                   key={key}
-                  className="flex items-center gap-4 rounded-xl border bg-white px-5 py-4"
+                  className="flex items-center gap-3 rounded-xl border bg-white px-4 py-3 sm:px-5 sm:py-4"
                   style={{ borderColor: border }}
                 >
-                  <div className="w-40 shrink-0">
+                  <div className="w-28 sm:w-40 shrink-0">
                     <p className="text-sm font-semibold text-[#111827]">{label}</p>
                     <p className="text-xs text-[#9CA3AF]">{hint}</p>
                   </div>
@@ -710,20 +761,447 @@ export function SettingsPage() {
 
       </div>
     ),
+
+    // ── TAB 5: GOOGLE CALENDAR ────────────────────────────────────────────────
+    calendar: (
+      <div className="space-y-6">
+        <div>
+          <SectionLabel>Google Calendar</SectionLabel>
+          <p className="text-sm text-[#6B7280] mb-5">
+            Conecta el Gmail de tu inmobiliaria para que las citas se creen automáticamente en tu calendario con links de Google Meet.
+          </p>
+        </div>
+
+        {/* Connection status card */}
+        <div className="rounded-xl border bg-white p-5 space-y-4" style={{ borderColor: border }}>
+          <div className="flex items-center gap-3">
+            {calendarStatus?.connected ? (
+              <>
+                <CheckCircle2 className="h-5 w-5 shrink-0" style={{ color: '#22C55E' }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-[#111827]">Conectado</p>
+                  <p className="text-xs text-[#6B7280] truncate">{calendarStatus.email ?? 'Gmail conectado'}</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <XCircle className="h-5 w-5 shrink-0 text-[#9CA3AF]" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-[#111827]">No conectado</p>
+                  <p className="text-xs text-[#6B7280]">Las citas usarán el calendario compartido global</p>
+                </div>
+              </>
+            )}
+          </div>
+
+          {calendarStatus?.connected && (
+            <div className="flex items-center gap-2 p-3 rounded-lg" style={{ background: '#F0FDF4', border: '1px solid #BBF7D0' }}>
+              <Calendar className="h-4 w-4 shrink-0" style={{ color: '#16A34A' }} />
+              <p className="text-xs text-[#15803D]">
+                Calendario: <span className="font-mono font-semibold">{calendarStatus.calendar_id ?? 'primary'}</span>
+              </p>
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            {calendarStatus?.connected ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={calendarLoading}
+                onClick={async () => {
+                  setCalendarLoading(true)
+                  try {
+                    await settingsService.disconnectCalendar()
+                    setCalendarStatus({ connected: false, email: null, calendar_id: null })
+                    toast.success('Google Calendar desconectado')
+                  } catch (e) {
+                    toast.error(getErrorMessage(e))
+                  } finally {
+                    setCalendarLoading(false)
+                  }
+                }}
+                style={{ borderColor: '#FCA5A5', color: '#DC2626' }}
+              >
+                {calendarLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Desconectar
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                disabled={calendarLoading}
+                style={{ background: blue, color: '#fff' }}
+                onClick={async () => {
+                  setCalendarLoading(true)
+                  try {
+                    const { auth_url } = await settingsService.getCalendarAuthUrl()
+                    window.open(auth_url, '_blank', 'width=600,height=700')
+                  } catch (e) {
+                    toast.error(getErrorMessage(e))
+                  } finally {
+                    setCalendarLoading(false)
+                  }
+                }}
+              >
+                {calendarLoading
+                  ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  : <ExternalLink className="h-4 w-4 mr-2" />
+                }
+                Conectar Google Calendar
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Setup instructions */}
+        {!calendarStatus?.connected && (
+          <div className="rounded-xl border p-5 space-y-3" style={{ borderColor: border, background: '#FAFAFA' }}>
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#9CA3AF]">Cómo funciona</p>
+            {[
+              'Haz clic en "Conectar Google Calendar"',
+              'Inicia sesión con el Gmail de tu inmobiliaria',
+              'Autoriza el acceso al calendario',
+              'Las citas nuevas se crearán automáticamente con Google Meet',
+            ].map((step, i) => (
+              <div key={i} className="flex items-start gap-3">
+                <span
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold mt-0.5"
+                  style={{ background: blueLt, color: blue }}
+                >
+                  {i + 1}
+                </span>
+                <p className="text-sm text-[#374151]">{step}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── Availability Slots ────────────────────────────────────────── */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <SectionLabel>Horario de Disponibilidad</SectionLabel>
+          </div>
+          <p className="text-sm text-[#6B7280] mb-5">
+            Define los días y horarios en que el agente puede agendar citas. Si tienes varios agentes, todos comparten este horario y se pueden agendar múltiples citas en el mismo tramo.
+          </p>
+
+          {slotsLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="h-5 w-5 animate-spin text-[#9CA3AF]" />
+            </div>
+          ) : (
+            <div className="rounded-xl border overflow-hidden" style={{ borderColor: border }}>
+              {/* Day columns header */}
+              <div className="grid grid-cols-7 border-b" style={{ borderColor: border, background: '#F8FAFC' }}>
+                {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((d, i) => (
+                  <div key={i} className="px-2 py-2.5 text-center" style={{ borderRight: i < 6 ? `1px solid ${border}` : undefined }}>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#6B7280]">{d}</span>
+                  </div>
+                ))}
+              </div>
+              {/* Day columns body */}
+              <div className="grid grid-cols-7 bg-white min-h-[120px]">
+                {[0, 1, 2, 3, 4, 5, 6].map((dayIdx) => {
+                  const daySlots = slots.filter(s => s.day_of_week === dayIdx && s.is_active)
+                  return (
+                    <div
+                      key={dayIdx}
+                      className="p-2 flex flex-col gap-1.5"
+                      style={{ borderRight: dayIdx < 6 ? `1px solid ${border}` : undefined, minHeight: 100 }}
+                    >
+                      {daySlots.map(slot => (
+                        <button
+                          key={slot.id}
+                          onClick={() => {
+                            setSlotDialog({ open: true, editing: slot, day: slot.day_of_week })
+                            setSlotForm({
+                              day_of_week: slot.day_of_week,
+                              start_time: slot.start_time,
+                              end_time: slot.end_time,
+                              slot_duration_minutes: slot.slot_duration_minutes,
+                            })
+                          }}
+                          className="w-full text-left rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors hover:opacity-80"
+                          style={{ background: blueLt, color: blue }}
+                        >
+                          <div className="flex items-center gap-1">
+                            <Clock className="h-2.5 w-2.5 shrink-0" />
+                            <span>{slot.start_time}–{slot.end_time}</span>
+                          </div>
+                          <div className="text-[10px] font-normal opacity-70 mt-0.5">{slot.slot_duration_minutes}min/cita</div>
+                        </button>
+                      ))}
+                      <button
+                        onClick={() => {
+                          setSlotDialog({ open: true, editing: null, day: dayIdx })
+                          setSlotForm({ day_of_week: dayIdx, start_time: '09:00', end_time: '18:00', slot_duration_minutes: 60 })
+                        }}
+                        className="w-full flex items-center justify-center rounded-lg py-1.5 text-xs text-[#9CA3AF] border border-dashed transition-colors hover:border-[#1A56DB] hover:text-[#1A56DB]"
+                        style={{ borderColor: '#D1D9E6' }}
+                      >
+                        <Plus className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Slot create/edit dialog */}
+        <Dialog open={slotDialog.open} onOpenChange={(open) => setSlotDialog(d => ({ ...d, open }))}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>{slotDialog.editing ? 'Editar franja horaria' : 'Nueva franja horaria'}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <Label>Día de la semana</Label>
+                <select
+                  value={slotForm.day_of_week}
+                  onChange={e => setSlotForm(f => ({ ...f, day_of_week: parseInt(e.target.value) }))}
+                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  style={{ borderColor: border }}
+                >
+                  {['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'].map((d, i) => (
+                    <option key={i} value={i}>{d}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Hora inicio</Label>
+                  <Input
+                    type="time"
+                    value={slotForm.start_time}
+                    onChange={e => setSlotForm(f => ({ ...f, start_time: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Hora fin</Label>
+                  <Input
+                    type="time"
+                    value={slotForm.end_time}
+                    onChange={e => setSlotForm(f => ({ ...f, end_time: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Duración por cita (minutos)</Label>
+                <Input
+                  type="number"
+                  min={15}
+                  max={480}
+                  step={15}
+                  value={slotForm.slot_duration_minutes}
+                  onChange={e => setSlotForm(f => ({ ...f, slot_duration_minutes: parseInt(e.target.value) || 60 }))}
+                />
+                <p className="text-xs text-[#9CA3AF]">
+                  Con este horario caben {Math.floor(
+                    (parseInt(slotForm.end_time.split(':')[0]) * 60 + parseInt(slotForm.end_time.split(':')[1]) -
+                     parseInt(slotForm.start_time.split(':')[0]) * 60 - parseInt(slotForm.start_time.split(':')[1]))
+                    / slotForm.slot_duration_minutes
+                  )} citas por día
+                </p>
+              </div>
+            </div>
+            <DialogFooter className="gap-2">
+              {slotDialog.editing && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-rose-600 border-rose-200 hover:bg-rose-50 mr-auto"
+                  disabled={slotSaving}
+                  onClick={async () => {
+                    if (!slotDialog.editing) return
+                    setSlotSaving(true)
+                    try {
+                      await settingsService.deleteAvailabilitySlot(slotDialog.editing.id)
+                      setSlots(prev => prev.filter(s => s.id !== slotDialog.editing!.id))
+                      setSlotDialog(d => ({ ...d, open: false }))
+                      toast.success('Franja eliminada')
+                    } catch (e) {
+                      toast.error(getErrorMessage(e))
+                    } finally {
+                      setSlotSaving(false)
+                    }
+                  }}
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1" /> Eliminar
+                </Button>
+              )}
+              <Button variant="outline" size="sm" onClick={() => setSlotDialog(d => ({ ...d, open: false }))}>
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                disabled={slotSaving}
+                style={{ background: blue, color: '#fff' }}
+                onClick={async () => {
+                  setSlotSaving(true)
+                  try {
+                    if (slotDialog.editing) {
+                      const updated = await settingsService.updateAvailabilitySlot(slotDialog.editing.id, slotForm)
+                      setSlots(prev => prev.map(s => s.id === updated.id ? updated : s))
+                      toast.success('Franja actualizada')
+                    } else {
+                      const created = await settingsService.createAvailabilitySlot(slotForm)
+                      setSlots(prev => [...prev, created])
+                      toast.success('Franja creada')
+                    }
+                    setSlotDialog(d => ({ ...d, open: false }))
+                  } catch (e) {
+                    toast.error(getErrorMessage(e))
+                  } finally {
+                    setSlotSaving(false)
+                  }
+                }}
+              >
+                {slotSaving && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
+                {slotDialog.editing ? 'Guardar cambios' : 'Crear franja'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ── Appointment Blocks ────────────────────────────────────────── */}
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <SectionLabel>Bloqueos de Agenda</SectionLabel>
+              <p className="text-sm text-[#6B7280]">Períodos donde no se pueden agendar citas (vacaciones, reuniones, etc.)</p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setBlockForm({ start_time: '', end_time: '', reason: '' })
+                setBlockDialog(true)
+              }}
+              style={{ borderColor: border }}
+            >
+              <Plus className="h-3.5 w-3.5 mr-1.5" />
+              Agregar bloqueo
+            </Button>
+          </div>
+
+          {blocks.length === 0 ? (
+            <div className="rounded-xl border border-dashed p-6 text-center" style={{ borderColor: border }}>
+              <p className="text-sm text-[#9CA3AF]">Sin bloqueos configurados</p>
+            </div>
+          ) : (
+            <div className="rounded-xl border overflow-hidden" style={{ borderColor: border }}>
+              {blocks.map((block, i) => (
+                <div
+                  key={block.id}
+                  className="flex items-center gap-3 px-4 py-3 bg-white"
+                  style={{ borderBottom: i < blocks.length - 1 ? `1px solid ${border}` : undefined }}
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-[#111827]">{block.reason}</p>
+                    <p className="text-xs text-[#9CA3AF]">
+                      {new Date(block.start_time).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' })}
+                      {' — '}
+                      {new Date(block.end_time).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' })}
+                    </p>
+                  </div>
+                  <button
+                    className="shrink-0 p-1.5 rounded-lg text-[#9CA3AF] hover:text-rose-500 hover:bg-rose-50 transition-colors"
+                    onClick={async () => {
+                      try {
+                        await settingsService.deleteBlock(block.id)
+                        setBlocks(prev => prev.filter(b => b.id !== block.id))
+                        toast.success('Bloqueo eliminado')
+                      } catch (e) {
+                        toast.error(getErrorMessage(e))
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Block create dialog */}
+        <Dialog open={blockDialog} onOpenChange={setBlockDialog}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Nuevo bloqueo de agenda</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <Label>Motivo</Label>
+                <Input
+                  value={blockForm.reason}
+                  onChange={e => setBlockForm(f => ({ ...f, reason: e.target.value }))}
+                  placeholder="Ej: Vacaciones, Reunión de equipo"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Desde</Label>
+                  <Input
+                    type="datetime-local"
+                    value={blockForm.start_time}
+                    onChange={e => setBlockForm(f => ({ ...f, start_time: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Hasta</Label>
+                  <Input
+                    type="datetime-local"
+                    value={blockForm.end_time}
+                    onChange={e => setBlockForm(f => ({ ...f, end_time: e.target.value }))}
+                  />
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setBlockDialog(false)}>Cancelar</Button>
+              <Button
+                size="sm"
+                disabled={blockSaving || !blockForm.reason || !blockForm.start_time || !blockForm.end_time}
+                style={{ background: blue, color: '#fff' }}
+                onClick={async () => {
+                  setBlockSaving(true)
+                  try {
+                    const created = await settingsService.createBlock(blockForm)
+                    setBlocks(prev => [...prev, created])
+                    setBlockDialog(false)
+                    toast.success('Bloqueo creado')
+                  } catch (e) {
+                    toast.error(getErrorMessage(e))
+                  } finally {
+                    setBlockSaving(false)
+                  }
+                }}
+              >
+                {blockSaving && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
+                Crear bloqueo
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    ),
   }
 
   return (
     <div className="flex flex-col h-full min-h-screen" style={{ background: bg }}>
       {/* ── Page header ─────────────────────────────────────────────────────── */}
-      <div className="px-8 pt-8 pb-0">
+      <div className="px-4 sm:px-8 pt-4 sm:pt-8 pb-0">
         <div className="mb-1 flex items-center gap-1.5 text-xs text-[#9CA3AF]">
           <span>Admin</span>
           <span>›</span>
           <span style={{ color: blue }} className="font-medium">Configuración</span>
         </div>
-        <div className="flex items-start justify-between mb-6">
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-[#111827] tracking-tight">Configuración del agente</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-[#111827] tracking-tight">Configuración del agente</h1>
             <p className="text-sm text-[#6B7280] mt-1">Personaliza cómo Sofía califica e interactúa con tus leads</p>
           </div>
           <Button
@@ -740,8 +1218,8 @@ export function SettingsPage() {
         </div>
 
         {/* ── Custom tab bar ──────────────────────────────────────────────── */}
-        <div className="relative flex gap-1 border-b" style={{ borderColor: border }}>
-          {TABS.filter(tab => tab.id !== 'prompt' || isAdmin).map((tab) => {
+        <div className="relative flex gap-1 border-b overflow-x-auto" style={{ borderColor: border }}>
+          {TABS.filter(tab => (tab.id !== 'prompt' && tab.id !== 'calendar') || isAdmin).map((tab) => {
             const Icon = tab.icon
             const active = activeTab === tab.id
             return (
@@ -766,7 +1244,7 @@ export function SettingsPage() {
       </div>
 
       {/* ── Tab content ─────────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto px-8 py-8">
+      <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-4 sm:py-8">
         <div className="max-w-3xl">
           {tabContent[activeTab]}
         </div>

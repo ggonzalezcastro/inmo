@@ -96,6 +96,7 @@ class LeadResponse(LeadBase):
     created_at: datetime
     updated_at: datetime
     metadata: dict = Field(default_factory=dict, alias='lead_metadata')
+    email: Optional[str] = None  # Override to allow pre-existing invalid emails in DB
     
     @model_validator(mode='before')
     @classmethod

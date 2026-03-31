@@ -281,17 +281,17 @@ class ChatOrchestratorService:
 
         # 6. Auto-advance pipeline
         try:
-            async with db.begin_nested():
-                await PipelineService.auto_advance_stage(db, lead.id)
-                await db.refresh(lead)
+            await PipelineService.auto_advance_stage(db, lead.id)
+            await db.refresh(lead)
         except Exception as e:
             logger.error("Error auto-advancing pipeline stage: %s", e)
+            await db.rollback()
         try:
-            async with db.begin_nested():
-                await PipelineService.actualizar_pipeline_stage(db, lead)
-                await db.refresh(lead)
+            await PipelineService.actualizar_pipeline_stage(db, lead)
+            await db.refresh(lead)
         except Exception as e:
             logger.error("Error updating pipeline stage: %s", e)
+            await db.rollback()
         await db.commit()
         await db.refresh(lead)
 

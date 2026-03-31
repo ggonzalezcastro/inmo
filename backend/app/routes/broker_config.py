@@ -3,6 +3,7 @@ Broker configuration routes
 Endpoints for managing broker prompt and lead configuration
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Dict, Any, Optional, List
 from app.database import get_db
@@ -13,9 +14,13 @@ from app.models.broker import Broker, BrokerPromptConfig, BrokerLeadConfig
 from app.models.prompt_version import PromptVersion
 from app.services.broker import BrokerConfigService
 from app.core.cache import cache_delete
+from app.core.config import settings
+from app.core.encryption import encrypt_value, decrypt_value
 from sqlalchemy.future import select
 from sqlalchemy import text, update
 import logging
+from jose import jwt, JWTError
+import time
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -738,6 +743,449 @@ async def activate_prompt_version(
         "is_active": version.is_active,
         "activated_at": version.updated_at.isoformat() if version.updated_at else None,
     }
+
+
+# ── Google Calendar OAuth por Broker ─────────────────────────────────────────
+
+GOOGLE_OAUTH_SCOPES = ["https://www.googleapis.com/auth/calendar"]
+_STATE_TTL = 600  # 10 minutos
+
+
+def _make_state(broker_id: int) -> str:
+    """Create a signed JWT state for the OAuth flow."""
+    payload = {"broker_id": broker_id, "exp": int(time.time()) + _STATE_TTL}
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+
+
+def _verify_state(state: str) -> int:
+    """Decode and verify the state JWT. Returns broker_id."""
+    try:
+        payload = jwt.decode(state, settings.SECRET_KEY, algorithms=["HS256"])
+        return int(payload["broker_id"])
+    except (JWTError, Exception):
+        raise HTTPException(status_code=400, detail="Estado OAuth inválido o expirado")
+
+
+@router.get("/calendar/auth-url")
+async def get_calendar_auth_url(
+    current_user: dict = Depends(Permissions.require_admin),
+):
+    """
+    Generate the Google OAuth URL for the current broker.
+    The frontend opens this URL in a popup/new tab.
+    """
+    if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=503,
+            detail="Google OAuth no está configurado (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET faltantes)",
+        )
+
+    broker_id = current_user.get("broker_id")
+    if not broker_id:
+        raise HTTPException(status_code=400, detail="Usuario sin broker asignado")
+
+    try:
+        from google_auth_oauthlib.flow import Flow
+        flow = Flow.from_client_config(
+            {
+                "installed": {
+                    "client_id": settings.GOOGLE_CLIENT_ID,
+                    "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                    "redirect_uris": [settings.GOOGLE_OAUTH_REDIRECT_URI],
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                }
+            },
+            scopes=GOOGLE_OAUTH_SCOPES,
+        )
+        flow.redirect_uri = settings.GOOGLE_OAUTH_REDIRECT_URI
+
+        auth_url, _ = flow.authorization_url(
+            access_type="offline",
+            include_granted_scopes="true",
+            prompt="consent",
+            state=_make_state(broker_id),
+        )
+        return {"auth_url": auth_url}
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="Librería google-auth-oauthlib no instalada",
+        )
+
+
+@router.get("/calendar/callback")
+async def calendar_oauth_callback(
+    code: str = Query(...),
+    state: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Google OAuth2 callback — public endpoint (no JWT auth).
+    Exchanges the authorization code for tokens, stores the encrypted
+    refresh_token in broker_prompt_configs, then redirects to the frontend.
+    """
+    broker_id = _verify_state(state)
+
+    try:
+        from google_auth_oauthlib.flow import Flow
+        from googleapiclient.discovery import build
+
+        flow = Flow.from_client_config(
+            {
+                "installed": {
+                    "client_id": settings.GOOGLE_CLIENT_ID,
+                    "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                    "redirect_uris": [settings.GOOGLE_OAUTH_REDIRECT_URI],
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                }
+            },
+            scopes=GOOGLE_OAUTH_SCOPES,
+            state=state,
+        )
+        flow.redirect_uri = settings.GOOGLE_OAUTH_REDIRECT_URI
+        flow.fetch_token(code=code)
+
+        credentials = flow.credentials
+        refresh_token = credentials.refresh_token
+        if not refresh_token:
+            return RedirectResponse(
+                f"{settings.FRONTEND_URL}/settings?tab=calendar&status=error&reason=no_refresh_token"
+            )
+
+        # Get the Gmail address from the token info
+        calendar_email = None
+        try:
+            import httpx
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    "https://www.googleapis.com/oauth2/v3/userinfo",
+                    headers={"Authorization": f"Bearer {credentials.token}"},
+                )
+                if resp.status_code == 200:
+                    calendar_email = resp.json().get("email")
+        except Exception:
+            pass  # email is optional
+
+        # Save encrypted refresh token to DB
+        result = await db.execute(
+            select(BrokerPromptConfig).where(BrokerPromptConfig.broker_id == broker_id)
+        )
+        broker_config = result.scalars().first()
+
+        if not broker_config:
+            broker_config = BrokerPromptConfig(broker_id=broker_id)
+            db.add(broker_config)
+
+        broker_config.google_refresh_token = encrypt_value(refresh_token)
+        broker_config.google_calendar_id = broker_config.google_calendar_id or "primary"
+        if calendar_email:
+            broker_config.google_calendar_email = calendar_email
+
+        await db.commit()
+        logger.info("Google Calendar conectado para broker_id=%s email=%s", broker_id, calendar_email)
+
+    except Exception as e:
+        logger.error("Error en callback OAuth Google Calendar broker_id=%s: %s", broker_id, e, exc_info=True)
+        return RedirectResponse(
+            f"{settings.FRONTEND_URL}/settings?tab=calendar&status=error&reason=callback_failed"
+        )
+
+    return RedirectResponse(
+        f"{settings.FRONTEND_URL}/settings?tab=calendar&status=success"
+    )
+
+
+@router.get("/calendar/status")
+async def get_calendar_status(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return Google Calendar connection status for the current broker."""
+    broker_id = current_user.get("broker_id")
+    if not broker_id:
+        raise HTTPException(status_code=400, detail="Usuario sin broker asignado")
+
+    result = await db.execute(
+        select(BrokerPromptConfig).where(BrokerPromptConfig.broker_id == broker_id)
+    )
+    cfg = result.scalars().first()
+
+    if not cfg or not cfg.google_refresh_token:
+        return {"connected": False, "email": None, "calendar_id": None}
+
+    return {
+        "connected": True,
+        "email": cfg.google_calendar_email,
+        "calendar_id": cfg.google_calendar_id or "primary",
+    }
+
+
+@router.delete("/calendar/disconnect")
+async def disconnect_calendar(
+    current_user: dict = Depends(Permissions.require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove Google Calendar credentials for the current broker."""
+    broker_id = current_user.get("broker_id")
+    if not broker_id:
+        raise HTTPException(status_code=400, detail="Usuario sin broker asignado")
+
+    result = await db.execute(
+        select(BrokerPromptConfig).where(BrokerPromptConfig.broker_id == broker_id)
+    )
+    cfg = result.scalars().first()
+
+    if cfg:
+        cfg.google_refresh_token = None
+        cfg.google_calendar_email = None
+        await db.commit()
+        logger.info("Google Calendar desconectado para broker_id=%s", broker_id)
+
+    return {"ok": True, "message": "Google Calendar desconectado"}
+
+
+# ── Availability Slots CRUD ────────────────────────────────────────────────────
+
+@router.get("/calendar/availability", response_model=List[dict])
+async def list_availability_slots(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all availability slots for the current broker."""
+    from app.models.appointment import AvailabilitySlot
+    broker_id = current_user.get("broker_id")
+    if not broker_id:
+        raise HTTPException(status_code=400, detail="No broker assigned")
+    result = await db.execute(
+        select(AvailabilitySlot).where(AvailabilitySlot.broker_id == broker_id).order_by(
+            AvailabilitySlot.day_of_week, AvailabilitySlot.start_time
+        )
+    )
+    slots = result.scalars().all()
+    return [
+        {
+            "id": s.id,
+            "day_of_week": s.day_of_week,
+            "start_time": s.start_time.strftime("%H:%M"),
+            "end_time": s.end_time.strftime("%H:%M"),
+            "slot_duration_minutes": s.slot_duration_minutes,
+            "is_active": s.is_active,
+            "valid_from": s.valid_from.isoformat(),
+            "valid_until": s.valid_until.isoformat() if s.valid_until else None,
+            "notes": s.notes,
+        }
+        for s in slots
+    ]
+
+
+@router.post("/calendar/availability", response_model=dict, status_code=201)
+async def create_availability_slot(
+    data: dict = Body(...),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new availability slot for the current broker."""
+    from app.models.appointment import AvailabilitySlot
+    from datetime import time as dt_time, date
+    broker_id = current_user.get("broker_id")
+    if not broker_id:
+        raise HTTPException(status_code=400, detail="No broker assigned")
+
+    def parse_time(t: str):
+        h, m = t.split(":")
+        return dt_time(int(h), int(m))
+
+    slot = AvailabilitySlot(
+        broker_id=broker_id,
+        agent_id=None,  # Global: applies to all agents
+        day_of_week=int(data["day_of_week"]),
+        start_time=parse_time(data["start_time"]),
+        end_time=parse_time(data["end_time"]),
+        slot_duration_minutes=int(data.get("slot_duration_minutes", 60)),
+        is_active=True,
+        valid_from=date.fromisoformat(data["valid_from"]) if data.get("valid_from") else date.today(),
+        valid_until=date.fromisoformat(data["valid_until"]) if data.get("valid_until") else None,
+        notes=data.get("notes"),
+    )
+    db.add(slot)
+    await db.commit()
+    await db.refresh(slot)
+    return {
+        "id": slot.id,
+        "day_of_week": slot.day_of_week,
+        "start_time": slot.start_time.strftime("%H:%M"),
+        "end_time": slot.end_time.strftime("%H:%M"),
+        "slot_duration_minutes": slot.slot_duration_minutes,
+        "is_active": slot.is_active,
+        "valid_from": slot.valid_from.isoformat(),
+        "valid_until": slot.valid_until.isoformat() if slot.valid_until else None,
+        "notes": slot.notes,
+    }
+
+
+@router.put("/calendar/availability/{slot_id}", response_model=dict)
+async def update_availability_slot(
+    slot_id: int,
+    data: dict = Body(...),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update an availability slot (broker-owned only)."""
+    from app.models.appointment import AvailabilitySlot
+    from datetime import time as dt_time, date
+    broker_id = current_user.get("broker_id")
+    result = await db.execute(
+        select(AvailabilitySlot).where(
+            AvailabilitySlot.id == slot_id,
+            AvailabilitySlot.broker_id == broker_id,
+        )
+    )
+    slot = result.scalars().first()
+    if not slot:
+        raise HTTPException(status_code=404, detail="Slot not found")
+
+    def parse_time(t: str):
+        h, m = t.split(":")
+        return dt_time(int(h), int(m))
+
+    if "day_of_week" in data:
+        slot.day_of_week = int(data["day_of_week"])
+    if "start_time" in data:
+        slot.start_time = parse_time(data["start_time"])
+    if "end_time" in data:
+        slot.end_time = parse_time(data["end_time"])
+    if "slot_duration_minutes" in data:
+        slot.slot_duration_minutes = int(data["slot_duration_minutes"])
+    if "is_active" in data:
+        slot.is_active = bool(data["is_active"])
+    if "valid_until" in data:
+        slot.valid_until = date.fromisoformat(data["valid_until"]) if data["valid_until"] else None
+    if "notes" in data:
+        slot.notes = data["notes"]
+
+    await db.commit()
+    await db.refresh(slot)
+    return {
+        "id": slot.id,
+        "day_of_week": slot.day_of_week,
+        "start_time": slot.start_time.strftime("%H:%M"),
+        "end_time": slot.end_time.strftime("%H:%M"),
+        "slot_duration_minutes": slot.slot_duration_minutes,
+        "is_active": slot.is_active,
+        "valid_from": slot.valid_from.isoformat(),
+        "valid_until": slot.valid_until.isoformat() if slot.valid_until else None,
+        "notes": slot.notes,
+    }
+
+
+@router.delete("/calendar/availability/{slot_id}", response_model=dict)
+async def delete_availability_slot(
+    slot_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete an availability slot (broker-owned only)."""
+    from app.models.appointment import AvailabilitySlot
+    broker_id = current_user.get("broker_id")
+    result = await db.execute(
+        select(AvailabilitySlot).where(
+            AvailabilitySlot.id == slot_id,
+            AvailabilitySlot.broker_id == broker_id,
+        )
+    )
+    slot = result.scalars().first()
+    if not slot:
+        raise HTTPException(status_code=404, detail="Slot not found")
+    await db.delete(slot)
+    await db.commit()
+    return {"ok": True}
+
+
+# ── Appointment Blocks CRUD ────────────────────────────────────────────────────
+
+@router.get("/calendar/blocks", response_model=List[dict])
+async def list_appointment_blocks(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List appointment blocks for the current broker."""
+    from app.models.appointment import AppointmentBlock
+    broker_id = current_user.get("broker_id")
+    if not broker_id:
+        raise HTTPException(status_code=400, detail="No broker assigned")
+    result = await db.execute(
+        select(AppointmentBlock).where(
+            AppointmentBlock.broker_id == broker_id
+        ).order_by(AppointmentBlock.start_time)
+    )
+    blocks = result.scalars().all()
+    return [
+        {
+            "id": b.id,
+            "start_time": b.start_time.isoformat(),
+            "end_time": b.end_time.isoformat(),
+            "reason": b.reason,
+            "notes": b.notes,
+        }
+        for b in blocks
+    ]
+
+
+@router.post("/calendar/blocks", response_model=dict, status_code=201)
+async def create_appointment_block(
+    data: dict = Body(...),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create an appointment block for the current broker."""
+    from app.models.appointment import AppointmentBlock
+    from datetime import datetime
+    broker_id = current_user.get("broker_id")
+    if not broker_id:
+        raise HTTPException(status_code=400, detail="No broker assigned")
+    block = AppointmentBlock(
+        broker_id=broker_id,
+        agent_id=None,
+        start_time=datetime.fromisoformat(data["start_time"]),
+        end_time=datetime.fromisoformat(data["end_time"]),
+        reason=data.get("reason", "blocked"),
+        notes=data.get("notes"),
+    )
+    db.add(block)
+    await db.commit()
+    await db.refresh(block)
+    return {
+        "id": block.id,
+        "start_time": block.start_time.isoformat(),
+        "end_time": block.end_time.isoformat(),
+        "reason": block.reason,
+        "notes": block.notes,
+    }
+
+
+@router.delete("/calendar/blocks/{block_id}", response_model=dict)
+async def delete_appointment_block(
+    block_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete an appointment block (broker-owned only)."""
+    from app.models.appointment import AppointmentBlock
+    broker_id = current_user.get("broker_id")
+    result = await db.execute(
+        select(AppointmentBlock).where(
+            AppointmentBlock.id == block_id,
+            AppointmentBlock.broker_id == broker_id,
+        )
+    )
+    block = result.scalars().first()
+    if not block:
+        raise HTTPException(status_code=404, detail="Block not found")
+    await db.delete(block)
+    await db.commit()
+    return {"ok": True}
 
 
 @router.post("/voice/assistant", response_model=dict)

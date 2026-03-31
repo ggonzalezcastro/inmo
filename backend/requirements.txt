@@ -2,19 +2,24 @@
 fastapi==0.115.1
 uvicorn[standard]>=0.30.0
 python-multipart>=0.0.6
-watchfiles==0.21.0
+# Prebuilt wheels on Python 3.13 (0.21.x often builds from source)
+watchfiles>=1.0.0
 
 # Database
-sqlalchemy[asyncio]==2.0.23
-asyncpg==0.29.0
-psycopg2-binary==2.9.9
+# SQLAlchemy 2.0.23 crashes on import with Python 3.13 (typing / TypingOnly)
+sqlalchemy[asyncio]>=2.0.36,<2.1.0
+# asyncpg 0.29 does not build on Python 3.13 (C API)
+asyncpg>=0.30.0
+# 2.9.9 has no cp313 wheel on macOS/arm64; falls back to source + pg_config
+psycopg2-binary>=2.9.11
 alembic==1.13.0
 pgvector>=0.3.0
 
 # Data Validation
 pydantic>=2.5.0,<3.0.0
 pydantic-settings>=2.1.0
-email-validator==2.1.0
+# 2.1.0 yanked on PyPI
+email-validator>=2.1.1,<3.0.0
 
 # Authentication
 python-jose[cryptography]==3.3.0
@@ -36,6 +41,8 @@ openai==1.12.0
 
 # MCP - Model Context Protocol (server + client)
 mcp==1.2.0
+# mcp pulls sse-starlette 3.x which requires starlette>=0.49; FastAPI 0.115.x needs starlette<0.39
+sse-starlette>=2.1.3,<3
 
 # Google Calendar API
 google-api-python-client==2.108.0
@@ -46,7 +53,7 @@ google-auth-oauthlib==1.1.0
 python-telegram-bot>=21.0
 
 # Utilities
-python-dotenv==1.0.0
+python-dotenv>=1.1.1,<2.0.0
 pydantic-extra-types>=2.1.0
 bleach>=6.1.0                  # XSS sanitization
 

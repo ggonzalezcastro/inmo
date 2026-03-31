@@ -24,9 +24,14 @@ class BrokerChatConfig(Base, IdMixin, TimestampMixin):
     # Enabled providers (e.g. ["telegram", "whatsapp", "instagram"])
     enabled_providers = Column(JSONB, default=lambda: [], nullable=False)
 
-    # Default provider
+    # Default provider (DB enum values are lowercase: webchat, whatsapp, …)
     default_provider = Column(
-        SQLEnum(ChatProvider),
+        SQLEnum(
+            ChatProvider,
+            name="chatprovider",
+            values_callable=lambda obj: [e.value for e in obj],
+            create_type=False,
+        ),
         default=ChatProvider.WEBCHAT,
         nullable=False,
     )

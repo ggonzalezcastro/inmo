@@ -166,7 +166,7 @@ export function BrokersPage() {
   ]
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="p-4 sm:p-8 space-y-6">
       <PageHeader
         title="Inmobiliarias"
         description={isLoading ? 'Cargando...' : `${brokers.length} inmobiliarias · ${brokers.filter(b => b.is_active).length} activas`}

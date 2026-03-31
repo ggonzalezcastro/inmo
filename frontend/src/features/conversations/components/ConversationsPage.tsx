@@ -8,7 +8,7 @@ import {
   Bot, User, Search, Send, RefreshCw,
   MessageSquare, Inbox, ChevronDown,
   WifiOff, Phone, CheckCheck, Sparkles,
-  UserCheck, ArrowRight,
+  UserCheck, ArrowRight, ArrowLeft,
 } from 'lucide-react'
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -230,9 +230,11 @@ function MessageBubble({ msg, animate }: { msg: ChatMessage; animate?: boolean }
 function ConversationDetail({
   lead,
   onModeChange,
+  onBack,
 }: {
   lead: ConversationLead
   onModeChange: () => void
+  onBack?: () => void
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [loading, setLoading] = useState(true)
@@ -310,8 +312,17 @@ function ConversationDetail({
   return (
     <div className="flex flex-col h-full bg-[#F7F9FC]">
       {/* ── Header ── */}
-      <div className="px-5 py-3 bg-white border-b border-[#EEF2F7] flex items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="px-3 sm:px-5 py-3 bg-white border-b border-[#EEF2F7] flex items-center justify-between gap-2 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          {/* Back button — mobile only */}
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="sm:hidden shrink-0 h-8 w-8 rounded-lg flex items-center justify-center text-[#6B7280] hover:bg-[#F0F4F8] transition-colors"
+            >
+              <ArrowLeft size={18} />
+            </button>
+          )}
           <div className={cn(
             'h-10 w-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0',
             lead.human_mode ? 'bg-[#DBEAFE] text-[#1D4ED8]' : 'bg-gradient-to-br from-[#E2EAF4] to-[#C7D7EC] text-[#374151]',
@@ -370,8 +381,8 @@ function ConversationDetail({
             )}
           >
             {lead.human_mode
-              ? <><Bot size={13} /><span>Liberar a IA</span></>
-              : <><UserCheck size={13} /><span>Tomar control</span></>
+              ? <><Bot size={13} /><span className="hidden sm:inline">Liberar a IA</span></>
+              : <><UserCheck size={13} /><span className="hidden sm:inline">Tomar control</span></>
             }
           </button>
 
@@ -484,6 +495,7 @@ export function ConversationsPage() {
   const [modeFilter, setModeFilter] = useState<'all' | 'human' | 'ai'>('all')
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [selectedLead, setSelectedLead] = useState<ConversationLead | null>(null)
+  const [mobileShowDetail, setMobileShowDetail] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -525,7 +537,11 @@ export function ConversationsPage() {
     <div className="flex overflow-hidden bg-[#F0F4F8]" style={{ height: 'calc(100vh - 56px)' }}>
 
       {/* ═══ Left sidebar ═══ */}
-      <div className="w-[300px] shrink-0 flex flex-col bg-white border-r border-[#EEF2F7] shadow-sm">
+      <div className={cn(
+        'shrink-0 flex flex-col bg-white border-r border-[#EEF2F7] shadow-sm',
+        'w-full sm:w-[300px]',
+        mobileShowDetail ? 'hidden sm:flex' : 'flex',
+      )}>
 
         {/* Sidebar header */}
         <div className="px-4 pt-4 pb-3 border-b border-[#EEF2F7]">
@@ -611,7 +627,7 @@ export function ConversationsPage() {
                 key={lead.id}
                 lead={lead}
                 selected={lead.id === selectedId}
-                onClick={() => setSelectedId(lead.id)}
+                onClick={() => { setSelectedId(lead.id); setMobileShowDetail(true) }}
               />
             ))
           )}
@@ -619,12 +635,16 @@ export function ConversationsPage() {
       </div>
 
       {/* ═══ Right panel ═══ */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className={cn(
+        'flex-1 flex flex-col overflow-hidden',
+        mobileShowDetail ? 'flex' : 'hidden sm:flex',
+      )}>
         {selectedLead ? (
           <ConversationDetail
             key={selectedLead.id}
             lead={selectedLead}
             onModeChange={load}
+            onBack={() => setMobileShowDetail(false)}
           />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-[#9CA3AF]">

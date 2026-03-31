@@ -6,11 +6,12 @@ services:
       POSTGRES_PASSWORD: lead_pass_123
       POSTGRES_DB: lead_agent
     ports:
-      - "5432:5432"
+      # Host ocupado (otro Postgres): POSTGRES_HOST_PORT=5433 docker compose up -d db
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U lead_user"]
+      test: ["CMD-SHELL", "pg_isready -U lead_user -d lead_agent"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -18,7 +19,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "${REDIS_HOST_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes

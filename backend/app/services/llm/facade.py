@@ -53,7 +53,7 @@ def _provider_meta(provider) -> tuple[str, str, bool]:
     return pname, model, used_fallback
 
 
-def _fire_log(
+async def _fire_log(
     *,
     provider_name: str,
     model: str,
@@ -66,23 +66,21 @@ def _fire_log(
     output_tokens: Optional[int] = None,
     error: Optional[str] = None,
 ) -> None:
-    """Schedule a fire-and-forget LLM call log. Never raises."""
+    """Await LLM call log inline. Never raises — observability must never block the pipeline."""
     try:
         from app.services.llm.call_logger import log_llm_call
 
-        asyncio.ensure_future(
-            log_llm_call(
-                provider=provider_name,
-                model=model,
-                call_type=call_type,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                latency_ms=latency_ms,
-                broker_id=broker_id,
-                lead_id=lead_id,
-                used_fallback=used_fallback,
-                error=error,
-            )
+        await log_llm_call(
+            provider=provider_name,
+            model=model,
+            call_type=call_type,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            latency_ms=latency_ms,
+            broker_id=broker_id,
+            lead_id=lead_id,
+            used_fallback=used_fallback,
+            error=error,
         )
     except Exception:  # noqa: BLE001
         pass  # observability must never crash the pipeline
@@ -220,7 +218,7 @@ Retorna JSON con:
             # Use real token counts from API; fall back to char-length estimate if unavailable
             _in_tok = (_usage.get("input_tokens") if _usage else None) or len(analysis_prompt) // 4
             _out_tok = (_usage.get("output_tokens") if _usage else None) or len(str(result)) // 4
-            _fire_log(
+            await _fire_log(
                 provider_name=pname,
                 model=model,
                 call_type="qualification",
@@ -257,7 +255,7 @@ Retorna JSON con:
 
         except Exception as e:
             logger.error(f"[LLMService] Analysis error: {e}", exc_info=True)
-            _fire_log(
+            await _fire_log(
                 provider_name=pname,
                 model=model,
                 call_type="qualification",
@@ -377,7 +375,7 @@ Retorna JSON con:
             if usage:
                 input_tokens = usage.get("input_tokens") or usage.get("prompt_tokens")
                 output_tokens = usage.get("output_tokens") or usage.get("completion_tokens")
-            _fire_log(
+            await _fire_log(
                 provider_name=pname,
                 model=model,
                 call_type="chat_response",
@@ -392,7 +390,7 @@ Retorna JSON con:
             return result[0], result[1]
         except Exception as _exc:
             _err = str(_exc)[:500]
-            _fire_log(
+            await _fire_log(
                 provider_name=pname,
                 model=model,
                 call_type="chat_response",

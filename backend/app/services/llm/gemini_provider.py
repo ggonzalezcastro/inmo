@@ -262,14 +262,18 @@ class GeminiProvider(BaseLLMProvider):
                                 "response": {"error": str(e)}
                             })
                     
-                    # Add function call and results to conversation
-                    contents.append(types.Content(
-                        role="model",
-                        parts=[types.Part(function_call=types.FunctionCall(
-                            name=fc["name"],
-                            args=fc["args"]
-                        )) for fc in function_calls]
-                    ))
+                    # Add the full model response (including thought parts/signatures)
+                    # back to contents — required when thinking mode is active.
+                    if response.candidates and response.candidates[0].content:
+                        contents.append(response.candidates[0].content)
+                    else:
+                        contents.append(types.Content(
+                            role="model",
+                            parts=[types.Part(function_call=types.FunctionCall(
+                                name=fc["name"],
+                                args=fc["args"]
+                            )) for fc in function_calls]
+                        ))
                     
                     for fr in function_results:
                         contents.append(types.Content(

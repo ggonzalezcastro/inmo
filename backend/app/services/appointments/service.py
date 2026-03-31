@@ -16,7 +16,8 @@ from app.models.appointment import (
 )
 from app.models.lead import Lead
 from app.models.user import User
-from app.services.appointments.google_calendar import get_google_calendar_service
+from app.models.broker import BrokerPromptConfig
+from app.services.appointments.google_calendar import get_calendar_service_for_broker
 from app.services.appointments.availability import (
     check_availability as _check_availability,
     get_available_slots as _get_available_slots,
@@ -72,7 +73,7 @@ class AppointmentService:
         # Skip on non-PostgreSQL (e.g. SQLite in tests).
         try:
             lock_key1 = agent_id if agent_id is not None else 0
-            lock_key2 = int(start_time.timestamp() * 1000)
+            lock_key2 = int(start_time.timestamp()) % 2147483647
             await db.execute(
                 text("SELECT pg_advisory_xact_lock(:k1, :k2)"),
                 {"k1": lock_key1, "k2": lock_key2}
@@ -113,11 +114,19 @@ class AppointmentService:
                 agent_email = agent.email
                 logger.info(f"Agent email retrieved for appointment: {agent_email}")
 
+        # Load broker config to get per-broker calendar credentials
+        broker_config = None
+        if lead and lead.broker_id:
+            broker_cfg_result = await db.execute(
+                select(BrokerPromptConfig).where(BrokerPromptConfig.broker_id == lead.broker_id)
+            )
+            broker_config = broker_cfg_result.scalars().first()
+
         # Try to create Google Calendar event with Meet link
         meet_url = None
         google_event_id = None
 
-        calendar_service = get_google_calendar_service()
+        calendar_service = get_calendar_service_for_broker(broker_config)
         if calendar_service.service:
             try:
                 event_title = f"Reunión con {lead_name}"
@@ -302,7 +311,16 @@ class AppointmentService:
         # Update Google Calendar event if exists
         if appointment.google_event_id:
             try:
-                calendar_service = get_google_calendar_service()
+                # Load broker config for per-broker calendar credentials
+                _broker_cfg = None
+                _lead_res = await db.execute(select(Lead).where(Lead.id == appointment.lead_id))
+                _lead = _lead_res.scalars().first()
+                if _lead and _lead.broker_id:
+                    _bcfg_res = await db.execute(
+                        select(BrokerPromptConfig).where(BrokerPromptConfig.broker_id == _lead.broker_id)
+                    )
+                    _broker_cfg = _bcfg_res.scalars().first()
+                calendar_service = get_calendar_service_for_broker(_broker_cfg)
                 if calendar_service.service:
                     # Check if relevant fields changed
                     needs_calendar_update = (
@@ -404,7 +422,15 @@ class AppointmentService:
         # Delete Google Calendar event if exists
         if appointment.google_event_id:
             try:
-                calendar_service = get_google_calendar_service()
+                _broker_cfg = None
+                _lead_res = await db.execute(select(Lead).where(Lead.id == appointment.lead_id))
+                _lead = _lead_res.scalars().first()
+                if _lead and _lead.broker_id:
+                    _bcfg_res = await db.execute(
+                        select(BrokerPromptConfig).where(BrokerPromptConfig.broker_id == _lead.broker_id)
+                    )
+                    _broker_cfg = _bcfg_res.scalars().first()
+                calendar_service = get_calendar_service_for_broker(_broker_cfg)
                 if calendar_service.service:
                     deleted = calendar_service.delete_event(appointment.google_event_id)
                     if deleted:

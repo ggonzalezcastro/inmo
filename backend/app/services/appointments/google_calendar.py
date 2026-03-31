@@ -1,5 +1,4 @@
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -7,10 +6,8 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 import logging
 import os
-import json
-import pickle
-from app.config import settings
 import pytz
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -23,14 +20,19 @@ class GoogleCalendarService:
 
     CHILE_TZ = pytz.timezone('America/Santiago')
 
-    def __init__(self):
+    def __init__(self, refresh_token: Optional[str] = None, calendar_id: Optional[str] = None):
+        """
+        Initialize with optional per-broker credentials.
+        Falls back to global settings if not provided.
+        """
         self.service = None
-        self._initialize_service()
+        self.calendar_id = calendar_id or settings.GOOGLE_CALENDAR_ID or "primary"
+        self._initialize_service(refresh_token)
 
-    def _initialize_service(self):
+    def _initialize_service(self, refresh_token: Optional[str] = None):
         """Initialize Google Calendar service"""
         try:
-            # Opción 1: Usar Service Account (recomendado para producción)
+            # Opción 1: Service Account (recomendado para producción)
             if settings.GOOGLE_CREDENTIALS_PATH and os.path.exists(settings.GOOGLE_CREDENTIALS_PATH):
                 from google.oauth2 import service_account
                 creds = service_account.Credentials.from_service_account_file(
@@ -41,9 +43,10 @@ class GoogleCalendarService:
                 logger.info("Google Calendar service initialized with service account")
                 return
 
-            # Opción 2: Usar OAuth2 con refresh token
-            if settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_SECRET:
-                creds = self._get_oauth_credentials()
+            # Opción 2: Refresh token (por broker o global desde settings)
+            effective_token = refresh_token or settings.GOOGLE_REFRESH_TOKEN
+            if settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_SECRET and effective_token:
+                creds = self._build_credentials(effective_token)
                 if creds:
                     self.service = build('calendar', 'v3', credentials=creds)
                     logger.info("Google Calendar service initialized with OAuth2")
@@ -56,52 +59,22 @@ class GoogleCalendarService:
             logger.error(f"Error initializing Google Calendar service: {str(e)}", exc_info=True)
             self.service = None
 
-    def _get_oauth_credentials(self) -> Optional[Credentials]:
-        """Get OAuth2 credentials, refreshing if necessary"""
-        creds = None
-        token_file = 'token.pickle'
-
-        # Cargar token guardado si existe
-        if os.path.exists(token_file):
-            with open(token_file, 'rb') as token:
-                creds = pickle.load(token)
-
-        # Si no hay credenciales válidas, intentar usar refresh token
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                try:
-                    creds.refresh(Request())
-                    # Guardar el token actualizado
-                    with open(token_file, 'wb') as token:
-                        pickle.dump(creds, token)
-                    return creds
-                except Exception as e:
-                    logger.error(f"Error refreshing token: {str(e)}")
-
-            # Si hay refresh token en configuración, usarlo
-            if settings.GOOGLE_REFRESH_TOKEN:
-                from google.oauth2.credentials import Credentials
-                creds = Credentials(
-                    token=None,
-                    refresh_token=settings.GOOGLE_REFRESH_TOKEN,
-                    token_uri="https://oauth2.googleapis.com/token",
-                    client_id=settings.GOOGLE_CLIENT_ID,
-                    client_secret=settings.GOOGLE_CLIENT_SECRET,
-                    scopes=SCOPES
-                )
-                # Refrescar el token
-                try:
-                    creds.refresh(Request())
-                    with open(token_file, 'wb') as token:
-                        pickle.dump(creds, token)
-                    return creds
-                except Exception as e:
-                    logger.error(f"Error refreshing token from settings: {str(e)}")
-
-            logger.warning("No valid OAuth credentials found. Please run authentication flow.")
+    def _build_credentials(self, refresh_token: str) -> Optional[Credentials]:
+        """Build and refresh OAuth2 credentials from a refresh token."""
+        try:
+            creds = Credentials(
+                token=None,
+                refresh_token=refresh_token,
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=settings.GOOGLE_CLIENT_ID,
+                client_secret=settings.GOOGLE_CLIENT_SECRET,
+                scopes=SCOPES,
+            )
+            creds.refresh(Request())
+            return creds
+        except Exception as e:
+            logger.error(f"Error refreshing Google OAuth token: {str(e)}")
             return None
-
-        return creds
 
     def create_event_with_meet(
         self,
@@ -113,7 +86,7 @@ class GoogleCalendarService:
         location: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """
-        Create a Google Calendar event with Google Meet link
+        Create a Google Calendar event with Google Meet link.
 
         Returns:
             Dict with event details including 'meet_url' and 'event_id', or None if failed
@@ -133,7 +106,6 @@ class GoogleCalendarService:
             start_time_utc = start_time.astimezone(pytz.UTC)
             end_time_utc = end_time.astimezone(pytz.UTC)
 
-            # Construir el evento
             event = {
                 'summary': title,
                 'description': description or '',
@@ -159,14 +131,12 @@ class GoogleCalendarService:
             if location:
                 event['location'] = location
 
-            # Crear el evento
             created_event = self.service.events().insert(
-                calendarId=settings.GOOGLE_CALENDAR_ID,
+                calendarId=self.calendar_id,
                 body=event,
-                conferenceDataVersion=1  # Importante: esto crea el Meet link
+                conferenceDataVersion=1
             ).execute()
 
-            # Extraer el link de Google Meet
             meet_url = None
             if 'conferenceData' in created_event:
                 entry_points = created_event['conferenceData'].get('entryPoints', [])
@@ -206,13 +176,11 @@ class GoogleCalendarService:
             return None
 
         try:
-            # Obtener el evento existente
             event = self.service.events().get(
-                calendarId=settings.GOOGLE_CALENDAR_ID,
+                calendarId=self.calendar_id,
                 eventId=event_id
             ).execute()
 
-            # Actualizar campos
             if title:
                 event['summary'] = title
             if description:
@@ -233,15 +201,11 @@ class GoogleCalendarService:
                     'dateTime': end_time_utc.isoformat(),
                     'timeZone': 'UTC',
                 }
-
-            # Actualizar attendees si se proporciona
             if attendees is not None:
                 event['attendees'] = [{'email': email} for email in attendees]
-                logger.debug(f"Updating attendees for event {event_id}: {attendees}")
 
-            # Actualizar el evento
             updated_event = self.service.events().update(
-                calendarId=settings.GOOGLE_CALENDAR_ID,
+                calendarId=self.calendar_id,
                 eventId=event_id,
                 body=event
             ).execute()
@@ -263,7 +227,7 @@ class GoogleCalendarService:
 
         try:
             self.service.events().delete(
-                calendarId=settings.GOOGLE_CALENDAR_ID,
+                calendarId=self.calendar_id,
                 eventId=event_id
             ).execute()
 
@@ -278,13 +242,29 @@ class GoogleCalendarService:
             return False
 
 
-# Instancia global del servicio
+# Instancia global (fallback cuando un broker no tiene credenciales propias)
 _google_calendar_service = None
 
 
 def get_google_calendar_service() -> GoogleCalendarService:
-    """Get or create Google Calendar service instance"""
+    """Get or create the global Google Calendar service instance (uses settings)."""
     global _google_calendar_service
     if _google_calendar_service is None:
         _google_calendar_service = GoogleCalendarService()
     return _google_calendar_service
+
+
+def get_calendar_service_for_broker(broker_config) -> GoogleCalendarService:
+    """
+    Return a GoogleCalendarService for the given broker.
+    Uses the broker's own OAuth credentials if configured,
+    otherwise falls back to the global service.
+    """
+    from app.core.encryption import decrypt_value
+
+    if broker_config and broker_config.google_refresh_token:
+        token = decrypt_value(broker_config.google_refresh_token)
+        calendar_id = broker_config.google_calendar_id or "primary"
+        return GoogleCalendarService(refresh_token=token, calendar_id=calendar_id)
+
+    return get_google_calendar_service()

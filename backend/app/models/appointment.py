@@ -34,12 +34,12 @@ class Appointment(Base, IdMixin, TimestampMixin):
     
     # Appointment details
     appointment_type = Column(
-        SQLEnum(AppointmentType),
+        SQLEnum(AppointmentType, values_callable=lambda x: [e.value for e in x]),
         default=AppointmentType.PROPERTY_VISIT,
         nullable=False
     )
     status = Column(
-        SQLEnum(AppointmentStatus),
+        SQLEnum(AppointmentStatus, values_callable=lambda x: [e.value for e in x]),
         default=AppointmentStatus.SCHEDULED,
         nullable=False,
         index=True
@@ -85,12 +85,13 @@ class Appointment(Base, IdMixin, TimestampMixin):
 
 class AvailabilitySlot(Base, IdMixin, TimestampMixin):
     """Recurring availability slots for agents"""
-    
+
     __tablename__ = "availability_slots"
-    
-    # Foreign key
+
+    # Foreign keys
+    broker_id = Column(Integer, ForeignKey("brokers.id", ondelete="CASCADE"), nullable=True, index=True)
     agent_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
-    # NULL = applies to all agents
+    # NULL agent_id = applies to all agents of the broker
     
     # Day and time
     day_of_week = Column(Integer, nullable=False)  # 0=Monday, 6=Sunday
@@ -103,7 +104,7 @@ class AvailabilitySlot(Base, IdMixin, TimestampMixin):
     
     # Appointment type this slot is for
     appointment_type = Column(
-        SQLEnum(AppointmentType),
+        SQLEnum(AppointmentType, values_callable=lambda x: [e.value for e in x]),
         nullable=True  # NULL = all types
     )
     
@@ -124,12 +125,13 @@ class AvailabilitySlot(Base, IdMixin, TimestampMixin):
 
 class AppointmentBlock(Base, IdMixin, TimestampMixin):
     """Blocked time periods (vacations, meetings, etc.)"""
-    
+
     __tablename__ = "appointment_blocks"
-    
-    # Foreign key
+
+    # Foreign keys
+    broker_id = Column(Integer, ForeignKey("brokers.id", ondelete="CASCADE"), nullable=True, index=True)
     agent_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
-    # NULL = applies to all agents
+    # NULL agent_id = applies to all agents of the broker
     
     # Block period
     start_time = Column(DateTime(timezone=True), nullable=False, index=True)

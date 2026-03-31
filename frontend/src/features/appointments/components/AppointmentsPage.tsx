@@ -187,7 +187,7 @@ export function AppointmentsPage() {
   ]
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="p-4 sm:p-8 space-y-6">
       <PageHeader
         title="Citas"
         description={isLoading ? 'Cargando...' : `${appointments.length} citas · ${appointments.filter(a => a.status === 'scheduled').length} pendientes`}

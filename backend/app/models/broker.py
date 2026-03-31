@@ -93,11 +93,16 @@ class BrokerPromptConfig(Base, IdMixin, TimestampMixin):
     # ⭐ NUEVO: Configuración de videollamada
     meeting_config = Column(JSONB, nullable=True)
     # Ejemplo: {"platform": "google_meet", "duration_minutes": 60, ...}
-    
+
     # ⭐ NUEVO: Plantillas de mensajes
     message_templates = Column(JSONB, nullable=True)
     # Ejemplo: {"greeting": "Hola {nombre}!", "appointment_scheduled": "✅ Listo!", ...}
-    
+
+    # Google Calendar por broker (OAuth2)
+    google_refresh_token = Column(Text, nullable=True)       # encriptado con encrypt_value()
+    google_calendar_id = Column(String(255), nullable=True)  # default "primary"
+    google_calendar_email = Column(String(255), nullable=True)  # Gmail conectado (para mostrar en UI)
+
     # Relationships
     broker = relationship("Broker", back_populates="prompt_config")
     

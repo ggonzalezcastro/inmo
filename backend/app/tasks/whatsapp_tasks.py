@@ -7,17 +7,12 @@ import asyncio
 import logging
 
 from celery import shared_task
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.future import select
 
 from app.config import settings
 from app.tasks.base import DLQTask
 
 logger = logging.getLogger(__name__)
-
-# Dedicated async engine for Celery workers (separate from the FastAPI engine)
-_engine = create_async_engine(settings.DATABASE_URL, echo=False)
-AsyncSessionLocal = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
 
 
 @shared_task(
@@ -37,6 +32,15 @@ def process_whatsapp_message(
     """Orchestrate a full WhatsApp inbound message cycle."""
 
     async def _run():
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+        # Create a fresh engine per task invocation — avoids asyncpg event-loop
+        # conflicts when asyncio.run() is called inside forked Celery workers.
+        _engine = create_async_engine(settings.DATABASE_URL, echo=False)
+        AsyncSessionLocal = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+
+        pid = str(phone_number_id)
+
         from app.models.broker_chat_config import BrokerChatConfig
         from app.models.chat_message import MessageStatus
         from app.schemas.lead import LeadCreate
@@ -51,13 +55,13 @@ def process_whatsapp_message(
             result = await db.execute(
                 select(BrokerChatConfig).where(
                     BrokerChatConfig.provider_configs["whatsapp"]["phone_number_id"].astext
-                    == phone_number_id
+                    == pid
                 )
             )
             config = result.scalars().first()
             if not config:
                 logger.warning(
-                    "WhatsApp task: no broker found for phone_number_id=%s", phone_number_id
+                    "WhatsApp task: no broker found for phone_number_id=%s", pid
                 )
                 return
             broker_id = config.broker_id
@@ -91,7 +95,7 @@ def process_whatsapp_message(
                     direction="in",
                     provider_metadata={
                         "wamid": wamid,
-                        "phone_number_id": phone_number_id,
+                        "phone_number_id": pid,
                     },
                 ),
                 status=MessageStatus.DELIVERED,
@@ -113,6 +117,11 @@ def process_whatsapp_message(
 
             # 6. Mark original message as read
             await wa.mark_as_read(wamid)
+
+        try:
+            await _engine.dispose()
+        except Exception:
+            pass
 
     try:
         asyncio.run(_run())

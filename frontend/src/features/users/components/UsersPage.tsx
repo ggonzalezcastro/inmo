@@ -189,7 +189,7 @@ export function UsersPage() {
   ]
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="p-4 sm:p-8 space-y-6">
       <PageHeader
         title="Usuarios"
         description={isLoading ? 'Cargando...' : `${users.length} usuarios · ${users.filter(u => u.is_active).length} activos`}

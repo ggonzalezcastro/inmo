@@ -1,5 +1,42 @@
 import { apiClient } from '@/shared/lib/api-client'
 
+export interface AvailabilitySlot {
+  id: number
+  day_of_week: number  // 0=Monday, 6=Sunday
+  start_time: string   // "HH:MM"
+  end_time: string     // "HH:MM"
+  slot_duration_minutes: number
+  is_active: boolean
+  valid_from: string   // ISO date
+  valid_until: string | null
+  notes: string | null
+}
+
+export interface CreateSlotData {
+  day_of_week: number
+  start_time: string
+  end_time: string
+  slot_duration_minutes?: number
+  valid_from?: string
+  valid_until?: string | null
+  notes?: string | null
+}
+
+export interface AppointmentBlock {
+  id: number
+  start_time: string  // ISO datetime
+  end_time: string    // ISO datetime
+  reason: string
+  notes: string | null
+}
+
+export interface CreateBlockData {
+  start_time: string
+  end_time: string
+  reason: string
+  notes?: string | null
+}
+
 export interface IncomeTier {
   min: number
   label: string
@@ -108,6 +145,46 @@ export const settingsService = {
 
   async saveAgentPrompts(prompts: { qualifier: string; scheduler: string; follow_up: string }): Promise<void> {
     await apiClient.put('/api/broker/config/agent-prompts', prompts)
+  },
+
+  async getCalendarStatus(): Promise<{ connected: boolean; email: string | null; calendar_id: string | null }> {
+    return apiClient.get('/api/broker/calendar/status')
+  },
+
+  async getCalendarAuthUrl(): Promise<{ auth_url: string }> {
+    return apiClient.get('/api/broker/calendar/auth-url')
+  },
+
+  async disconnectCalendar(): Promise<void> {
+    await apiClient.delete('/api/broker/calendar/disconnect')
+  },
+
+  async getAvailabilitySlots(): Promise<AvailabilitySlot[]> {
+    return apiClient.get('/api/broker/calendar/availability')
+  },
+
+  async createAvailabilitySlot(data: CreateSlotData): Promise<AvailabilitySlot> {
+    return apiClient.post('/api/broker/calendar/availability', data)
+  },
+
+  async updateAvailabilitySlot(id: number, data: Partial<CreateSlotData>): Promise<AvailabilitySlot> {
+    return apiClient.put(`/api/broker/calendar/availability/${id}`, data)
+  },
+
+  async deleteAvailabilitySlot(id: number): Promise<void> {
+    await apiClient.delete(`/api/broker/calendar/availability/${id}`)
+  },
+
+  async getBlocks(): Promise<AppointmentBlock[]> {
+    return apiClient.get('/api/broker/calendar/blocks')
+  },
+
+  async createBlock(data: CreateBlockData): Promise<AppointmentBlock> {
+    return apiClient.post('/api/broker/calendar/blocks', data)
+  },
+
+  async deleteBlock(id: number): Promise<void> {
+    await apiClient.delete(`/api/broker/calendar/blocks/${id}`)
   },
 
   async saveConfig(cfg: QualificationConfig): Promise<void> {

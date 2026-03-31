@@ -4,9 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 
 
 from app.config import settings
-from app.services.shared import TelegramService, ActivityService
-from app.services.leads import LeadContextService, LeadService
+from app.services.shared import TelegramService
+from app.services.leads import LeadContextService
 from app.services.llm import LLMServiceFacade
+from app.services.shared import ActivityService
+from app.services.leads import LeadService
 from app.models.lead import Lead
 
 
