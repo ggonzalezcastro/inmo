@@ -71,8 +71,10 @@ export function useWebSocket({ onMessage, enabled = true }: UseWebSocketOptions)
       }
     }
 
-    ws.onclose = () => {
+    ws.onclose = (e) => {
       if (!enabled) return
+      // 4001 = server rejected auth (expired/invalid token) — stop retrying
+      if (e.code === 4001) return
       // Exponential backoff: 1s, 2s, 4s, 8s … capped at 30s
       const delay = Math.min(1000 * 2 ** attemptRef.current, MAX_BACKOFF_MS)
       attemptRef.current += 1
