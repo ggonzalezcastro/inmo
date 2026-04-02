@@ -10,6 +10,8 @@ from app.services.pipeline.metrics_service import (
     get_leads_by_stage,
     get_stage_metrics,
     get_leads_inactive_in_stage,
+    get_weekly_leads_trend,
+    get_response_rate,
 )
 from app.services.pipeline.service import PipelineService
 
@@ -22,5 +24,7 @@ __all__ = [
     "get_leads_by_stage",
     "get_stage_metrics",
     "get_leads_inactive_in_stage",
+    "get_weekly_leads_trend",
+    "get_response_rate",
     "PipelineService",
 ]

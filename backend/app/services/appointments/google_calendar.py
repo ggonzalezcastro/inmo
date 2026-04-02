@@ -268,3 +268,37 @@ def get_calendar_service_for_broker(broker_config) -> GoogleCalendarService:
         return GoogleCalendarService(refresh_token=token, calendar_id=calendar_id)
 
     return get_google_calendar_service()
+
+
+def get_calendar_service_for_agent(agent, broker_config) -> GoogleCalendarService:
+    """
+    Return a GoogleCalendarService targeting the agent's own calendar.
+
+    When using a service account (GOOGLE_CREDENTIALS_PATH), the service account
+    must have been granted access to the agent's calendar (the agent shares their
+    Google Calendar with the service account email).
+
+    Fallback chain:
+      1. Agent has google_calendar_id + service account configured → agent calendar
+      2. Broker has its own OAuth credentials → broker calendar
+      3. Global OAuth / service account → primary calendar
+    """
+    if agent and getattr(agent, "google_calendar_id", None) and agent.google_calendar_connected:
+        # Service account mode: pass the agent's calendar_id — the service account
+        # already has access because the agent shared their calendar with it.
+        if settings.GOOGLE_CREDENTIALS_PATH and os.path.exists(settings.GOOGLE_CREDENTIALS_PATH):
+            svc = GoogleCalendarService(calendar_id=agent.google_calendar_id)
+            if svc.service:
+                logger.info(
+                    "Using service account for agent calendar_id=%s (agent_id=%s)",
+                    agent.google_calendar_id, agent.id,
+                )
+                return svc
+
+        # OAuth2 mode: no per-agent tokens, fall through to broker calendar
+        logger.info(
+            "Agent %s has calendar configured but service account not available; "
+            "falling back to broker calendar", agent.id,
+        )
+
+    return get_calendar_service_for_broker(broker_config)

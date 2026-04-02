@@ -193,23 +193,23 @@ async def auto_advance_stage(
                 new_stage = "agendado"
                 reason = f"Auto: Lead HOT calificado — Sofía debe proponer visita (score: {lead.lead_score})"
 
-    elif current_stage == "agendado":
+    elif current_stage == "potencial":
         from app.models.appointment import Appointment, AppointmentStatus
 
         appointment_result = await db.execute(
-            select(Appointment)
-            .where(
+            select(Appointment).where(
                 and_(
                     Appointment.lead_id == lead_id,
-                    Appointment.status == AppointmentStatus.COMPLETED,
+                    Appointment.status.in_(
+                        [AppointmentStatus.SCHEDULED, AppointmentStatus.CONFIRMED]
+                    ),
                 )
             )
-            .order_by(desc(Appointment.start_time))
         )
         appointment = appointment_result.scalars().first()
         if appointment:
-            new_stage = "seguimiento"
-            reason = "Auto-advance: Appointment completed"
+            new_stage = "agendado"
+            reason = "Auto-advance: Appointment scheduled for potential lead"
 
     if new_stage:
         return await move_lead_to_stage(db, lead_id, new_stage, reason)
@@ -302,9 +302,9 @@ async def actualizar_pipeline_stage(
                 )
 
         elif calificacion == "POTENCIAL":
-            if current_stage != "seguimiento":
+            if current_stage != "potencial":
                 return await move_lead_to_stage(
-                    db, lead.id, "seguimiento", "Auto: POTENCIAL - requiere seguimiento"
+                    db, lead.id, "potencial", "Auto: POTENCIAL - requiere seguimiento comercial"
                 )
 
         elif calificacion == "NO_CALIFICADO":

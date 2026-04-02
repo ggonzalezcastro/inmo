@@ -83,6 +83,37 @@ class BaseAgent(ABC):
         extra = {"agent": self.name, "agent_type": self.agent_type.value, **kwargs}
         getattr(logger, level)(f"[{self.name}] {msg}", extra=extra)
 
+    def _inject_tone_hint(self, prompt: str, context: AgentContext) -> str:
+        """
+        Append a tone instruction to the prompt when the sentiment module
+        has flagged this lead as frustrated or confused.
+
+        Called at the END of each agent's get_system_prompt() return value.
+        Uses a hard separator to avoid breaking prompts that end with JSON/code blocks.
+        """
+        tone_hint = (context.lead_data.get("sentiment") or {}).get("tone_hint")
+        separator = "\n\n---\n\n"
+        if tone_hint == "empathetic":
+            return (
+                prompt.rstrip()
+                + separator
+                + "## ⚠️ ALERTA DE SENTIMIENTO — TONO ESPECIAL REQUERIDO\n"
+                "El cliente muestra señales de frustración o malestar. "
+                "Responde con especial empatía: valida sus sentimientos, "
+                "pide disculpas si corresponde, y ofrece soluciones concretas. "
+                "Usa un tono cálido, pausado y cercano. Evita respuestas robóticas o genéricas.\n"
+            )
+        if tone_hint == "calm":
+            return (
+                prompt.rstrip()
+                + separator
+                + "## ⚠️ ALERTA DE SENTIMIENTO — SIMPLIFICA TU RESPUESTA\n"
+                "El cliente está confundido. Simplifica tu lenguaje al máximo: "
+                "usa frases cortas, evita términos técnicos, y ofrece explicar paso a paso. "
+                "Confirma que el cliente entendió antes de continuar.\n"
+            )
+        return prompt
+
 
 # ── Registry ──────────────────────────────────────────────────────────────────
 

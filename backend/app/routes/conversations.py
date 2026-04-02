@@ -221,6 +221,11 @@ async def release_lead(
     meta["human_mode"] = False
     meta.pop("human_assigned_to", None)
     meta.pop("human_taken_at", None)
+    meta.pop("human_mode_notified", None)  # Reset so handoff message fires again if re-escalated
+    # Reset frustration score so Sofía resumes without the old escalation state
+    if "sentiment" in meta:
+        from app.services.sentiment.scorer import empty_sentiment
+        meta["sentiment"] = empty_sentiment()
     lead.lead_metadata = meta
     await db.commit()
 

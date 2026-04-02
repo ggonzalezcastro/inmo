@@ -1,7 +1,7 @@
 """
-FollowUpAgent — post-visit engagement and referral collection (TASK-026).
+FollowUpAgent — post-qualification nurturing and appointment follow-up.
 
-Responsible for pipeline stages: agendado → seguimiento → referidos/ganado
+Responsible for pipeline stages: potencial, agendado
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from app.services.agents.types import (
 
 logger = logging.getLogger(__name__)
 
-_OWN_STAGES = {"agendado", "seguimiento", "referidos"}
+_OWN_STAGES = {"potencial", "agendado"}
 _OWN_CONV_STATES = {"COMPLETED"}
 
 
@@ -50,18 +50,28 @@ class FollowUpAgent(BaseAgent):
             lead_summary=lead_summary,
         )
 
+        # Potencial stage: lead needs commercial follow-up to resolve doubts and schedule
+        if context.pipeline_stage == "potencial":
+            base_prompt += (
+                "\n\n📋 INSTRUCCIÓN - ETAPA POTENCIAL: Este lead tiene potencial financiero pero "
+                "aún no está completamente calificado. Tu objetivo es:\n"
+                "1. Resolver dudas financieras (presupuesto, financiamiento, DICOM).\n"
+                "2. Proponer una reunión con un asesor para evaluar opciones.\n"
+                "3. Ser orientador/a sin presionar. Máximo un contacto cada 48h sin respuesta."
+            )
+
         # Hot fast-track: lead was advanced to "agendado" without a real appointment
-        # Sofía must proactively propose scheduling a visit
+        # Sofía must proactively propose scheduling a Google Meet
         if (context.pipeline_stage == "agendado"
                 and context.lead_data.get("hot_fast_track")):
             base_prompt += (
                 "\n\n⚡ INSTRUCCIÓN PRIORITARIA: Este lead fue avanzado automáticamente "
                 "porque mostró alto interés y está financieramente calificado. "
-                "NO tiene una visita agendada todavía. Tu objetivo INMEDIATO en este mensaje "
-                "es proponer una fecha concreta para visitar el proyecto. Sé directo/a y entusiasta."
+                "NO tiene una reunión por Google Meet agendada todavía. Tu objetivo INMEDIATO "
+                "es proponer una fecha concreta para la reunión con un asesor. Sé directo/a y entusiasta."
             )
 
-        return base_prompt
+        return self._inject_tone_hint(base_prompt, context)
 
     async def should_handle(self, context: AgentContext) -> bool:
         if context.pipeline_stage in _OWN_STAGES:

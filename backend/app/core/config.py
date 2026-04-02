@@ -34,7 +34,7 @@ class Settings(BaseSettings):
 
     # Google Gemini
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
     # 1500 tokens: system prompt (~400t) + history (~600t) + response (~500t).
     # Previous value of 600 caused silent truncation mid-sentence.
     GEMINI_MAX_TOKENS: int = int(os.getenv("GEMINI_MAX_TOKENS", "1500"))
@@ -122,6 +122,14 @@ class Settings(BaseSettings):
     SEMANTIC_CACHE_THRESHOLD: float = float(os.getenv("SEMANTIC_CACHE_THRESHOLD", "0.92"))
     SEMANTIC_CACHE_TTL: int = int(os.getenv("SEMANTIC_CACHE_TTL", "3600"))    # 1 hour
     SEMANTIC_CACHE_MAX_ENTRIES: int = int(os.getenv("SEMANTIC_CACHE_MAX_ENTRIES", "500"))
+
+    # Sentiment Analysis (frustration detection + auto-escalation)
+    SENTIMENT_ANALYSIS_ENABLED: bool = os.getenv("SENTIMENT_ANALYSIS_ENABLED", "true").lower() == "true"
+    SENTIMENT_TONE_THRESHOLD: float = float(os.getenv("SENTIMENT_TONE_THRESHOLD", "0.4"))
+    SENTIMENT_ESCALATE_THRESHOLD: float = float(os.getenv("SENTIMENT_ESCALATE_THRESHOLD", "0.7"))
+    SENTIMENT_HISTORY_WINDOW: int = int(os.getenv("SENTIMENT_HISTORY_WINDOW", "3"))
+    # Min heuristic confidence to skip LLM call (sarcasm always calls LLM regardless)
+    SENTIMENT_LLM_CONFIRM_THRESHOLD: float = float(os.getenv("SENTIMENT_LLM_CONFIRM_THRESHOLD", "0.60"))
 
     # Environment
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"

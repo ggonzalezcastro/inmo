@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+from typing import List, Optional
 import csv
 import io
 
@@ -30,102 +30,90 @@ def _safe_metadata(raw) -> dict:
     return decrypt_metadata_fields(raw) or {}
 
 
+def _build_lead_response(lead: Lead, meta: dict) -> LeadResponse:
+    """Build a LeadResponse from a Lead ORM object and pre-decrypted metadata."""
+    return LeadResponse(
+        id=lead.id,
+        phone=lead.phone,
+        name=lead.name,
+        email=lead.email,
+        tags=lead.tags if lead.tags else [],
+        metadata=meta,
+        status=lead.status,
+        lead_score=lead.lead_score,
+        pipeline_stage=lead.pipeline_stage,
+        last_contacted=lead.last_contacted,
+        created_at=lead.created_at,
+        updated_at=lead.updated_at,
+    )
+
+
 @router.get("", response_model=dict)
 async def list_leads(
-    status: str = "",
-    min_score: float = 0,
-    max_score: float = 100,
-    search: str = "",
-    pipeline_stage: str = "",
-    skip: int = 0,
-    limit: int = 50,
+    status: str = Query(""),
+    min_score: float = Query(0),
+    max_score: float = Query(100),
+    search: str = Query(""),
+    pipeline_stage: str = Query(""),
+    dicom_status: str = Query("", description="Filter by DICOM status: clean, has_debt, unknown"),
+    created_from: str = Query("", description="ISO date string, e.g. 2026-01-01"),
+    created_to: str = Query("", description="ISO date string, e.g. 2026-12-31"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get all leads with filters - filtered by user role"""
+    """Get all leads with filters - filtered by user role and DB-level where possible.
+
+    Note: dicom_status filtering is applied in-memory after decryption because
+    the field is encrypted at rest in lead_metadata.
+    """
     try:
-        user_role = current_user.get("role")
+        user_role = current_user.get("role", "").upper()
         user_id = int(current_user.get("user_id"))
         broker_id = current_user.get("broker_id")
-        
-        # Filtrar según rol del usuario (normalizar a mayúsculas)
-        user_role_upper = user_role.upper() if user_role else ""
-        if user_role_upper == "AGENT":
-            # Solo leads asignados a él
-            result = await db.execute(
-                select(Lead).where(Lead.assigned_to == user_id)
-            )
-            leads = result.scalars().all()
-            total = len(leads)
-        elif user_role_upper == "ADMIN":
-            # Todos los leads del broker
-            if broker_id:
-                result = await db.execute(
-                    select(Lead).where(Lead.broker_id == broker_id)
-                )
-                leads = result.scalars().all()
-                total = len(leads)
-            else:
-                leads, total = await LeadService.get_leads(
-                    db,
-                    status=status or None,
-                    min_score=min_score,
-                    max_score=max_score,
-                    search=search or None,
-                    skip=skip,
-                    limit=min(limit, 200)
-                )
-        else:  # superadmin
-            # Todos los leads
-            leads, total = await LeadService.get_leads(
-                db,
-                status=status or None,
-                min_score=min_score,
-                max_score=max_score,
-                search=search or None,
-                skip=skip,
-                limit=min(limit, 200)
-            )
-        
-        # Aplicar filtros adicionales
-        if status:
-            leads = [l for l in leads if l.status == status]
-        if pipeline_stage:
-            leads = [l for l in leads if l.pipeline_stage == pipeline_stage]
-        if search:
-            search_lower = search.lower()
-            leads = [l for l in leads if 
-                    (l.name and search_lower in l.name.lower()) or
-                    (l.phone and search_lower in l.phone.lower()) or
-                    (l.email and search_lower in l.email.lower())]
-        
-        # Aplicar paginación
-        total = len(leads)
-        leads = leads[skip:skip+limit]
-        
-        # Convert leads to response format
-        lead_responses = []
-        for lead in leads:
-            lead_dict = {
-                "id": lead.id,
-                "phone": lead.phone,
-                "name": lead.name,
-                "email": lead.email,
-                "tags": lead.tags if lead.tags else [],
-                "metadata": _safe_metadata(lead.lead_metadata),
-                "status": lead.status,
-                "lead_score": lead.lead_score,
-                "last_contacted": lead.last_contacted,
-                "created_at": lead.created_at,
-                "updated_at": lead.updated_at,
-            }
-            lead_responses.append(LeadResponse(**lead_dict))
-        
+
+        # Build kwargs for service call — filter at DB level for all plain columns.
+        # dicom_status is handled in-memory below since it's encrypted in JSONB.
+        service_kwargs = dict(
+            status=status or None,
+            min_score=min_score,
+            max_score=max_score,
+            search=search or None,
+            pipeline_stage=pipeline_stage or None,
+            created_from=created_from or None,
+            created_to=created_to or None,
+        )
+
+        if user_role == "AGENT":
+            # Agents see only their own assigned leads
+            service_kwargs["assigned_to"] = user_id
+        else:
+            # ADMIN sees their broker's leads; superadmin sees all
+            if user_role == "ADMIN" and broker_id:
+                service_kwargs["broker_id"] = broker_id
+
+        if dicom_status:
+            # Must fetch all matching records first, then filter by decrypted DICOM value.
+            # We skip pagination at DB level and do it in-memory after decryption.
+            leads, _ = await LeadService.get_leads(db, skip=0, limit=10_000, **service_kwargs)
+            filtered_leads = []
+            for lead in leads:
+                meta = _safe_metadata(lead.lead_metadata)
+                if meta.get("dicom_status") == dicom_status:
+                    filtered_leads.append((lead, meta))
+            total = len(filtered_leads)
+            page = filtered_leads[skip: skip + limit]
+            lead_responses = [_build_lead_response(lead, meta) for lead, meta in page]
+        else:
+            leads, total = await LeadService.get_leads(db, skip=skip, limit=limit, **service_kwargs)
+            lead_responses = [_build_lead_response(lead, _safe_metadata(lead.lead_metadata)) for lead in leads]
+
         return {
-            "data": [lead.model_dump() for lead in lead_responses],
+            "data": [lr.model_dump(by_alias=True) for lr in lead_responses],
             "total": total,
             "skip": skip,
-            "limit": limit
+            "limit": limit,
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -191,21 +179,7 @@ async def create_lead(
     """Create new lead"""
     try:
         lead = await LeadService.create_lead(db, lead_data)
-        # Ensure metadata is a dict
-        lead_dict = {
-            "id": lead.id,
-            "phone": lead.phone,
-            "name": lead.name,
-            "email": lead.email,
-            "tags": lead.tags if lead.tags else [],
-            "metadata": _safe_metadata(lead.lead_metadata),
-            "status": lead.status,
-            "lead_score": lead.lead_score,
-            "last_contacted": lead.last_contacted,
-            "created_at": lead.created_at,
-            "updated_at": lead.updated_at,
-        }
-        return LeadResponse(**lead_dict)
+        return _build_lead_response(lead, _safe_metadata(lead.lead_metadata))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -222,20 +196,7 @@ async def update_lead(
         lead = await LeadService.update_lead(db, lead_id, lead_data)
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
-        lead_dict = {
-            "id": lead.id,
-            "phone": lead.phone,
-            "name": lead.name,
-            "email": lead.email,
-            "tags": lead.tags if lead.tags else [],
-            "metadata": _safe_metadata(lead.lead_metadata),
-            "status": lead.status,
-            "lead_score": lead.lead_score,
-            "last_contacted": lead.last_contacted,
-            "created_at": lead.created_at,
-            "updated_at": lead.updated_at,
-        }
-        return LeadResponse(**lead_dict)
+        return _build_lead_response(lead, _safe_metadata(lead.lead_metadata))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

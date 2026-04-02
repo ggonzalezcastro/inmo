@@ -37,6 +37,7 @@ from app.routes.admin_tasks import router as admin_tasks_router
 from app.routes.ws import router as ws_router
 from app.routes.knowledge_base import router as kb_router
 from app.routes.conversations import router as conversations_router
+from app.routes.agents import router as agents_router
 from app.celery_app import celery_app
 
 
@@ -379,6 +380,7 @@ app.include_router(admin_tasks_router, prefix="/api/v1/admin/tasks", tags=["admi
 app.include_router(ws_router, prefix="/ws", tags=["websocket"])
 app.include_router(kb_router, prefix="/api/v1/kb", tags=["knowledge-base"])
 app.include_router(conversations_router, prefix="/api/v1/conversations", tags=["conversations"])
+app.include_router(agents_router, prefix="/api/v1/agents", tags=["agents"])
 
 
 if __name__ == "__main__":

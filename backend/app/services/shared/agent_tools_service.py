@@ -105,7 +105,7 @@ class AgentToolsService:
         try:
             if tool_name == "get_available_appointment_slots":
                 return await AgentToolsService._get_available_slots(
-                    db, arguments, agent_id
+                    db, arguments, agent_id, lead_id=lead_id
                 )
             
             elif tool_name == "create_appointment":
@@ -131,9 +131,25 @@ class AgentToolsService:
     async def _get_available_slots(
         db: AsyncSession,
         arguments: Dict[str, Any],
-        agent_id: Optional[int] = None
+        agent_id: Optional[int] = None,
+        lead_id: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Get available appointment slots"""
+        """Get available appointment slots.
+
+        If the lead already has an assigned agent, show that agent's slots.
+        Otherwise show the union of all active agents' slots.
+        """
+        # Resolve agent_id from lead assignment if not provided
+        if not agent_id and lead_id:
+            try:
+                from app.models.lead import Lead
+                from sqlalchemy.future import select as sa_select
+                lr = await db.execute(sa_select(Lead).where(Lead.id == lead_id))
+                lead = lr.scalars().first()
+                if lead and lead.assigned_to:
+                    agent_id = lead.assigned_to
+            except Exception:
+                pass
         
         # Parse start_date
         start_date_str = arguments.get("start_date")
@@ -228,22 +244,45 @@ class AgentToolsService:
                 "error": "El lead no tiene email registrado. Por favor, solicita el email antes de crear la cita para poder enviar el link de Google Meet."
             }
         
-        # Get default agent if not specified
+        # Get default agent if not specified — use round-robin
         if not agent_id:
             from app.models.user import User
+            from app.services.appointments.round_robin import RoundRobinService
             from sqlalchemy.future import select
-            
-            agent_result = await db.execute(
-                select(User).where(User.is_active == True).limit(1)
-            )
-            agent = agent_result.scalars().first()
+
+            # Determine broker_id from lead
+            broker_id = lead.broker_id if lead else None
+
+            if broker_id:
+                agent = await RoundRobinService.get_next_agent(db, broker_id=broker_id)
+            else:
+                # Last-resort fallback: first active agent
+                agent_result = await db.execute(
+                    select(User).where(User.is_active == True).limit(1)
+                )
+                agent = agent_result.scalars().first()
+
             if agent:
                 agent_id = agent.id
+                # Auto-assign lead to this agent
+                if lead and lead.assigned_to != agent_id:
+                    lead.assigned_to = agent_id
+                    await db.commit()
+                    logger.info(
+                        "[AGENT_TOOLS] Lead %s auto-assigned to agent %s via round-robin",
+                        lead_id, agent_id,
+                    )
             else:
                 return {
                     "success": False,
                     "error": "No hay agentes disponibles. No se puede crear la cita."
                 }
+        else:
+            # agent_id provided externally — still load the User object for calendar lookup
+            from app.models.user import User
+            from sqlalchemy.future import select
+            agent_result = await db.execute(select(User).where(User.id == agent_id))
+            agent = agent_result.scalars().first()
         
         # Parse start_time
         start_time_str = arguments.get("start_time")
@@ -275,7 +314,7 @@ class AgentToolsService:
         # Parse notes
         notes = arguments.get("notes")
         
-        # Create appointment
+        # Create appointment (pass agent object for per-agent calendar lookup)
         try:
             appointment = await AppointmentService.create_appointment(
                 db=db,
@@ -284,6 +323,7 @@ class AgentToolsService:
                 duration_minutes=duration_minutes,
                 appointment_type=apt_type,
                 agent_id=agent_id,
+                agent=agent,
                 location="Reunión virtual" if apt_type == AppointmentType.VIRTUAL_MEETING else None,
                 notes=notes
             )

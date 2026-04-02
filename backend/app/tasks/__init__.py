@@ -7,6 +7,8 @@ from app.tasks import scoring_tasks
 from app.tasks import campaign_executor
 from app.tasks import voice_tasks
 from app.tasks import whatsapp_tasks
+from app.tasks import sentiment_tasks
+from app.tasks import dlq_tasks
 
 __all__ = [
     "telegram_tasks",
@@ -14,7 +16,6 @@ __all__ = [
     "campaign_executor",
     "voice_tasks",
     "whatsapp_tasks",
+    "sentiment_tasks",
+    "dlq_tasks",
 ]
-
-
-

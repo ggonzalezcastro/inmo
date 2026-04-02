@@ -1,6 +1,7 @@
 from datetime import datetime
 from enum import Enum
 from sqlalchemy import Column, Integer, String, Float, DateTime, JSON, Index, Text, UniqueConstraint, ForeignKey, Enum as SQLEnum
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from app.models.base import Base, TimestampMixin, IdMixin
 
@@ -53,7 +54,7 @@ class Lead(Base, IdMixin, TimestampMixin):
         String(50),
         nullable=True,
         index=True
-    )  # "entrada", "perfilamiento", "calificacion_financiera", "agendado", "seguimiento", "referidos", "ganado", "perdido"
+    )  # "entrada", "perfilamiento", "calificacion_financiera", "potencial", "agendado", "ganado", "perdido"
     
     stage_entered_at = Column(DateTime(timezone=True), nullable=True, index=True)  # When entered current stage
     
@@ -72,12 +73,18 @@ class Lead(Base, IdMixin, TimestampMixin):
     
     next_action_at = Column(DateTime(timezone=True), nullable=True, index=True)  # Scheduled next action
     
+    # Close tracking (ganado/perdido)
+    close_reason = Column(String(100), nullable=True)       # e.g. "precio", "competencia", "compra_directa"
+    close_reason_detail = Column(Text, nullable=True)       # Free-text notes about why closed
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+    closed_from_stage = Column(String(50), nullable=True)   # Which stage the lead was in when closed
+
     # Internal notes
     notes = Column(Text, nullable=True)  # Internal notes from agents
     
     # Metadata
     tags = Column(JSON, default=[], nullable=False)  # ["inmobiliario", "activo"]
-    lead_metadata = Column("metadata", JSON, default={}, nullable=False)  # {budget: "150k", timeline: "30 dias"}                                                                                                           
+    lead_metadata = Column("metadata", JSONB, default={}, nullable=False)  # {budget: "150k", timeline: "30 dias"}                                                                                                           
     
     # Relationships
     telegram_messages = relationship(

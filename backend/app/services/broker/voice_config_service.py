@@ -180,7 +180,7 @@ class BrokerVoiceConfigService:
         """
         voice_header = """## ESTÁS EN UNA LLAMADA DE VOZ (no chat)
 - Habla de forma natural. Máximo 2-3 oraciones por turno.
-- Una pregunta a la vez; espera la respuesta del cliente antes de continuar.
+- Puedes agrupar hasta 2 preguntas relacionadas en un turno; no hagas más de 2 en voz para no abrumar.
 - No menciones "mensaje" ni "chat"; es una llamada telefónica.
 - Si el cliente quiere agendar una cita, di: "Perfecto, un asesor te contactará para confirmar horario y enviarte el link de la reunión por correo."
 - El resto de tu rol, objetivo, datos a recopilar y reglas son los mismos que en el chat.

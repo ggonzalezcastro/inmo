@@ -152,7 +152,7 @@ async def build_system_prompt(
         sections.append(
             "## REGLAS\n"
             "- Responde en español chileno, máximo 2-3 oraciones.\n"
-            "- Una pregunta a la vez; espera respuesta antes de continuar.\n"
+            "- Agrupa preguntas relacionadas (máximo 3 por mensaje); nunca repitas datos ya entregados.\n"
             "- Lee el contexto antes de preguntar — nunca repitas info ya mencionada.\n"
             "- Pregunta solo RENTA/SUELDO mensual, nunca presupuesto del inmueble.\n"
             "- Si el lead dice 'No' a DICOM, es buena noticia — nunca preguntes por monto de deuda."

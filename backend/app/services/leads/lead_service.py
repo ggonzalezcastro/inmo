@@ -2,6 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import and_, or_, func
 from typing import Optional, List, Dict, Tuple
+from datetime import datetime, timezone
 import re
 
 from app.models.lead import Lead, LeadStatus
@@ -99,44 +100,72 @@ class LeadService:
         min_score: float = 0,
         max_score: float = 100,
         search: Optional[str] = None,
+        pipeline_stage: Optional[str] = None,
+        broker_id: Optional[int] = None,
+        assigned_to: Optional[int] = None,
+        created_from: Optional[str] = None,
+        created_to: Optional[str] = None,
         skip: int = 0,
-        limit: int = 50
+        limit: int = 50,
     ) -> Tuple[List[Lead], int]:
-        """Get leads with filters"""
+        """Get leads with DB-level filters for all supported fields."""
 
         filters = []
 
-        # Status filter
+        if broker_id:
+            filters.append(Lead.broker_id == broker_id)
+
+        if assigned_to:
+            filters.append(Lead.assigned_to == assigned_to)
+
         if status:
             statuses = status.split(',')
             filters.append(Lead.status.in_(statuses))
 
-        # Score range filter
         filters.append(and_(Lead.lead_score >= min_score, Lead.lead_score <= max_score))
 
-        # Search filter (name or phone)
+        if pipeline_stage:
+            if pipeline_stage == "entrada":
+                filters.append(
+                    or_(Lead.pipeline_stage.is_(None), Lead.pipeline_stage == "entrada")
+                )
+            else:
+                filters.append(Lead.pipeline_stage == pipeline_stage)
+
         if search:
             search_term = f"%{search}%"
             filters.append(
                 or_(
                     Lead.name.ilike(search_term),
-                    Lead.phone.ilike(search_term)
+                    Lead.phone.ilike(search_term),
+                    Lead.email.ilike(search_term),
                 )
             )
 
-        # Get total count
+        if created_from:
+            try:
+                dt_from = datetime.fromisoformat(created_from).replace(tzinfo=timezone.utc)
+                filters.append(Lead.created_at >= dt_from)
+            except ValueError:
+                pass
+
+        if created_to:
+            try:
+                dt_to = datetime.fromisoformat(created_to).replace(tzinfo=timezone.utc)
+                filters.append(Lead.created_at <= dt_to)
+            except ValueError:
+                pass
+
         count_query = select(func.count(Lead.id))
         if filters:
             count_query = count_query.where(and_(*filters))
         count_result = await db.execute(count_query)
         total_count = count_result.scalar() or 0
 
-        # Get leads
         query = select(Lead)
         if filters:
             query = query.where(and_(*filters))
-        query = query.order_by(Lead.lead_score.desc())
-        query = query.offset(skip).limit(limit)
+        query = query.order_by(Lead.lead_score.desc()).offset(skip).limit(limit)
 
         result = await db.execute(query)
         leads = result.scalars().all()

@@ -107,29 +107,69 @@ class ChatOrchestratorService:
 
         # ── Human mode: AI silenced ──────────────────────────────────────────
         # If a human agent has taken control, skip AI processing entirely.
-        # Just broadcast the inbound message so the human agent is notified.
+        # On the FIRST message after escalation, send a one-time handoff notice.
+        # After that, stay silent so the human agent can take over.
         if (lead.lead_metadata or {}).get("human_mode"):
+            meta = lead.lead_metadata or {}
             if broker_id:
                 try:
                     from app.core.websocket_manager import ws_manager
-                    await ws_manager.broadcast(broker_id, "new_message", {
-                        "lead_id": lead.id,
-                        "lead_name": lead.name,
-                        "message": message[:200],
-                        "provider": provider_name,
-                        "human_mode": True,
-                    })
-                    # Notify the assigned human agent
+                    # Only send human_mode_incoming — it includes message_text so
+                    # the frontend doesn't need a separate new_message event.
                     await ws_manager.broadcast(broker_id, "human_mode_incoming", {
                         "lead_id": lead.id,
                         "lead_name": lead.name or lead.phone,
                         "phone": lead.phone,
                         "message_text": message[:300],
                         "channel": provider_name,
-                        "assigned_to": (lead.lead_metadata or {}).get("human_assigned_to"),
+                        "assigned_to": meta.get("human_assigned_to"),
                     })
                 except Exception as _ws_exc:
                     logger.debug("[WS] Human mode broadcast error: %s", _ws_exc)
+
+            # First time in human_mode → send handoff message once
+            if not meta.get("human_mode_notified"):
+                # Load broker-configurable handoff message (fallback to default)
+                from app.models.broker import BrokerPromptConfig
+                from sqlalchemy.future import select as sa_select
+                _cfg_res = await db.execute(
+                    sa_select(BrokerPromptConfig).where(
+                        BrokerPromptConfig.broker_id == broker_id
+                    )
+                )
+                prompt_cfg = _cfg_res.scalar_one_or_none()
+                _templates = (prompt_cfg.message_templates or {}) if prompt_cfg else {}
+                _default_handoff = (
+                    "Entiendo tu frustración. Un agente de nuestra inmobiliaria "
+                    "se pondrá en contacto contigo muy pronto para ayudarte "
+                    "personalmente. 🙏"
+                )
+                handoff_message = _templates.get("escalation_handoff", _default_handoff)
+
+                # Mark as notified so future messages stay silent
+                from sqlalchemy import text as sa_text
+                await db.execute(
+                    sa_text("""
+                        UPDATE leads
+                        SET metadata = jsonb_set(
+                            COALESCE(metadata, '{}'),
+                            '{human_mode_notified}',
+                            'true'::jsonb,
+                            true
+                        )
+                        WHERE id = :lead_id
+                    """),
+                    {"lead_id": lead.id},
+                )
+                await db.commit()
+                logger.info("[Orchestrator] human_mode handoff notice sent lead_id=%s", lead.id)
+                return ChatResult(
+                    response=handoff_message,
+                    lead_id=lead.id,
+                    lead_score=lead.lead_score or 0,
+                    lead_status=str(lead.status) if lead.status else "cold",
+                )
+
             return ChatResult(
                 response="[human_mode]",
                 lead_id=lead.id,
@@ -256,6 +296,8 @@ class ChatOrchestratorService:
         current_metadata = conv_machine.to_metadata(current_metadata)
         # Encrypt sensitive financial fields before writing to DB
         lead.lead_metadata = encrypt_metadata_fields(current_metadata)
+        # Track when the lead was last contacted by the AI
+        lead.last_contacted = datetime.now()
 
         has_all_info = (
             lead.name and lead.name not in ("User", "Test User")
@@ -415,6 +457,23 @@ class ChatOrchestratorService:
                 })
             except Exception as _ws_exc:
                 logger.debug("[WS] Broadcast error: %s", _ws_exc)
+
+        # ── Sentiment analysis (background, non-blocking) ─────────────────────
+        try:
+            from app.config import settings as _cfg
+            if getattr(_cfg, "SENTIMENT_ANALYSIS_ENABLED", True) and broker_id:
+                from app.tasks.sentiment_tasks import analyze_sentiment
+                analyze_sentiment.apply_async(
+                    kwargs={
+                        "lead_id": current_lead_id,
+                        "message": message,
+                        "broker_id": broker_id,
+                        "channel": provider_name or "webchat",
+                    },
+                    ignore_result=True,
+                )
+        except Exception as _sent_exc:
+            logger.debug("[Sentiment] Could not dispatch task: %s", _sent_exc)
 
         await db.refresh(lead)
 

@@ -57,6 +57,7 @@ class AppointmentService:
         duration_minutes: int = 60,
         appointment_type: AppointmentType = AppointmentType.VIRTUAL_MEETING,
         agent_id: Optional[int] = None,
+        agent=None,  # Optional pre-loaded User object (avoids extra DB query)
         location: Optional[str] = None,
         notes: Optional[str] = None
     ) -> Appointment:
@@ -103,13 +104,14 @@ class AppointmentService:
         lead = lead_result.scalars().first()
         lead_name = lead.name if lead and lead.name else f"Lead #{lead_id}"
 
-        # Get agent email if assigned
+        # Get agent email if assigned (use pre-loaded agent object if available)
         agent_email = None
         if agent_id:
-            agent_result = await db.execute(
-                select(User).where(User.id == agent_id)
-            )
-            agent = agent_result.scalars().first()
+            if agent is None:
+                agent_result = await db.execute(
+                    select(User).where(User.id == agent_id)
+                )
+                agent = agent_result.scalars().first()
             if agent and agent.email:
                 agent_email = agent.email
                 logger.info(f"Agent email retrieved for appointment: {agent_email}")
@@ -126,7 +128,12 @@ class AppointmentService:
         meet_url = None
         google_event_id = None
 
-        calendar_service = get_calendar_service_for_broker(broker_config)
+        # Use agent's calendar if available, fallback to broker's
+        from app.services.appointments.google_calendar import get_calendar_service_for_agent
+        if agent and getattr(agent, "google_calendar_id", None) and agent.google_calendar_connected:
+            calendar_service = get_calendar_service_for_agent(agent, broker_config)
+        else:
+            calendar_service = get_calendar_service_for_broker(broker_config)
         if calendar_service.service:
             try:
                 event_title = f"Reunión con {lead_name}"

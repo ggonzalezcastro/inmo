@@ -1,5 +1,6 @@
 from celery import shared_task
 import logging
+from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 
@@ -74,6 +75,7 @@ def process_telegram_message(
                 
                 # Update lead
                 lead.lead_score = new_score
+                lead.last_contacted = datetime.utcnow()
                 lead.lead_metadata = {
                     **lead.lead_metadata,
                     "last_analysis": analysis,

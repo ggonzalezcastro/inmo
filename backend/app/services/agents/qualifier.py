@@ -72,13 +72,29 @@ class QualifierAgent(BaseAgent):
             collected.append(f"- DICOM: {label}")
 
         if collected:
+            pending_fields = []
+            if not lead_data.get("name"):
+                pending_fields.append("nombre completo")
+            if not lead_data.get("phone"):
+                pending_fields.append("teléfono")
+            if not lead_data.get("email"):
+                pending_fields.append("email")
+            if not lead_data.get("location"):
+                pending_fields.append("ubicación (comuna/sector)")
+            if not (lead_data.get("salary") or lead_data.get("budget")):
+                pending_fields.append("renta mensual")
+            if not lead_data.get("dicom_status"):
+                pending_fields.append("estado DICOM")
+
+            pending_str = ", ".join(pending_fields) if pending_fields else "ninguno (todos completos)"
             base_prompt += (
                 "\n\n## DATOS YA RECOPILADOS — NO volver a preguntar estos campos\n"
                 + "\n".join(collected)
-                + "\n\nContinúa desde el primer campo pendiente en la lista de DATOS A RECOPILAR."
+                + f"\n\n## CAMPOS AÚN PENDIENTES: {pending_str}\n"
+                + "Agrupa los campos pendientes según la ESTRATEGIA DE RECOPILACIÓN (máximo 3 por mensaje)."
             )
 
-        return base_prompt
+        return self._inject_tone_hint(base_prompt, context)
 
     async def should_handle(self, context: AgentContext) -> bool:
         # Own pipeline stages
@@ -156,7 +172,7 @@ class QualifierAgent(BaseAgent):
             greeting = f"¡Excelente{', ' + name if name else ''}! " if name else "¡Excelente! "
             response_text = (
                 f"{greeting}Con tu renta y DICOM limpio calificás perfectamente para financiamiento. "
-                "Voy a proponerte una visita a nuestros proyectos disponibles. "
+                "Me gustaría coordinar una reunión por Google Meet con uno de nuestros asesores. "
                 "¿Qué días y horario te quedan mejor esta semana?"
             )
             function_calls = []

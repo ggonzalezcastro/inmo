@@ -57,6 +57,7 @@ class SchedulerAgent(BaseAgent):
         location = lead_data.get("location", "sin preferencia de zona")
         budget = lead_data.get("budget") or lead_data.get("salary", "")
         budget_str = f", presupuesto {budget}" if budget else ""
+        lead_email = lead_data.get("email") or ""
         lead_summary = f"{name}, interesado en {location}{budget_str}."
 
         # Current datetime in broker timezone
@@ -68,14 +69,16 @@ class SchedulerAgent(BaseAgent):
         current_datetime_str = now_local.strftime("%A %d de %B de %Y, %H:%M") + f" ({broker_timezone})"
 
         template = lead_data.get("_custom_scheduler_prompt") or SCHEDULER_SYSTEM_PROMPT
-        return template.format(
+        base_prompt = template.format(
             agent_name=agent_name,
             broker_name=broker_name,
             lead_summary=lead_summary,
             available_projects=_DEFAULT_PROJECTS,
             current_datetime=current_datetime_str,
             lead_id=context.lead_id,
+            lead_email=lead_email,
         )
+        return self._inject_tone_hint(base_prompt, context)
 
     async def should_handle(self, context: AgentContext) -> bool:
         if context.pipeline_stage in _OWN_STAGES:

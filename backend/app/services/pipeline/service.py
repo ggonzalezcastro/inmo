@@ -48,11 +48,23 @@ class PipelineService:
         stage: str,
         broker_id: Optional[int] = None,
         treatment_type: Optional[str] = None,
+        assigned_to: Optional[str] = None,
+        search: Optional[str] = None,
+        created_from=None,
+        created_to=None,
+        calificacion: Optional[str] = None,
         skip: int = 0,
         limit: int = 50,
     ) -> tuple[List[Lead], int]:
         return await _get_leads_by_stage(
-            db, stage, broker_id, treatment_type, skip, limit
+            db, stage, broker_id, treatment_type,
+            assigned_to=assigned_to,
+            search=search,
+            created_from=created_from,
+            created_to=created_to,
+            calificacion=calificacion,
+            skip=skip,
+            limit=limit,
         )
 
     @staticmethod

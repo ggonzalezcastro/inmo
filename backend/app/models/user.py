@@ -27,7 +27,11 @@ class User(Base, IdMixin, TimestampMixin):
     broker_id = Column(Integer, ForeignKey("brokers.id", ondelete="CASCADE"), nullable=True, index=True)
     
     is_active = Column(Boolean, default=True, nullable=False)
-    
+
+    # Google Calendar — per-agent calendar (shared with service account)
+    google_calendar_id = Column(String(255), nullable=True)        # email del calendario (ej: juan@gmail.com)
+    google_calendar_connected = Column(Boolean, default=False, nullable=False)  # incluir en round-robin
+
     # Relationships
     broker = relationship("Broker", back_populates="users", foreign_keys=[broker_id])
     

@@ -7,7 +7,7 @@ Import individual constants rather than importing all to keep prompts focused.
 TONE_GUIDELINES = """\
 Habla en español chileno, tono profesional pero cercano.
 Sé breve: máximo 2-3 oraciones por mensaje.
-Una pregunta a la vez; espera la respuesta antes de continuar.\
+Agrupa preguntas relacionadas en un mismo mensaje (máximo 3 por turno); no preguntes datos que ya fueron entregados.\
 """
 
 DICOM_RULE = """\
