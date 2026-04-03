@@ -90,22 +90,78 @@ async def get_current_user(
             detail="Invalid authentication credentials"
         )
     
+    # ── Impersonation mode ────────────────────────────────────────────────────
+    # When a superadmin impersonates a broker, the JWT carries:
+    #   impersonating: true, role: "ADMIN", broker_id: <target>, original_role: "SUPERADMIN"
+    # In this case we use the JWT claims directly (role + broker_id) instead of
+    # reloading from DB, so the caller sees the broker-scoped identity.
+    # The original user's role is always verified against the database.
+    if payload.get("impersonating"):
+        original_role_claim = payload.get("original_role")
+        if not original_role_claim:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Impersonation token missing original_role claim",
+            )
+
+        # Verify the original user is actually a SUPERADMIN in the database
+        try:
+            orig_result = await db.execute(
+                select(User).where(User.id == int(user_id))
+            )
+        except (ValueError, TypeError):
+            orig_result = await db.execute(
+                select(User).where(User.email == user_id)
+            )
+        original_user = orig_result.scalars().first()
+
+        if not original_user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Impersonating user not found",
+            )
+
+        orig_role_value = original_user.role.value if hasattr(original_user.role, 'value') else str(original_user.role)
+        if (orig_role_value or "").upper() != "SUPERADMIN":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superadmins can impersonate other users",
+            )
+
+        jwt_role = (payload.get("role") or "AGENT").upper()
+        return {
+            "user_id": user_id,
+            "role": jwt_role,
+            "broker_id": payload.get("broker_id"),
+            "email": payload.get("email", ""),
+            "payload": payload,
+            "impersonating": True,
+            "original_role": orig_role_value.upper(),
+        }
+
+    # ── Normal mode ───────────────────────────────────────────────────────────
     # Load user from DB to get current role and broker_id
-    result = await db.execute(
-        select(User).where(User.id == int(user_id))
-    )
+    # Support both integer ID and email as sub (legacy tokens used email)
+    try:
+        result = await db.execute(
+            select(User).where(User.id == int(user_id))
+        )
+    except (ValueError, TypeError):
+        result = await db.execute(
+            select(User).where(User.email == user_id)
+        )
     user = result.scalars().first()
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found"
         )
-    
+
     # Get role value and normalize to uppercase
     role_value = user.role.value if hasattr(user.role, 'value') else str(user.role)
     role_normalized = role_value.upper() if role_value else ""
-    
+
     return {
         "user_id": user_id,
         "role": role_normalized,  # Always return uppercase
