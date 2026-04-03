@@ -5,6 +5,7 @@ from sqlalchemy import Column, Integer, String, Boolean, Text, ForeignKey, JSON
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from app.models.base import Base, IdMixin, TimestampMixin
+# BrokerPlan imported lazily via relationship string to avoid circular import
 
 
 class Broker(Base, IdMixin, TimestampMixin):
@@ -19,8 +20,12 @@ class Broker(Base, IdMixin, TimestampMixin):
     business_hours = Column(String(100), nullable=True)
     service_zones = Column(JSONB, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
+
+    # Commercial plan — nullable so existing brokers don't break before plan assignment
+    plan_id = Column(Integer, ForeignKey("broker_plans.id", ondelete="SET NULL"), nullable=True, index=True)
     
     # Relationships
+    plan = relationship("BrokerPlan", foreign_keys=[plan_id])
     users = relationship("User", back_populates="broker", cascade="all, delete-orphan")
     prompt_config = relationship("BrokerPromptConfig", back_populates="broker", uselist=False, cascade="all, delete-orphan")
     lead_config = relationship("BrokerLeadConfig", back_populates="broker", uselist=False, cascade="all, delete-orphan")
@@ -99,9 +104,17 @@ class BrokerPromptConfig(Base, IdMixin, TimestampMixin):
     # Ejemplo: {"greeting": "Hola {nombre}!", "appointment_scheduled": "✅ Listo!", ...}
 
     # Google Calendar por broker (OAuth2)
-    google_refresh_token = Column(Text, nullable=True)       # encriptado con encrypt_value()
-    google_calendar_id = Column(String(255), nullable=True)  # default "primary"
+    google_refresh_token = Column(Text, nullable=True)          # encriptado con encrypt_value()
+    google_calendar_id = Column(String(255), nullable=True)     # default "primary"
     google_calendar_email = Column(String(255), nullable=True)  # Gmail conectado (para mostrar en UI)
+
+    # Microsoft Outlook Calendar por broker (OAuth2 + Graph API)
+    outlook_refresh_token = Column(Text, nullable=True)          # encriptado con encrypt_value()
+    outlook_calendar_id = Column(String(500), nullable=True)     # Graph calendar ID (AAMkAA...)
+    outlook_calendar_email = Column(String(255), nullable=True)  # Cuenta Outlook conectada (para mostrar en UI)
+
+    # Proveedor activo: 'google' | 'outlook' | 'none'  (None legacy = google)
+    calendar_provider = Column(String(20), nullable=True, default="google")
 
     # Relationships
     broker = relationship("Broker", back_populates="prompt_config")

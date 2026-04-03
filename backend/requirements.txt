@@ -31,12 +31,12 @@ celery==5.3.4
 redis==5.0.1
 
 # HTTP Client
-httpx>=0.27.0
+httpx>=0.28.1
 aiohttp>=3.9.0
 
 # AI/ML - LLM Providers (pinned so pip resolves fast)
 google-genai
-anthropic==0.39.0
+anthropic>=0.40.0
 openai==1.12.0
 
 # MCP - Model Context Protocol (server + client)
@@ -48,6 +48,9 @@ sse-starlette>=2.1.3,<3
 google-api-python-client==2.108.0
 google-auth-httplib2==0.1.1
 google-auth-oauthlib==1.1.0
+
+# Microsoft Outlook Calendar (MSAL + Graph API via httpx)
+msal>=1.28.0
 
 # Telegram
 python-telegram-bot>=21.0
@@ -82,3 +85,6 @@ aiosqlite>=0.19.0               # SQLite async for testing
 # Date/Time utilities
 python-dateutil==2.8.2
 pytz==2023.3
+
+# Error monitoring
+sentry-sdk[fastapi]>=2.0.0

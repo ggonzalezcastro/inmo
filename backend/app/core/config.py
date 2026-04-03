@@ -42,6 +42,7 @@ class Settings(BaseSettings):
 
     # Anthropic Claude
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
+    ANTHROPIC_BASE_URL: str = os.getenv("ANTHROPIC_BASE_URL", "")  # override for compatible APIs (MiniMax, etc.)
     CLAUDE_MODEL: str = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
     # 2048 tokens: same reasoning as Gemini — context + response headroom.
     CLAUDE_MAX_TOKENS: int = int(os.getenv("CLAUDE_MAX_TOKENS", "2048"))
@@ -52,6 +53,7 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o")
     OPENAI_MAX_TOKENS: int = int(os.getenv("OPENAI_MAX_TOKENS", "2048"))
     OPENAI_TEMPERATURE: float = float(os.getenv("OPENAI_TEMPERATURE", "0.7"))
+    OPENAI_BASE_URL: str = os.getenv("OPENAI_BASE_URL", "")  # override for OpenAI-compatible APIs (MiniMax, etc.)
 
     # MCP Server transport: "http" (recommended for production) or "stdio" (dev fallback)
     MCP_TRANSPORT: str = os.getenv("MCP_TRANSPORT", "http")
@@ -94,6 +96,16 @@ class Settings(BaseSettings):
     # Frontend URL — used to redirect after OAuth flow completes
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
+    # Microsoft Outlook Calendar (Azure App Registration)
+    MICROSOFT_CLIENT_ID: str = os.getenv("MICROSOFT_CLIENT_ID", "")
+    MICROSOFT_CLIENT_SECRET: str = os.getenv("MICROSOFT_CLIENT_SECRET", "")
+    # "common" supports both personal (MSA) and work/school (AAD) accounts
+    MICROSOFT_TENANT_ID: str = os.getenv("MICROSOFT_TENANT_ID", "common")
+    MICROSOFT_OAUTH_REDIRECT_URI: str = os.getenv(
+        "MICROSOFT_OAUTH_REDIRECT_URI",
+        "http://localhost:8000/api/broker/calendar/outlook/callback",
+    )
+
     # Voice provider selection (vapi, bland, retell, etc.)
     VOICE_PROVIDER: str = os.getenv("VOICE_PROVIDER", "vapi")
 
@@ -123,6 +135,11 @@ class Settings(BaseSettings):
     SEMANTIC_CACHE_TTL: int = int(os.getenv("SEMANTIC_CACHE_TTL", "3600"))    # 1 hour
     SEMANTIC_CACHE_MAX_ENTRIES: int = int(os.getenv("SEMANTIC_CACHE_MAX_ENTRIES", "500"))
 
+    # Human mode timeout (tiered escalation when agent goes AFK)
+    HUMAN_MODE_REMINDER_MINUTES: int = int(os.getenv("HUMAN_MODE_REMINDER_MINUTES", "15"))
+    HUMAN_MODE_ADMIN_ALERT_MINUTES: int = int(os.getenv("HUMAN_MODE_ADMIN_ALERT_MINUTES", "30"))
+    HUMAN_MODE_AUTO_RELEASE_MINUTES: int = int(os.getenv("HUMAN_MODE_AUTO_RELEASE_MINUTES", "60"))
+
     # Sentiment Analysis (frustration detection + auto-escalation)
     SENTIMENT_ANALYSIS_ENABLED: bool = os.getenv("SENTIMENT_ANALYSIS_ENABLED", "true").lower() == "true"
     SENTIMENT_TONE_THRESHOLD: float = float(os.getenv("SENTIMENT_TONE_THRESHOLD", "0.4"))
@@ -130,6 +147,16 @@ class Settings(BaseSettings):
     SENTIMENT_HISTORY_WINDOW: int = int(os.getenv("SENTIMENT_HISTORY_WINDOW", "3"))
     # Min heuristic confidence to skip LLM call (sarcasm always calls LLM regardless)
     SENTIMENT_LLM_CONFIRM_THRESHOLD: float = float(os.getenv("SENTIMENT_LLM_CONFIRM_THRESHOLD", "0.60"))
+
+    # Sentry error monitoring
+    # SENTRY_DSN: get it from sentry.io → Project → Settings → Client Keys
+    # SENTRY_AUTH_TOKEN: sentry.io → User Settings → API Tokens (scope: project:read)
+    # SENTRY_ORG: your Sentry organization slug (e.g. "my-company")
+    # SENTRY_PROJECT: your Sentry project slug (e.g. "inmo-backend")
+    SENTRY_DSN: str = os.getenv("SENTRY_DSN", "")
+    SENTRY_AUTH_TOKEN: str = os.getenv("SENTRY_AUTH_TOKEN", "")
+    SENTRY_ORG: str = os.getenv("SENTRY_ORG", "")
+    SENTRY_PROJECT: str = os.getenv("SENTRY_PROJECT", "")
 
     # Environment
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"

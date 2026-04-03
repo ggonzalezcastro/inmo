@@ -102,13 +102,14 @@ def process_whatsapp_message(
                 ai_used=False,
             )
 
-            # 4. Run AI orchestrator
+            # 4. Run AI orchestrator (message already logged above — skip double log)
             chat_result = await ChatOrchestratorService.process_chat_message(
                 db=db,
                 current_user={"broker_id": broker_id, "id": None},
                 message=message_text,
                 lead_id=lead.id,
                 provider_name="whatsapp",
+                skip_inbound_log=True,
             )
 
             # 5. Send AI reply (skip if human agent has taken control)

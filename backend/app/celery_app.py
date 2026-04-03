@@ -45,6 +45,11 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.dlq_tasks.dlq_alert_check",
         "schedule": crontab(minute="*/15"),
     },
+    # ── Human mode timeout (every 5 min) ──────────────────────────────────
+    "check-human-mode-timeouts": {
+        "task": "app.tasks.human_timeout_tasks.check_human_mode_timeouts",
+        "schedule": crontab(minute="*/5"),
+    },
 }
 
 

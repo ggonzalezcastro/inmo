@@ -14,6 +14,7 @@ from app.database import get_db
 from app.middleware.auth import get_current_user
 from app.models.lead import Lead
 from app.models.chat_message import ChatMessage, ChatProvider, MessageDirection, MessageStatus
+from app.models.user import User
 from app.services.chat.service import ChatService
 
 router = APIRouter()
@@ -23,6 +24,10 @@ logger = logging.getLogger(__name__)
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
 class HumanMessageInput(BaseModel):
+    text: str
+
+
+class ImproveMessageInput(BaseModel):
     text: str
 
 
@@ -87,13 +92,14 @@ async def list_conversations(
     items: List[ConversationLeadItem] = []
     for lead in leads:
         meta = lead.lead_metadata or {}
-        is_human = bool(meta.get("human_mode"))
-        assigned_to = meta.get("human_assigned_to")
+        is_human = bool(lead.human_mode)
+        assigned_to = lead.human_assigned_to
 
         # Visibility rule:
         # - AI-managed leads (human_mode=False) → visible to everyone
-        # - Human-taken leads → only visible to the agent who took them
-        if is_human and assigned_to != current_user_id:
+        # - Human-taken leads with an assigned agent → only visible to that agent
+        # - Auto-escalated leads (human_mode=True, no assigned agent) → visible to everyone
+        if is_human and assigned_to is not None and assigned_to != current_user_id:
             continue
 
         # Filter by mode
@@ -152,7 +158,7 @@ async def list_conversations(
             pipeline_stage=lead.pipeline_stage,
             status=lead.status.value if lead.status and hasattr(lead.status, "value") else str(lead.status) if lead.status else None,
             human_mode=is_human,
-            human_assigned_to=meta.get("human_assigned_to"),
+            human_assigned_to=assigned_to,
             last_message=last_msg.message_text if last_msg else None,
             last_message_at=last_msg.created_at if last_msg else None,
             last_message_direction=last_msg.direction.value if last_msg and hasattr(last_msg.direction, "value") else None,
@@ -177,16 +183,14 @@ async def takeover_lead(
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    meta = dict(lead.lead_metadata or {})
-    meta["human_mode"] = True
     raw_uid = current_user.get("user_id") or current_user.get("id")
     try:
         uid = int(raw_uid) if raw_uid is not None else None
     except (TypeError, ValueError):
         uid = raw_uid
-    meta["human_assigned_to"] = uid
-    meta["human_taken_at"] = datetime.now(timezone.utc).isoformat()
-    lead.lead_metadata = meta
+    lead.human_mode = True
+    lead.human_assigned_to = uid
+    lead.human_taken_at = datetime.now(timezone.utc)
     await db.commit()
 
     # Broadcast to broker so kanban refreshes
@@ -217,16 +221,29 @@ async def release_lead(
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    meta = dict(lead.lead_metadata or {})
-    meta["human_mode"] = False
-    meta.pop("human_assigned_to", None)
-    meta.pop("human_taken_at", None)
-    meta.pop("human_mode_notified", None)  # Reset so handoff message fires again if re-escalated
-    # Reset frustration score so Sofía resumes without the old escalation state
-    if "sentiment" in meta:
-        from app.services.sentiment.scorer import empty_sentiment
-        meta["sentiment"] = empty_sentiment()
-    lead.lead_metadata = meta
+    lead.human_mode = False
+    lead.human_assigned_to = None
+    lead.human_taken_at = None
+    # Reset human_mode_notified flag and frustration score atomically via jsonb_set
+    # so Sofía resumes without the old escalation state and fires the handoff
+    # message again if re-escalated later.
+    from sqlalchemy import text as _sa_text
+    import json as _json
+    from app.services.sentiment.scorer import empty_sentiment as _empty_sent
+    _new_meta = dict(lead.lead_metadata or {})
+    _new_meta.pop("human_mode_notified", None)
+    _new_meta.pop("human_mode", None)
+    _new_meta.pop("human_assigned_to", None)
+    _new_meta.pop("human_taken_at", None)
+    lead.lead_metadata = _new_meta
+    await db.execute(
+        _sa_text(
+            "UPDATE leads SET metadata = jsonb_set("
+            "COALESCE(metadata,'{}'), '{sentiment}', CAST(:val AS jsonb), true)"
+            " WHERE id = :lid"
+        ),
+        {"val": _json.dumps(_empty_sent()), "lid": lead.id},
+    )
     await db.commit()
 
     try:
@@ -256,11 +273,28 @@ async def send_human_message(
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    meta = lead.lead_metadata or {}
-    if not meta.get("human_mode"):
+    if not lead.human_mode:
         raise HTTPException(status_code=400, detail="Lead is not in human mode")
 
     provider_name, channel_user_id = await _get_lead_channel(db, lead_id)
+
+    # Resolve the sending agent's name for WhatsApp attribution
+    agent_display_name = None
+    try:
+        user_id = current_user.get("user_id")
+        if user_id:
+            user_result = await db.execute(select(User).where(User.id == int(user_id)))
+            agent = user_result.scalars().first()
+            if agent:
+                agent_display_name = agent.name or agent.email.split("@")[0].title()
+    except Exception:
+        pass
+
+    # Format message with agent attribution for real channels (WhatsApp / Telegram)
+    def _format_with_agent(text: str) -> str:
+        if not agent_display_name:
+            return text
+        return f"*{agent_display_name}:*\n{text}"
 
     if not provider_name or provider_name in ("webchat", "ChatProvider.WEBCHAT") or channel_user_id == "0":
         # No real channel — just log the message without sending
@@ -272,7 +306,7 @@ async def send_human_message(
         from app.services.chat.whatsapp_service import WhatsAppService
         wa = WhatsAppService()
         try:
-            await wa.send_text_message(channel_user_id, body.text)
+            await wa.send_text_message(channel_user_id, _format_with_agent(body.text))
             send_result = type("R", (), {"success": True, "error": None})()
         except Exception as exc:
             logger.warning("Failed to send WhatsApp human message: %s", exc)
@@ -283,7 +317,7 @@ async def send_human_message(
             broker_id=current_user.get("broker_id"),
             provider_name=provider_name,
             channel_user_id=channel_user_id,
-            message_text=body.text,
+            message_text=_format_with_agent(body.text),
             lead_id=lead_id,
         )
         if not send_result.success:
@@ -318,3 +352,32 @@ async def send_human_message(
         pass
 
     return {"ok": True, "message_id": msg.id}
+
+
+@router.post("/improve-message")
+async def improve_message(
+    body: ImproveMessageInput,
+    current_user=Depends(get_current_user),
+):
+    """Use AI to correct grammar, punctuation and style of a human agent message (Spanish)."""
+    from app.services.llm.facade import LLMServiceFacade
+
+    if not body.text.strip():
+        return {"improved": body.text}
+
+    prompt = (
+        "Eres un asistente de redacción para asesores inmobiliarios en Chile. "
+        "Tu única tarea es corregir ortografía, puntuación, acentos y mayúsculas del mensaje que te doy, "
+        "manteniendo exactamente el mismo tono y contenido. "
+        "Reglas: usa signos de interrogación y exclamación de apertura (¿ ¡) cuando corresponda, "
+        "respeta el tuteo o ustedeo original, no agregues ni quites información, no cambies el vocabulario ni el estilo. "
+        "Responde ÚNICAMENTE con el mensaje corregido, sin explicaciones ni comillas.\n\n"
+        f"Mensaje: {body.text}"
+    )
+
+    try:
+        improved = await LLMServiceFacade.generate_response(prompt)
+        return {"improved": improved.strip()}
+    except Exception as exc:
+        logger.warning("improve_message LLM call failed: %s", exc)
+        return {"improved": body.text}

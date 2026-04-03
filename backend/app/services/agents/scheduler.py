@@ -9,6 +9,7 @@ Hands off to FollowUpAgent when appointment is confirmed.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 
 import pytz
@@ -124,6 +125,27 @@ class SchedulerAgent(BaseAgent):
 
         system_prompt = self.get_system_prompt(context, broker_timezone=broker_timezone)
 
+        # --- Simple confirmation shortcut -----------------------------------
+        # When the user simply says "si" / "ok" / "dale" etc. and the previous
+        # assistant message already offered a concrete datetime, inject an
+        # explicit reminder so the LLM knows to call create_appointment now.
+        effective_message = message
+        if _is_simple_confirmation(message):
+            last_bot = _last_assistant_message(context.message_history)
+            if last_bot:
+                effective_message = (
+                    f"{message}\n\n"
+                    "[INSTRUCCIÓN INTERNA — NO mostrar al usuario: "
+                    "El lead está confirmando el horario que ofreciste. "
+                    "Llama AHORA a `create_appointment` con el horario exacto "
+                    f"que aparece en tu mensaje anterior: \"{last_bot[:300]}\". "
+                    "No preguntes de nuevo por disponibilidad.]"
+                )
+                self._log(
+                    "Simple confirmation detected — injecting create_appointment hint",
+                    lead_id=context.lead_id,
+                )
+
         # Build tool definitions for appointment scheduling
         tools = []
         tool_executor = None
@@ -155,7 +177,7 @@ class SchedulerAgent(BaseAgent):
             response_text, function_calls = (
                 await LLMServiceFacade.generate_response_with_function_calling(
                     system_prompt=system_prompt,
-                    contents=_build_messages(context.message_history, message),
+                    contents=_build_messages(context.message_history, effective_message),
                     tools=tools,
                     tool_executor=tool_executor,
                     broker_id=context.broker_id,
@@ -169,7 +191,7 @@ class SchedulerAgent(BaseAgent):
                 response_text, function_calls = (
                     await LLMServiceFacade.generate_response_with_function_calling(
                         system_prompt=system_prompt,
-                        contents=_build_messages(context.message_history, message),
+                        contents=_build_messages(context.message_history, effective_message),
                         tools=[],
                         broker_id=context.broker_id,
                         lead_id=context.lead_id,
@@ -205,6 +227,31 @@ class SchedulerAgent(BaseAgent):
         )
 
 
+def _is_simple_confirmation(message: str) -> bool:
+    """Return True when the user message is a bare affirmative with no new info."""
+    text = message.strip().lower()
+    # Remove punctuation
+    text = re.sub(r"[!¡?¿.,;:]", "", text).strip()
+    _SIMPLE_YES = {
+        "si", "sí", "yes", "ok", "dale", "va", "claro", "bueno", "perfecto",
+        "de acuerdo", "por supuesto", "obvio", "súper", "bien", "listo",
+        "genial", "me acomoda", "agendame", "ya agendame", "si agendame",
+        "sí agendame", "ya", "ok dale", "ok si", "ok sí",
+    }
+    return text in _SIMPLE_YES or len(text) <= 15 and any(
+        kw in text for kw in ("si", "sí", "ok", "dale", "agendame", "genial", "listo", "claro")
+    )
+
+
+def _last_assistant_message(history: list) -> str | None:
+    """Return the last assistant/bot message from the conversation history."""
+    for msg in reversed(history or []):
+        role = msg.get("role", "")
+        if role in ("assistant", "model", "bot"):
+            return msg.get("content", "")
+    return None
+
+
 def _is_appointment_confirmed(user_message: str, agent_response: str) -> bool:
     """
     Heuristic: returns True when the exchange looks like a confirmed appointment.
@@ -218,8 +265,8 @@ def _is_appointment_confirmed(user_message: str, agent_response: str) -> bool:
     user_confirms = any(
         kw in user_low
         for kw in [
-            "perfecto", "confirmado", "de acuerdo", "sí", "ok", "dale",
-            "ese horario me queda", "me acomoda", "me viene bien",
+            "perfecto", "confirmado", "de acuerdo", "sí", "si", "ok", "dale",
+            "ese horario me queda", "me acomoda", "me viene bien", "agendame",
         ]
     )
 
@@ -227,6 +274,7 @@ def _is_appointment_confirmed(user_message: str, agent_response: str) -> bool:
         kw in agent_low
         for kw in [
             "confirmad", "te esperamos", "hasta el", "nos vemos", "cita agendada",
+            "agendad", "reunión creada", "appointment", "meet.google",
         ]
     )
 

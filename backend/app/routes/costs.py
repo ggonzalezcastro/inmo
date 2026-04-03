@@ -45,21 +45,17 @@ def _alert_threshold() -> float:
 
 # ── Auth helper ───────────────────────────────────────────────────────────────
 
-def _check_admin(current_user: dict, target_broker_id: Optional[int]) -> int:
+def _check_admin(current_user: dict, target_broker_id: Optional[int]) -> Optional[int]:
     """
-    Validate access and return the effective broker_id.
-    SUPERADMIN can query any broker (must pass broker_id).
+    Validate access and return the effective broker_id (or None = all brokers).
+    SUPERADMIN can query any broker or all brokers (broker_id optional).
     ADMIN can only query their own broker.
     """
     role = (current_user.get("role") or "").upper()
     user_broker_id = current_user.get("broker_id")
 
     if role == "SUPERADMIN":
-        if target_broker_id is None:
-            raise HTTPException(
-                status_code=422,
-                detail="broker_id required for superadmin",
-            )
+        # None means "all brokers" for superadmin
         return target_broker_id
 
     if not user_broker_id:
@@ -113,10 +109,11 @@ async def cost_summary(
 
     base_q = (
         select(LLMCall)
-        .where(LLMCall.broker_id == effective_broker_id)
         .where(LLMCall.created_at >= start_dt)
         .where(LLMCall.created_at <= end_dt)
     )
+    if effective_broker_id is not None:
+        base_q = base_q.where(LLMCall.broker_id == effective_broker_id)
     result = await db.execute(base_q)
     rows = result.scalars().all()
 
@@ -160,16 +157,18 @@ async def cost_summary(
 
     # Voice minutes: sum of completed call durations in the period, scoped to this broker
     from app.models.lead import Lead
-    voice_q = await db.execute(
+    voice_q_base = (
         select(func.sum(VoiceCall.duration))
         .where(VoiceCall.created_at >= start_dt)
         .where(VoiceCall.created_at <= end_dt)
-        .where(
+    )
+    if effective_broker_id is not None:
+        voice_q_base = voice_q_base.where(
             VoiceCall.lead_id.in_(
                 select(Lead.id).where(Lead.broker_id == effective_broker_id)
             )
         )
-    )
+    voice_q = await db.execute(voice_q_base)
     total_voice_seconds = voice_q.scalar() or 0
     total_voice_minutes = round(total_voice_seconds / 60, 1)
 
@@ -207,13 +206,15 @@ async def cost_daily(
     effective_broker_id = _check_admin(current_user, broker_id)
     start_dt, end_dt = _period_dates(period)
 
-    result = await db.execute(
+    daily_q = (
         select(LLMCall)
-        .where(LLMCall.broker_id == effective_broker_id)
         .where(LLMCall.created_at >= start_dt)
         .where(LLMCall.created_at <= end_dt)
         .order_by(LLMCall.created_at)
     )
+    if effective_broker_id is not None:
+        daily_q = daily_q.where(LLMCall.broker_id == effective_broker_id)
+    result = await db.execute(daily_q)
     rows = result.scalars().all()
 
     # Aggregate by calendar date
@@ -253,14 +254,13 @@ async def cost_outliers(
     effective_broker_id = _check_admin(current_user, broker_id)
     start_dt, end_dt = _period_dates(period)
 
-    result = await db.execute(
+    outliers_q = (
         select(
             LLMCall.lead_id,
             func.sum(LLMCall.estimated_cost_usd).label("total_cost"),
             func.count(LLMCall.id).label("call_count"),
             func.avg(LLMCall.latency_ms).label("avg_latency"),
         )
-        .where(LLMCall.broker_id == effective_broker_id)
         .where(LLMCall.created_at >= start_dt)
         .where(LLMCall.created_at <= end_dt)
         .where(LLMCall.lead_id.is_not(None))
@@ -268,6 +268,9 @@ async def cost_outliers(
         .order_by(func.sum(LLMCall.estimated_cost_usd).desc())
         .limit(limit)
     )
+    if effective_broker_id is not None:
+        outliers_q = outliers_q.where(LLMCall.broker_id == effective_broker_id)
+    result = await db.execute(outliers_q)
     rows = result.all()
 
     return {
@@ -298,13 +301,15 @@ async def cost_export_csv(
     effective_broker_id = _check_admin(current_user, broker_id)
     start_dt, end_dt = _period_dates(period)
 
-    result = await db.execute(
+    export_q = (
         select(LLMCall)
-        .where(LLMCall.broker_id == effective_broker_id)
         .where(LLMCall.created_at >= start_dt)
         .where(LLMCall.created_at <= end_dt)
         .order_by(LLMCall.created_at)
     )
+    if effective_broker_id is not None:
+        export_q = export_q.where(LLMCall.broker_id == effective_broker_id)
+    result = await db.execute(export_q)
     rows = result.scalars().all()
 
     output = io.StringIO()

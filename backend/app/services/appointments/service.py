@@ -18,6 +18,7 @@ from app.models.lead import Lead
 from app.models.user import User
 from app.models.broker import BrokerPromptConfig
 from app.services.appointments.google_calendar import get_calendar_service_for_broker
+from app.services.appointments.outlook_calendar import OutlookCalendarService, persist_outlook_token_if_rotated
 from app.services.appointments.availability import (
     check_availability as _check_availability,
     get_available_slots as _get_available_slots,
@@ -134,7 +135,7 @@ class AppointmentService:
             calendar_service = get_calendar_service_for_agent(agent, broker_config)
         else:
             calendar_service = get_calendar_service_for_broker(broker_config)
-        if calendar_service.service:
+        if calendar_service.is_ready:
             try:
                 event_title = f"Reunión con {lead_name}"
                 event_description = notes or f"Reunión virtual con {lead_name}"
@@ -153,20 +154,24 @@ class AppointmentService:
                     attendees=attendees
                 )
 
+                # Persist rotated Outlook refresh token if Microsoft rotated it
+                if isinstance(calendar_service, OutlookCalendarService) and broker_config:
+                    await persist_outlook_token_if_rotated(calendar_service, broker_config, db)
+
                 if calendar_event and calendar_event.get('meet_url'):
                     meet_url = calendar_event['meet_url']
                     google_event_id = calendar_event.get('event_id')
-                    logger.info(f"Google Calendar event created: {google_event_id}, Meet URL: {meet_url}")
+                    logger.info(f"Calendar event created: {google_event_id}, Meet URL: {meet_url}")
                 else:
-                    logger.warning("Google Calendar event creation failed, using fallback URL")
+                    logger.warning("Calendar event creation failed, using fallback URL")
                     meet_url = AppointmentService.generate_google_meet_url(lead_id)
             except Exception as e:
-                logger.error(f"Error creating Google Calendar event: {str(e)}", exc_info=True)
+                logger.error(f"Error creating calendar event: {str(e)}", exc_info=True)
                 # Fallback to generated URL
                 meet_url = AppointmentService.generate_google_meet_url(lead_id)
         else:
             # Fallback: generate a simulated URL
-            logger.warning("Google Calendar service not configured, using fallback URL")
+            logger.warning("Calendar service not configured, using fallback URL")
             meet_url = AppointmentService.generate_google_meet_url(lead_id)
 
         appointment = Appointment(
@@ -328,7 +333,7 @@ class AppointmentService:
                     )
                     _broker_cfg = _bcfg_res.scalars().first()
                 calendar_service = get_calendar_service_for_broker(_broker_cfg)
-                if calendar_service.service:
+                if calendar_service.is_ready:
                     # Check if relevant fields changed
                     needs_calendar_update = (
                         appointment.start_time != old_start_time or
@@ -374,15 +379,18 @@ class AppointmentService:
                             attendees=attendees
                         )
 
+                        if isinstance(calendar_service, OutlookCalendarService) and _broker_cfg:
+                            await persist_outlook_token_if_rotated(calendar_service, _broker_cfg, db)
+
                         if updated_event:
-                            logger.info(f"Google Calendar event updated: {appointment.google_event_id}")
+                            logger.info(f"Calendar event updated: {appointment.google_event_id}")
                             if appointment.agent_id != old_agent_id:
                                 logger.info(f"Agent changed from {old_agent_id} to {appointment.agent_id}, attendees updated")
                         else:
-                            logger.warning(f"Failed to update Google Calendar event: {appointment.google_event_id}")
+                            logger.warning(f"Failed to update calendar event: {appointment.google_event_id}")
             except Exception as e:
-                logger.error(f"Error updating Google Calendar event: {str(e)}", exc_info=True)
-                # Continue with update even if Google Calendar update fails
+                logger.error(f"Error updating calendar event: {str(e)}", exc_info=True)
+                # Continue with update even if calendar update fails
 
         await db.commit()
         await db.refresh(appointment)
@@ -438,15 +446,17 @@ class AppointmentService:
                     )
                     _broker_cfg = _bcfg_res.scalars().first()
                 calendar_service = get_calendar_service_for_broker(_broker_cfg)
-                if calendar_service.service:
+                if calendar_service.is_ready:
                     deleted = calendar_service.delete_event(appointment.google_event_id)
+                    if isinstance(calendar_service, OutlookCalendarService) and _broker_cfg:
+                        await persist_outlook_token_if_rotated(calendar_service, _broker_cfg, db)
                     if deleted:
-                        logger.info(f"Google Calendar event deleted: {appointment.google_event_id}")
+                        logger.info(f"Calendar event deleted: {appointment.google_event_id}")
                     else:
-                        logger.warning(f"Failed to delete Google Calendar event: {appointment.google_event_id}")
+                        logger.warning(f"Failed to delete calendar event: {appointment.google_event_id}")
             except Exception as e:
-                logger.error(f"Error deleting Google Calendar event: {str(e)}", exc_info=True)
-                # Continue with cancellation even if Google Calendar deletion fails
+                logger.error(f"Error deleting calendar event: {str(e)}", exc_info=True)
+                # Continue with cancellation even if calendar deletion fails
 
         appointment.status = AppointmentStatus.CANCELLED
         appointment.cancelled_at = datetime.now(AppointmentService.CHILE_TZ)

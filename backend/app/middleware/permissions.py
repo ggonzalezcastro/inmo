@@ -15,7 +15,13 @@ class Permissions:
     async def require_superadmin(
         current_user: dict = Depends(get_current_user)
     ) -> dict:
-        """Require superadmin role only"""
+        """Require superadmin role only. Impersonated sessions are always rejected."""
+        # Impersonation tokens carry role=ADMIN; block them from superadmin endpoints
+        if current_user.get("impersonating"):
+            raise HTTPException(
+                status_code=403,
+                detail="No puedes realizar esta acción en modo impersonation"
+            )
         role = current_user.get("role", "").upper()
         if role != "SUPERADMIN":
             raise HTTPException(

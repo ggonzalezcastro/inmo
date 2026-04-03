@@ -11,6 +11,7 @@ from app.database import get_db
 from app.schemas.user import validate_password_strength
 from app.middleware.auth import get_current_user
 from app.middleware.permissions import Permissions
+from app.middleware.plan_limits import check_user_limit, invalidate_plan_cache
 from app.models.user import User, UserRole
 from passlib.context import CryptContext
 import logging
@@ -89,7 +90,8 @@ async def get_broker_users(
 async def create_broker_user(
     user_data: CreateUserRequest,
     current_user: dict = Depends(Permissions.require_admin),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _limit: None = Depends(check_user_limit),
 ):
     """Create a new user for the broker (admin or superadmin)"""
     
@@ -145,7 +147,8 @@ async def create_broker_user(
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    
+    await invalidate_plan_cache(broker_id)
+
     logger.info(f"User created: {user.id} - {user.email} in broker {broker_id} by {user_role} {current_user.get('email')}")
     
     return {

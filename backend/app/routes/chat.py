@@ -116,7 +116,7 @@ async def test_chat(
             "last_analysis": metadata.get("last_analysis"),
             "key_points": metadata.get("key_points", []),
             "conversation_summary": metadata.get("conversation_summary"),
-            "human_mode": metadata.get("human_mode", False),
+            "human_mode": bool(lead.human_mode) if lead else False,
             "pipeline_stage": getattr(lead, "pipeline_stage", None) if lead else None,
         }
         return ChatResponse(
@@ -142,7 +142,7 @@ async def test_chat(
 async def get_chat_messages(
     lead_id: int,
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 500,
     provider: Optional[str] = Query(None, description="Filter by provider; if omitted, returns chat_messages then fallback to telegram_messages"),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -347,6 +347,74 @@ async def verify_lead_data(
         raise
     except Exception as e:
         logger.error("Error verifying lead data: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@router.get("/{lead_id}/pending-messages")
+async def get_pending_human_messages(
+    lead_id: int,
+    after_id: int = Query(0, description="Return only messages with id > after_id (use last seen message id)"),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Poll for outbound messages sent by a human agent to this lead.
+
+    Used by the test chat widget when the lead is in human_mode to display
+    messages sent by the agent that wouldn't otherwise reach the chat UI.
+
+    Pass `after_id` equal to the last message id already shown to avoid duplicates.
+    Returns an empty list when no new messages exist (safe to poll frequently).
+    """
+    from sqlalchemy import desc
+    from app.models.chat_message import MessageDirection
+    from app.models.lead import Lead
+    from app.models.user import User
+
+    try:
+        q = (
+            select(ChatMessageModel)
+            .where(
+                ChatMessageModel.lead_id == lead_id,
+                ChatMessageModel.direction == MessageDirection.OUTBOUND,
+                ChatMessageModel.ai_response_used == False,  # noqa: E712 — human messages only
+                ChatMessageModel.id > after_id,
+            )
+            .order_by(ChatMessageModel.id)
+            .limit(20)
+        )
+        result = await db.execute(q)
+        msgs = result.scalars().all()
+
+        # Resolve agent name from lead assignment
+        agent_name = None
+        try:
+            lead_result = await db.execute(select(Lead).where(Lead.id == lead_id))
+            lead = lead_result.scalars().first()
+            if lead and lead.assigned_to:
+                user_result = await db.execute(select(User).where(User.id == lead.assigned_to))
+                agent = user_result.scalars().first()
+                if agent:
+                    agent_name = agent.full_name or agent.email.split("@")[0].title()
+        except Exception:
+            pass
+
+        return {
+            "lead_id": lead_id,
+            "agent_name": agent_name,
+            "messages": [
+                {
+                    "id": msg.id,
+                    "message_text": msg.message_text,
+                    "created_at": msg.created_at.isoformat() if msg.created_at else None,
+                    "provider": getattr(msg.provider, "value", str(msg.provider)),
+                }
+                for msg in msgs
+            ],
+        }
+    except Exception as e:
+        logger.error("Error fetching pending human messages: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

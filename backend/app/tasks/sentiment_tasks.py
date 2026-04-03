@@ -114,7 +114,7 @@ async def _async_analyze(
 
             # Skip if already escalated (human has taken over)
             current_sentiment = meta.get("sentiment", empty_sentiment())
-            if current_sentiment.get("escalated", False) or meta.get("human_mode", False):
+            if current_sentiment.get("escalated", False) or lead.human_mode:
                 logger.debug("sentiment_task: lead %s already escalated or in human_mode", lead_id)
                 return
 

@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from sqlalchemy import Column, Integer, String, Float, DateTime, JSON, Index, Text, UniqueConstraint, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Boolean, Column, Integer, String, Float, DateTime, JSON, Index, Text, UniqueConstraint, ForeignKey, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from app.models.base import Base, TimestampMixin, IdMixin
@@ -84,8 +84,13 @@ class Lead(Base, IdMixin, TimestampMixin):
     
     # Metadata
     tags = Column(JSON, default=[], nullable=False)  # ["inmobiliario", "activo"]
-    lead_metadata = Column("metadata", JSONB, default={}, nullable=False)  # {budget: "150k", timeline: "30 dias"}                                                                                                           
-    
+    lead_metadata = Column("metadata", JSONB, default={}, nullable=False)  # {budget: "150k", timeline: "30 dias"}
+
+    # Human takeover state (promoted from JSONB for indexed queries and FK integrity)
+    human_mode = Column(Boolean, nullable=False, default=False, server_default="false")
+    human_assigned_to = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    human_taken_at = Column(DateTime(timezone=True), nullable=True)
+
     # Relationships
     telegram_messages = relationship(
         "TelegramMessage",
@@ -118,6 +123,7 @@ class Lead(Base, IdMixin, TimestampMixin):
         cascade="all, delete-orphan"
     )
     assigned_agent = relationship("User", foreign_keys=[assigned_to])
+    human_agent = relationship("User", foreign_keys=[human_assigned_to])
     broker = relationship("Broker", foreign_keys=[broker_id])
     
     # Indices

@@ -29,6 +29,11 @@ class GoogleCalendarService:
         self.calendar_id = calendar_id or settings.GOOGLE_CALENDAR_ID or "primary"
         self._initialize_service(refresh_token)
 
+    @property
+    def is_ready(self) -> bool:
+        """True when the underlying Google API client is initialized."""
+        return self.service is not None
+
     def _initialize_service(self, refresh_token: Optional[str] = None):
         """Initialize Google Calendar service"""
         try:
@@ -254,15 +259,35 @@ def get_google_calendar_service() -> GoogleCalendarService:
     return _google_calendar_service
 
 
-def get_calendar_service_for_broker(broker_config) -> GoogleCalendarService:
+def get_calendar_service_for_broker(broker_config):
     """
-    Return a GoogleCalendarService for the given broker.
-    Uses the broker's own OAuth credentials if configured,
-    otherwise falls back to the global service.
+    Return the appropriate calendar service for the given broker.
+
+    Checks `broker_config.calendar_provider`:
+      - 'outlook' → OutlookCalendarService (Microsoft Graph)
+      - 'google' or None → GoogleCalendarService (default)
+
+    Falls back to the global Google service when no credentials are present.
     """
     from app.core.encryption import decrypt_value
 
-    if broker_config and broker_config.google_refresh_token:
+    provider = getattr(broker_config, "calendar_provider", None) or "google"
+
+    if provider == "outlook":
+        outlook_rt = getattr(broker_config, "outlook_refresh_token", None)
+        if outlook_rt:
+            from app.services.appointments.outlook_calendar import OutlookCalendarService
+            token = decrypt_value(outlook_rt)
+            calendar_id = getattr(broker_config, "outlook_calendar_id", None)
+            return OutlookCalendarService(refresh_token=token, calendar_id=calendar_id)
+        logger.warning(
+            "calendar_provider='outlook' but no refresh token found for broker_id=%s; "
+            "falling back to Google",
+            getattr(broker_config, "broker_id", "?"),
+        )
+
+    # Google (default)
+    if broker_config and getattr(broker_config, "google_refresh_token", None):
         token = decrypt_value(broker_config.google_refresh_token)
         calendar_id = broker_config.google_calendar_id or "primary"
         return GoogleCalendarService(refresh_token=token, calendar_id=calendar_id)
@@ -270,35 +295,64 @@ def get_calendar_service_for_broker(broker_config) -> GoogleCalendarService:
     return get_google_calendar_service()
 
 
-def get_calendar_service_for_agent(agent, broker_config) -> GoogleCalendarService:
+def get_calendar_service_for_agent(agent, broker_config):
     """
-    Return a GoogleCalendarService targeting the agent's own calendar.
+    Return a calendar service targeting the agent's own calendar.
 
-    When using a service account (GOOGLE_CREDENTIALS_PATH), the service account
-    must have been granted access to the agent's calendar (the agent shares their
-    Google Calendar with the service account email).
-
-    Fallback chain:
-      1. Agent has google_calendar_id + service account configured → agent calendar
-      2. Broker has its own OAuth credentials → broker calendar
-      3. Global OAuth / service account → primary calendar
+    Fallback chain (most specific → least specific):
+      1. Agent's personal OAuth token (google_refresh_token / outlook_refresh_token)
+      2. Agent's shared calendar via service account (google_calendar_id + GOOGLE_CREDENTIALS_PATH)
+      3. Broker's OAuth credentials (google or outlook depending on calendar_provider)
+      4. Global OAuth / service account (primary calendar)
     """
-    if agent and getattr(agent, "google_calendar_id", None) and agent.google_calendar_connected:
-        # Service account mode: pass the agent's calendar_id — the service account
-        # already has access because the agent shared their calendar with it.
-        if settings.GOOGLE_CREDENTIALS_PATH and os.path.exists(settings.GOOGLE_CREDENTIALS_PATH):
-            svc = GoogleCalendarService(calendar_id=agent.google_calendar_id)
-            if svc.service:
-                logger.info(
-                    "Using service account for agent calendar_id=%s (agent_id=%s)",
-                    agent.google_calendar_id, agent.id,
+    if agent:
+        from app.core.encryption import decrypt_value as _decrypt
+
+        # 1. Agent's personal Google OAuth token
+        if getattr(agent, "google_refresh_token", None):
+            try:
+                token = _decrypt(agent.google_refresh_token)
+                svc = GoogleCalendarService(
+                    refresh_token=token,
+                    calendar_id=agent.google_calendar_email or "primary",
                 )
-                return svc
+                if svc.is_ready:
+                    logger.info(
+                        "Using per-agent Google OAuth token for agent_id=%s (%s)",
+                        agent.id, agent.google_calendar_email,
+                    )
+                    return svc
+            except Exception as exc:
+                logger.warning("Failed to build per-agent Google service for agent %s: %s", agent.id, exc)
 
-        # OAuth2 mode: no per-agent tokens, fall through to broker calendar
-        logger.info(
-            "Agent %s has calendar configured but service account not available; "
-            "falling back to broker calendar", agent.id,
-        )
+        # 1b. Agent's personal Outlook OAuth token
+        if getattr(agent, "outlook_refresh_token", None):
+            try:
+                from app.services.appointments.outlook_calendar import OutlookCalendarService
+                token = _decrypt(agent.outlook_refresh_token)
+                svc = OutlookCalendarService(
+                    refresh_token=token,
+                    calendar_id=agent.outlook_calendar_id,
+                )
+                if svc.is_ready:
+                    logger.info(
+                        "Using per-agent Outlook OAuth token for agent_id=%s (%s)",
+                        agent.id, agent.outlook_calendar_email,
+                    )
+                    return svc
+            except Exception as exc:
+                logger.warning("Failed to build per-agent Outlook service for agent %s: %s", agent.id, exc)
 
+        # 2. Agent's shared calendar via service account
+        if getattr(agent, "google_calendar_id", None) and agent.google_calendar_connected:
+            if settings.GOOGLE_CREDENTIALS_PATH and os.path.exists(settings.GOOGLE_CREDENTIALS_PATH):
+                svc = GoogleCalendarService(calendar_id=agent.google_calendar_id)
+                if svc.service:
+                    logger.info(
+                        "Using service account for agent calendar_id=%s (agent_id=%s)",
+                        agent.google_calendar_id, agent.id,
+                    )
+                    return svc
+
+    # 3 & 4. Fallback to broker / global calendar
     return get_calendar_service_for_broker(broker_config)

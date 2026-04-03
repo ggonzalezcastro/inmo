@@ -880,6 +880,7 @@ async def calendar_oauth_callback(
 
         broker_config.google_refresh_token = encrypt_value(refresh_token)
         broker_config.google_calendar_id = broker_config.google_calendar_id or "primary"
+        broker_config.calendar_provider = "google"
         if calendar_email:
             broker_config.google_calendar_email = calendar_email
 
@@ -889,11 +890,11 @@ async def calendar_oauth_callback(
     except Exception as e:
         logger.error("Error en callback OAuth Google Calendar broker_id=%s: %s", broker_id, e, exc_info=True)
         return RedirectResponse(
-            f"{settings.FRONTEND_URL}/settings?tab=calendar&status=error&reason=callback_failed"
+            f"{settings.FRONTEND_URL}/settings?tab=calendar&calendar=google&status=error&reason=callback_failed"
         )
 
     return RedirectResponse(
-        f"{settings.FRONTEND_URL}/settings?tab=calendar&status=success"
+        f"{settings.FRONTEND_URL}/settings?tab=calendar&calendar=google&status=success"
     )
 
 
@@ -940,10 +941,255 @@ async def disconnect_calendar(
     if cfg:
         cfg.google_refresh_token = None
         cfg.google_calendar_email = None
+        cfg.calendar_provider = "none"
         await db.commit()
         logger.info("Google Calendar desconectado para broker_id=%s", broker_id)
 
     return {"ok": True, "message": "Google Calendar desconectado"}
+
+
+# ── Combined calendar status ───────────────────────────────────────────────────
+
+@router.get("/calendar/all-status")
+async def get_all_calendar_status(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return connection status for both Google and Outlook calendars."""
+    broker_id = current_user.get("broker_id")
+    if not broker_id:
+        raise HTTPException(status_code=400, detail="Usuario sin broker asignado")
+
+    result = await db.execute(
+        select(BrokerPromptConfig).where(BrokerPromptConfig.broker_id == broker_id)
+    )
+    cfg = result.scalars().first()
+
+    google_connected = bool(cfg and cfg.google_refresh_token)
+    outlook_connected = bool(cfg and cfg.outlook_refresh_token)
+    # calendar_provider is None for legacy brokers — infer from which token exists
+    if cfg and cfg.calendar_provider:
+        provider = cfg.calendar_provider
+    elif google_connected:
+        provider = "google"
+    else:
+        provider = "none"
+
+    return {
+        "provider": provider,
+        "google": {
+            "connected": google_connected,
+            "email": cfg.google_calendar_email if cfg else None,
+        },
+        "outlook": {
+            "connected": outlook_connected,
+            "email": cfg.outlook_calendar_email if cfg else None,
+        },
+    }
+
+
+# ── Outlook Calendar OAuth routes ─────────────────────────────────────────────
+
+OUTLOOK_SCOPES = [
+    "https://graph.microsoft.com/Calendars.ReadWrite",
+    "offline_access",
+    "User.Read",
+]
+
+
+def _get_msal_app():
+    """Build a ConfidentialClientApplication for Microsoft Graph OAuth."""
+    import msal
+    return msal.ConfidentialClientApplication(
+        client_id=settings.MICROSOFT_CLIENT_ID,
+        client_credential=settings.MICROSOFT_CLIENT_SECRET,
+        authority=f"https://login.microsoftonline.com/{settings.MICROSOFT_TENANT_ID}",
+    )
+
+
+@router.get("/calendar/outlook/auth-url")
+async def get_outlook_calendar_auth_url(
+    current_user: dict = Depends(Permissions.require_admin),
+):
+    """
+    Generate the Microsoft OAuth URL for the current broker.
+    The frontend opens this URL in a popup/new tab.
+    """
+    if not settings.MICROSOFT_CLIENT_ID or not settings.MICROSOFT_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=503,
+            detail="Outlook OAuth no está configurado (MICROSOFT_CLIENT_ID / MICROSOFT_CLIENT_SECRET faltantes)",
+        )
+
+    broker_id = current_user.get("broker_id")
+    if not broker_id:
+        raise HTTPException(status_code=400, detail="Usuario sin broker asignado")
+
+    try:
+        from app.core.cache import cache_set_json
+        import msal
+
+        msal_app = _get_msal_app()
+        flow = msal_app.initiate_auth_code_flow(
+            scopes=OUTLOOK_SCOPES,
+            redirect_uri=settings.MICROSOFT_OAUTH_REDIRECT_URI,
+            state=_make_state(broker_id),
+        )
+        # Store the flow dict in Redis so the callback can retrieve it
+        await cache_set_json(f"outlook_flow:{broker_id}", flow, ttl=_STATE_TTL)
+        return {"auth_url": flow["auth_uri"]}
+    except ImportError:
+        raise HTTPException(status_code=503, detail="Librería msal no instalada")
+
+
+@router.get("/calendar/outlook/callback")
+async def outlook_calendar_callback(
+    code: str = Query(...),
+    state: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Microsoft OAuth2 callback — public endpoint (no JWT auth).
+    Exchanges the authorization code for tokens, stores the encrypted
+    refresh_token in broker_prompt_configs, then redirects to the frontend.
+    """
+    broker_id = _verify_state(state)
+
+    try:
+        from app.core.cache import cache_get_json, cache_delete
+        import msal, httpx
+
+        msal_app = _get_msal_app()
+
+        # Retrieve the flow dict saved during auth-url generation
+        flow = await cache_get_json(f"outlook_flow:{broker_id}")
+        if not flow:
+            return RedirectResponse(
+                f"{settings.FRONTEND_URL}/settings?tab=calendar&status=error&reason=flow_expired"
+            )
+
+        result = msal_app.acquire_token_by_auth_code_flow(
+            flow, {"code": code, "state": state}
+        )
+
+        # Flow is single-use — delete from Redis immediately regardless of outcome
+        await cache_delete(f"outlook_flow:{broker_id}")
+
+        if "error" in result:
+            logger.error(
+                "Outlook OAuth error broker_id=%s: %s — %s",
+                broker_id, result.get("error"), result.get("error_description"),
+            )
+            return RedirectResponse(
+                f"{settings.FRONTEND_URL}/settings?tab=calendar&status=error&reason=oauth_error"
+            )
+
+        refresh_token = result.get("refresh_token")
+        access_token = result.get("access_token")
+        if not refresh_token:
+            return RedirectResponse(
+                f"{settings.FRONTEND_URL}/settings?tab=calendar&status=error&reason=no_refresh_token"
+            )
+
+        # Get the user's primary calendar ID from Graph API
+        calendar_id = None
+        outlook_email = result.get("id_token_claims", {}).get("preferred_username")
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    "https://graph.microsoft.com/v1.0/me/calendar",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    timeout=10,
+                )
+                if resp.status_code == 200:
+                    calendar_id = resp.json().get("id")
+        except Exception as exc:
+            logger.warning("Could not fetch Outlook calendar ID for broker_id=%s: %s", broker_id, exc)
+
+        # Persist to DB
+        db_result = await db.execute(
+            select(BrokerPromptConfig).where(BrokerPromptConfig.broker_id == broker_id)
+        )
+        broker_config = db_result.scalars().first()
+        if not broker_config:
+            broker_config = BrokerPromptConfig(broker_id=broker_id)
+            db.add(broker_config)
+
+        broker_config.outlook_refresh_token = encrypt_value(refresh_token)
+        broker_config.outlook_calendar_id = calendar_id
+        broker_config.outlook_calendar_email = outlook_email
+        broker_config.calendar_provider = "outlook"
+
+        await db.commit()
+        logger.info(
+            "Outlook Calendar conectado para broker_id=%s email=%s calendar_id=%s",
+            broker_id, outlook_email, calendar_id,
+        )
+
+    except Exception as exc:
+        logger.error(
+            "Error en callback OAuth Outlook Calendar broker_id=%s: %s",
+            broker_id, exc, exc_info=True,
+        )
+        return RedirectResponse(
+            f"{settings.FRONTEND_URL}/settings?tab=calendar&status=error&reason=callback_failed"
+        )
+
+    return RedirectResponse(
+        f"{settings.FRONTEND_URL}/settings?tab=calendar&calendar=outlook&status=success"
+    )
+
+
+@router.get("/calendar/outlook/status")
+async def get_outlook_calendar_status(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return Outlook Calendar connection status for the current broker."""
+    broker_id = current_user.get("broker_id")
+    if not broker_id:
+        raise HTTPException(status_code=400, detail="Usuario sin broker asignado")
+
+    result = await db.execute(
+        select(BrokerPromptConfig).where(BrokerPromptConfig.broker_id == broker_id)
+    )
+    cfg = result.scalars().first()
+
+    if not cfg or not cfg.outlook_refresh_token:
+        return {"connected": False, "email": None, "calendar_id": None}
+
+    return {
+        "connected": True,
+        "email": cfg.outlook_calendar_email,
+        "calendar_id": cfg.outlook_calendar_id,
+    }
+
+
+@router.delete("/calendar/outlook/disconnect")
+async def disconnect_outlook_calendar(
+    current_user: dict = Depends(Permissions.require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove Outlook Calendar credentials for the current broker."""
+    broker_id = current_user.get("broker_id")
+    if not broker_id:
+        raise HTTPException(status_code=400, detail="Usuario sin broker asignado")
+
+    result = await db.execute(
+        select(BrokerPromptConfig).where(BrokerPromptConfig.broker_id == broker_id)
+    )
+    cfg = result.scalars().first()
+
+    if cfg:
+        cfg.outlook_refresh_token = None
+        cfg.outlook_calendar_id = None
+        cfg.outlook_calendar_email = None
+        # Revert to google if google token still exists, otherwise none
+        cfg.calendar_provider = "google" if cfg.google_refresh_token else "none"
+        await db.commit()
+        logger.info("Outlook Calendar desconectado para broker_id=%s", broker_id)
+
+    return {"ok": True, "message": "Outlook Calendar desconectado"}
 
 
 # ── Availability Slots CRUD ────────────────────────────────────────────────────

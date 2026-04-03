@@ -34,6 +34,8 @@ from app.features.broker.routes_users import router as broker_users_router
 from app.features.broker.routes_brokers import router as brokers_router
 from app.routes.costs import router as costs_router
 from app.routes.admin_tasks import router as admin_tasks_router
+from app.routes.super_admin import router as super_admin_router
+from app.routes.audit import router as audit_router
 from app.routes.ws import router as ws_router
 from app.routes.knowledge_base import router as kb_router
 from app.routes.conversations import router as conversations_router
@@ -42,6 +44,24 @@ from app.celery_app import celery_app
 
 
 logger = logging.getLogger(__name__)
+
+# ── Sentry (optional — only initializes when SENTRY_DSN is set) ──────────────
+if settings.SENTRY_DSN:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+
+        sentry_sdk.init(
+            dsn=settings.SENTRY_DSN,
+            environment=settings.ENVIRONMENT,
+            traces_sample_rate=0.05,   # 5% of requests traced — keep cost low
+            send_default_pii=True,
+            integrations=[FastApiIntegration(), SqlalchemyIntegration()],
+        )
+        logger.info("Sentry initialized (env=%s)", settings.ENVIRONMENT)
+    except Exception as _sentry_err:
+        logger.warning("Sentry init failed: %s", _sentry_err)
 
 
 # Lifespan context manager
@@ -65,9 +85,21 @@ async def lifespan(app: FastAPI):
         except Exception as _e:
             logger.warning("Could not validate Vapi config at startup: %s", _e)
 
+    # Start WebSocket Redis Pub/Sub listener (enables cross-process broadcast)
+    try:
+        from app.core.websocket_manager import ws_manager
+        await ws_manager.init_redis(settings.REDIS_URL)
+    except Exception as _ws_err:
+        logger.warning("WebSocket Redis init failed (local-only mode): %s", _ws_err)
+
     yield
     # Shutdown
     logger.info("Shutting down application...")
+    try:
+        from app.core.websocket_manager import ws_manager as _wsm
+        await _wsm.shutdown()
+    except Exception:
+        pass
     await close_db()
 
 
@@ -305,59 +337,8 @@ async def root():
 # Health check
 @app.get("/health")
 async def health_check():
-    from app.database import engine
-    from sqlalchemy import text
-    from redis import Redis
-    
-    # Check database
-    try:
-        async with engine.connect() as conn:
-            result = await conn.execute(text("SELECT 1"))
-            result.scalar()
-        db_status = "ok"
-    except Exception as e:
-        db_status = f"error: {str(e)}"
-    
-    # Check Redis
-    try:
-        r = Redis.from_url(settings.REDIS_URL)
-        r.ping()
-        redis_status = "ok"
-    except Exception as e:
-        redis_status = f"error: {str(e)}"
-    
-    # Circuit breaker states
-    from app.core.circuit_breakers import get_breaker_states
-    breaker_states = get_breaker_states()
-    any_open = any(s == "open" for s in breaker_states.values())
-
-    # Semantic cache hit rate
-    from app.services.llm.semantic_cache import get_hit_rate
-    semantic_cache_stats = await get_hit_rate()
-
-    # Gemini context cache stats (TASK-028)
-    from app.services.llm.prompt_cache import PromptCacheManager
-    prompt_cache_stats = PromptCacheManager.get_stats()
-
-    # WebSocket connection stats (TASK-027)
-    from app.core.websocket_manager import ws_manager
-    ws_stats = ws_manager.stats()
-
-    overall = (
-        "healthy"
-        if db_status == "ok" and redis_status == "ok" and not any_open
-        else "degraded"
-    )
-
-    return {
-        "status": overall,
-        "database": db_status,
-        "redis": redis_status,
-        "circuit_breakers": breaker_states,
-        "semantic_cache": semantic_cache_stats,
-        "prompt_cache": prompt_cache_stats,
-        "websocket": ws_stats,
-    }
+    from app.services.health import get_system_health
+    return await get_system_health()
 
 
 # Include routers (from app.features)
@@ -377,6 +358,8 @@ app.include_router(broker_users_router, prefix="/api/broker", tags=["broker-user
 app.include_router(brokers_router, prefix="/api/brokers", tags=["brokers"])
 app.include_router(costs_router, prefix="/api/v1/admin/costs", tags=["costs"])
 app.include_router(admin_tasks_router, prefix="/api/v1/admin/tasks", tags=["admin-tasks"])
+app.include_router(super_admin_router, prefix="/api/v1/admin", tags=["super-admin"])
+app.include_router(audit_router, prefix="/api/v1/admin/audit-log", tags=["audit"])
 app.include_router(ws_router, prefix="/ws", tags=["websocket"])
 app.include_router(kb_router, prefix="/api/v1/kb", tags=["knowledge-base"])
 app.include_router(conversations_router, prefix="/api/v1/conversations", tags=["conversations"])

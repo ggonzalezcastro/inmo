@@ -20,6 +20,7 @@ from app.schemas.lead import LeadCreate
 from app.shared.input_sanitizer import sanitize_chat_input, InputSanitizationError
 from app.services.chat.state_machine import ConversationStateMachine
 from app.core.encryption import encrypt_metadata_fields
+from sqlalchemy.future import select as _sa_select
 import logging
 
 try:
@@ -51,6 +52,7 @@ class ChatOrchestratorService:
         message: str,
         lead_id: Optional[int] = None,
         provider_name: str = "webchat",
+        skip_inbound_log: bool = False,
     ) -> ChatResult:
         """
         Process one chat message: get/create lead, analyze, update score/metadata,
@@ -83,8 +85,8 @@ class ChatOrchestratorService:
             lead = await LeadService.create_lead(db, lead_data, broker_id=broker_id)
         current_lead_id = lead.id
 
-        # 2. Log inbound message
-        if broker_id:
+        # 2. Log inbound message (skip if caller already logged it, e.g. whatsapp_tasks)
+        if broker_id and not skip_inbound_log:
             await ChatService.log_message(
                 db,
                 lead_id=lead.id,
@@ -105,11 +107,80 @@ class ChatOrchestratorService:
             )
         await db.refresh(lead)
 
+        # ── Sync heuristic sentiment gate ────────────────────────────────────
+        # Run fast regex heuristics (microseconds, zero LLM calls) BEFORE the
+        # AI responds. If the current message clearly indicates escalation or
+        # frustration, act immediately rather than letting the AI reply normally.
+        try:
+            from app.config import settings as _cfg_s
+            if getattr(_cfg_s, "SENTIMENT_ANALYSIS_ENABLED", True) and broker_id:
+                from app.services.sentiment.heuristics import analyze_heuristics as _h_analyze
+                from app.services.sentiment.scorer import (
+                    ActionLevel as _AL,
+                    compute_action_level as _compute_action,
+                    empty_sentiment as _empty_sent,
+                )
+                from app.services.sentiment.escalation import apply_escalation_action as _apply_action
+
+                _h_result = _h_analyze(message)
+                _current_meta_sent = (lead.lead_metadata or {}).get("sentiment") or _empty_sent()
+
+                # Build a temporary sentiment snapshot using the raw per-message
+                # heuristic score (not the accumulated window) to compute the action
+                # level. This is a fast gate only — the Celery task still runs the
+                # full sliding-window analysis afterward.
+                _temp_sent = {
+                    "frustration_score": _h_result.score,
+                    "escalated": _current_meta_sent.get("escalated", False),
+                    "message_scores": [{"score": _h_result.score, "emotions": _h_result.emotions, "ts": ""}],
+                    "tone_hint": None,
+                }
+                _action = _compute_action(_temp_sent)
+
+                if _action == _AL.ESCALATE:
+                    # Escalate immediately — fall through to human_mode block below
+                    # which will send the handoff message and return early.
+                    await _apply_action(
+                        db=db,
+                        lead_id=lead.id,
+                        broker_id=broker_id,
+                        action=_AL.ESCALATE,
+                        sentiment=_current_meta_sent,
+                        last_message=message,
+                        channel=provider_name or "webchat",
+                    )
+                    await db.refresh(lead)
+
+                elif _action == _AL.ADAPT_TONE:
+                    # Inject tone_hint so the agent uses softer language on this turn.
+                    _tone = (
+                        "calm"
+                        if "confusion" in _h_result.emotions
+                        and "abandonment_threat" not in _h_result.emotions
+                        else "empathetic"
+                    )
+                    import json as _json
+                    from sqlalchemy import text as _sa_text
+                    _sentiment_with_hint = dict(_current_meta_sent)
+                    _sentiment_with_hint["tone_hint"] = _tone
+                    await db.execute(
+                        _sa_text(
+                            "UPDATE leads SET metadata = jsonb_set("
+                            "COALESCE(metadata,'{}'), '{sentiment}',"
+                            " CAST(:val AS jsonb), true) WHERE id = :lid"
+                        ),
+                        {"val": _json.dumps(_sentiment_with_hint), "lid": lead.id},
+                    )
+                    await db.commit()
+                    await db.refresh(lead)
+        except Exception as _sync_sent_exc:
+            logger.debug("[Sentiment] Sync heuristic gate error: %s", _sync_sent_exc)
+
         # ── Human mode: AI silenced ──────────────────────────────────────────
         # If a human agent has taken control, skip AI processing entirely.
         # On the FIRST message after escalation, send a one-time handoff notice.
         # After that, stay silent so the human agent can take over.
-        if (lead.lead_metadata or {}).get("human_mode"):
+        if lead.human_mode:
             meta = lead.lead_metadata or {}
             if broker_id:
                 try:
@@ -122,7 +193,7 @@ class ChatOrchestratorService:
                         "phone": lead.phone,
                         "message_text": message[:300],
                         "channel": provider_name,
-                        "assigned_to": meta.get("human_assigned_to"),
+                        "assigned_to": lead.human_assigned_to,
                     })
                 except Exception as _ws_exc:
                     logger.debug("[WS] Human mode broadcast error: %s", _ws_exc)
@@ -154,7 +225,7 @@ class ChatOrchestratorService:
                         SET metadata = jsonb_set(
                             COALESCE(metadata, '{}'),
                             '{human_mode_notified}',
-                            'true'::jsonb,
+                            CAST('true' AS jsonb),
                             true
                         )
                         WHERE id = :lead_id
@@ -210,7 +281,13 @@ class ChatOrchestratorService:
         except Exception as sm_exc:
             logger.warning("State machine advance failed: %s", sm_exc)
 
-        # 4. Atomic score update
+        # 4. Acquire row-level lock BEFORE score update to prevent the
+        # Celery sentiment task (which also uses FOR UPDATE) from reading
+        # stale scores and overwriting changes on concurrent execution.
+        await db.execute(_sa_select(Lead).where(Lead.id == lead.id).with_for_update())
+        await db.refresh(lead)
+
+        # Atomic score update (protected by the lock above)
         score_delta = analysis.get("score_delta", 0)
         await db.execute(
             update(Lead)
@@ -224,7 +301,8 @@ class ChatOrchestratorService:
         new_score = lead.lead_score
         old_score = new_score - score_delta
 
-        # 5. Update lead fields and metadata from analysis
+        # 5. Update lead fields and metadata from analysis (still protected by the lock)
+
         if analysis.get("name"):
             lead.name = analysis["name"]
         if analysis.get("phone"):

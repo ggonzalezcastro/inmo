@@ -8,9 +8,10 @@ Endpoints:
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from app.database import get_db
 from app.middleware.auth import get_current_user
@@ -80,3 +81,35 @@ async def discard_failed_task(
     if not ok:
         raise HTTPException(status_code=404, detail=f"DLQ entry {entry_id!r} not found")
     return {"status": "discarded", "id": entry_id}
+
+
+class BulkIdsRequest(BaseModel):
+    ids: List[str]
+
+
+@router.post("/bulk-retry", status_code=200)
+async def bulk_retry_failed_tasks(
+    body: BulkIdsRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Retry multiple DLQ entries at once."""
+    _require_admin(current_user)
+    results = []
+    for entry_id in body.ids:
+        ok = await DLQManager.retry(entry_id)
+        results.append({"id": entry_id, "status": "requeued" if ok else "not_found"})
+    return {"results": results}
+
+
+@router.post("/bulk-discard", status_code=200)
+async def bulk_discard_failed_tasks(
+    body: BulkIdsRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Permanently discard multiple DLQ entries at once."""
+    _require_admin(current_user)
+    results = []
+    for entry_id in body.ids:
+        ok = await DLQManager.delete(entry_id)
+        results.append({"id": entry_id, "status": "discarded" if ok else "not_found"})
+    return {"results": results}

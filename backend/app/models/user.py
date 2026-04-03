@@ -32,6 +32,16 @@ class User(Base, IdMixin, TimestampMixin):
     google_calendar_id = Column(String(255), nullable=True)        # email del calendario (ej: juan@gmail.com)
     google_calendar_connected = Column(Boolean, default=False, nullable=False)  # incluir en round-robin
 
+    # Google Calendar — per-agent OAuth (token personal del agente)
+    google_refresh_token = Column(String, nullable=True)           # encriptado con encrypt_value()
+    google_calendar_email = Column(String(255), nullable=True)     # email de la cuenta conectada
+
+    # Outlook Calendar — per-agent OAuth
+    outlook_refresh_token = Column(String, nullable=True)          # encriptado con encrypt_value()
+    outlook_calendar_id = Column(String(500), nullable=True)       # Graph calendar ID
+    outlook_calendar_email = Column(String(255), nullable=True)    # Cuenta Outlook conectada
+    outlook_calendar_connected = Column(Boolean, default=False, nullable=False)
+
     # Relationships
     broker = relationship("Broker", back_populates="users", foreign_keys=[broker_id])
     

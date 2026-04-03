@@ -48,8 +48,9 @@ class ClaudeProvider(BaseLLMProvider):
         if self.api_key:
             try:
                 from anthropic import AsyncAnthropic
-                self._client = AsyncAnthropic(api_key=self.api_key)
-                logger.info(f"ClaudeProvider initialized with model: {self.model}")
+                base_url = getattr(settings, 'ANTHROPIC_BASE_URL', '') or None
+                self._client = AsyncAnthropic(api_key=self.api_key, base_url=base_url)
+                logger.info(f"ClaudeProvider initialized with model: {self.model}" + (f" @ {base_url}" if base_url else ""))
             except ImportError:
                 logger.error("ClaudeProvider requires 'anthropic' package. Install with: pip install anthropic")
                 self._client = None
@@ -59,7 +60,15 @@ class ClaudeProvider(BaseLLMProvider):
     @property
     def is_configured(self) -> bool:
         return bool(self._client and self.api_key)
-    
+
+    @staticmethod
+    def _extract_text(content_blocks) -> str:
+        """Return the first TextBlock text, skipping ThinkingBlock and other non-text blocks."""
+        for block in (content_blocks or []):
+            if hasattr(block, "text") and block.type == "text":
+                return block.text
+        return ""
+
     async def generate_response(self, prompt: str) -> str:
         """Generate simple text response from Claude"""
         if not self.is_configured:
@@ -75,7 +84,7 @@ class ClaudeProvider(BaseLLMProvider):
             )
             elapsed = time.time() - start_time
             
-            response_text = message.content[0].text
+            response_text = self._extract_text(message.content)
             logger.info(f"[Claude] Response time: {elapsed:.2f}s, length: {len(response_text)}")
             
             return self._clean_response(response_text)
@@ -113,7 +122,7 @@ class ClaudeProvider(BaseLLMProvider):
             message = await self._client.messages.create(**kwargs)
             elapsed = time.time() - start_time
 
-            text = message.content[0].text if message.content else ""
+            text = self._extract_text(message.content)
             logger.info(f"[Claude] Messages response time: {elapsed:.2f}s, temp={effective_temp}")
             
             return LLMResponse(
@@ -134,7 +143,8 @@ class ClaudeProvider(BaseLLMProvider):
         messages: List[LLMMessage],
         tools: List[LLMToolDefinition],
         system_prompt: Optional[str] = None,
-        tool_executor: Optional[Callable] = None
+        tool_executor: Optional[Callable] = None,
+        cached_content: Optional[str] = None,  # ignored — Gemini-only feature
     ) -> Tuple[str, List[Dict[str, Any]]]:
         """Generate response with tool use"""
         if not self.is_configured:
@@ -174,12 +184,10 @@ class ClaudeProvider(BaseLLMProvider):
                 tool_uses = [block for block in response.content if block.type == "tool_use"]
                 
                 if not tool_uses:
-                    # No tool calls, extract text response
+                    # No tool calls, extract text response (skip ThinkingBlocks)
                     text_blocks = [block.text for block in response.content if block.type == "text"]
                     usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
                     return self._clean_response("".join(text_blocks)), function_calls_executed, usage
-                
-                # Execute tool calls
                 if tool_executor:
                     tool_results = []
                     for tool_use in tool_uses:
@@ -254,7 +262,7 @@ class ClaudeProvider(BaseLLMProvider):
                     "output_tokens": message.usage.output_tokens or 0,
                 }
             
-            text = message.content[0].text.strip()
+            text = self._extract_text(message.content).strip()
             
             # Clean JSON from markdown
             if text.startswith("```"):

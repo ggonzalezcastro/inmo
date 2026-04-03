@@ -59,16 +59,23 @@ _CONFUSION_PATTERNS: List[tuple] = [
 
 # Anger/Frustration (non-sarcasm — explicit)
 _FRUSTRATION_PATTERNS: List[tuple] = [
-    (re.compile(r"\b(estoy (enojad[oa]|molest[oa]|frustrad[oa]|harto|harta))\b", re.I), 0.75, "frustration", 0.90),
-    (re.compile(r"\b(me molesta|me tiene harto|me tiene harta|ya me hartaron)\b", re.I), 0.70, "frustration", 0.90),
+    # Explicit frustration — also covers "toy" (Chilean colloquial for "estoy")
+    (re.compile(r"\b((estoy|toy) (enojad[oa]|molest[oa]|frustrad[oa]|harto|harta|bravo|brava|alterado|alterada))\b", re.I), 0.75, "frustration", 0.90),
+    (re.compile(r"\b(me molesta|me tiene harto|me tiene harta|ya me hartaron|estoy harto|toy harto|toy enojad[oa])\b", re.I), 0.70, "frustration", 0.90),
     (re.compile(r"\b(es una lata|qu[eé] lata|qu[eé] fome|qu[eé] penca)\b", re.I), 0.40, "frustration", 0.75),  # Chilean idioms
-    (re.compile(r"\b(demasiado lento|muy lento|tardando mucho|tardan mucho|tardando demasiado|cuánto (m[aá]s|más) tardan)\b", re.I), 0.40, "frustration", 0.70),
-    (re.compile(r"\b(llevan (mucho tiempo|horas|d[ií]as)|cuánto (m[aá]s|más) voy a esperar)\b", re.I), 0.45, "frustration", 0.75),
-    # Uppercase frustration — detect when most words in message are all-caps
-    (re.compile(r"(?:^|(?<=\s))[A-ZÁÉÍÓÚÑ]{3,}(?=\s|$).*(?:^|(?<=\s))[A-ZÁÉÍÓÚÑ]{3,}(?=\s|$).*(?:^|(?<=\s))[A-ZÁÉÍÓÚÑ]{3,}", re.M), 0.40, "frustration", 0.60),
+    (re.compile(r"\b(demasiado lento|muy lento|tardando mucho|tardan mucho|tardando demasiado|cu[aá]nto (m[aá]s|más) tardan)\b", re.I), 0.40, "frustration", 0.70),
+    (re.compile(r"\b(llevan (mucho tiempo|horas|d[ií]as)|cu[aá]nto (m[aá]s|más) voy a esperar)\b", re.I), 0.45, "frustration", 0.75),
+    # Uppercase frustration — at least 2 all-caps words (2+ chars each)
+    (re.compile(r"(?:^|(?<=\s))[A-ZÁÉÍÓÚÑ]{2,}(?=\s|$).*(?:^|(?<=\s))[A-ZÁÉÍÓÚÑ]{2,}(?=\s|$)", re.M), 0.40, "frustration", 0.60),
     # Repeated exclamation marks
     (re.compile(r"!{2,}"), 0.30, "frustration", 0.55),
     (re.compile(r"\b(esto es un desastre|qu[eé] desastre|terrible (servicio|atenci[oó]n))\b", re.I), 0.70, "frustration", 0.85),
+    # Chilean profanity / insults — strong anger signal
+    (re.compile(r"\b(maldito|maldita|conchetumare|concha (de )?tu madre|ctm|weon|hue[ov][oó]n|chucha|la chucha|puta (la |que la |madre)?|como el pico|de mierda|idiota|imbecil|estupido|estupida)\b", re.I), 0.85, "anger", 0.90),
+    # Demand to speak with supervisor/manager — clear escalation intent
+    (re.compile(r"\b(quiero (hablar|habla|comunicarme) con (un |el )?(jefe|supervisor|encargado|gerente|due[ñn]o|responsable))\b", re.I), 0.80, "escalation_demand", 0.90),
+    (re.compile(r"\b(p[aá]same (con |al )?(jefe|supervisor|encargado|gerente))\b", re.I), 0.80, "escalation_demand", 0.90),
+    (re.compile(r"\b(hablar con (tu |el )?(jefe|supervisor|encargado|gerente|due[ñn]o))\b", re.I), 0.80, "escalation_demand", 0.90),
 ]
 
 # Sarcasm markers — high uncertainty, always needs LLM confirmation

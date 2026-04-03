@@ -8,6 +8,7 @@ import io
 from app.database import get_db
 from app.middleware.auth import get_current_user
 from app.middleware.permissions import Permissions
+from app.middleware.plan_limits import check_lead_limit, invalidate_plan_cache
 from app.services.leads import LeadService, ScoringService
 from app.services.pipeline import PipelineService
 from app.schemas.lead import LeadCreate, LeadUpdate, LeadResponse, LeadDetailResponse
@@ -58,6 +59,7 @@ async def list_leads(
     dicom_status: str = Query("", description="Filter by DICOM status: clean, has_debt, unknown"),
     created_from: str = Query("", description="ISO date string, e.g. 2026-01-01"),
     created_to: str = Query("", description="ISO date string, e.g. 2026-12-31"),
+    broker_id: Optional[int] = Query(None, description="Filter by broker (superadmin only)"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     current_user: dict = Depends(get_current_user),
@@ -88,10 +90,15 @@ async def list_leads(
         if user_role == "AGENT":
             # Agents see only their own assigned leads
             service_kwargs["assigned_to"] = user_id
-        else:
-            # ADMIN sees their broker's leads; superadmin sees all
-            if user_role == "ADMIN" and broker_id:
+        elif user_role == "SUPERADMIN":
+            # Superadmin: filter by broker_id if provided, else see all
+            if broker_id:
                 service_kwargs["broker_id"] = broker_id
+        else:
+            # ADMIN sees their broker's leads
+            user_broker_id = current_user.get("broker_id")
+            if user_broker_id:
+                service_kwargs["broker_id"] = user_broker_id
 
         if dicom_status:
             # Must fetch all matching records first, then filter by decrypted DICOM value.
@@ -174,11 +181,15 @@ async def get_lead(
 async def create_lead(
     lead_data: LeadCreate,
     current_user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _limit: None = Depends(check_lead_limit),
 ):
     """Create new lead"""
     try:
         lead = await LeadService.create_lead(db, lead_data)
+        broker_id = current_user.get("broker_id")
+        if broker_id:
+            await invalidate_plan_cache(broker_id)
         return _build_lead_response(lead, _safe_metadata(lead.lead_metadata))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

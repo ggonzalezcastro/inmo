@@ -48,8 +48,9 @@ class OpenAIProvider(BaseLLMProvider):
         if self.api_key:
             try:
                 from openai import AsyncOpenAI
-                self._client = AsyncOpenAI(api_key=self.api_key)
-                logger.info(f"OpenAIProvider initialized with model: {self.model}")
+                base_url = getattr(settings, 'OPENAI_BASE_URL', '') or None
+                self._client = AsyncOpenAI(api_key=self.api_key, base_url=base_url)
+                logger.info(f"OpenAIProvider initialized with model: {self.model}" + (f" @ {base_url}" if base_url else ""))
             except ImportError:
                 logger.error("OpenAIProvider requires 'openai' package. Install with: pip install openai")
                 self._client = None

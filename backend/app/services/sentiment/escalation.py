@@ -77,7 +77,7 @@ async def _update_sentiment_field(
             SET metadata = jsonb_set(
                 COALESCE(metadata, '{}'),
                 '{sentiment}',
-                :sentiment_value::jsonb,
+                CAST(:sentiment_value AS jsonb),
                 true
             )
             WHERE id = :lead_id
@@ -134,17 +134,15 @@ async def _escalate(
     await db.execute(
         text("""
             UPDATE leads
-            SET metadata = jsonb_set(
-                jsonb_set(
+            SET
+                metadata = jsonb_set(
                     COALESCE(metadata, '{}'),
                     '{sentiment}',
-                    :sentiment_value::jsonb,
+                    CAST(:sentiment_value AS jsonb),
                     true
                 ),
-                '{human_mode}',
-                'true'::jsonb,
-                true
-            )
+                human_mode = true,
+                human_taken_at = NOW()
             WHERE id = :lead_id
         """),
         {

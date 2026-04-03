@@ -281,8 +281,8 @@ async def get_leads_by_stage(
         for lead in leads:
             meta = lead.lead_metadata if isinstance(lead.lead_metadata, dict) else (lead.lead_metadata or {})
             # Hide leads exclusively taken by another specific human agent
-            human_assigned_to = meta.get("human_assigned_to")
-            if meta.get("human_mode") and human_assigned_to and human_assigned_to != current_user_id:
+            human_assigned_to = lead.human_assigned_to
+            if lead.human_mode and human_assigned_to is not None and human_assigned_to != current_user_id:
                 continue
             # Try to get assigned agent name from relationship (loaded eagerly if available)
             assigned_agent_name = None
@@ -336,14 +336,16 @@ async def get_leads_by_stage(
 
 @router.get("/funnel-metrics")
 async def get_funnel_metrics(
+    broker_id: Optional[int] = Query(None, description="Filter by broker (superadmin only)"),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get conversion funnel metrics: stage counts, conversion rates, avg days, lost by stage"""
     try:
         from app.services.pipeline.metrics_service import get_funnel_metrics
-        broker_id = current_user.get("broker_id")
-        metrics = await get_funnel_metrics(db=db, broker_id=broker_id)
+        user_role = current_user.get("role", "").upper()
+        effective_broker_id = broker_id if user_role == "SUPERADMIN" else current_user.get("broker_id")
+        metrics = await get_funnel_metrics(db=db, broker_id=effective_broker_id)
         return metrics
     except Exception as e:
         logger.error(f"Error getting funnel metrics: {str(e)}", exc_info=True)
@@ -352,16 +354,16 @@ async def get_funnel_metrics(
 
 @router.get("/metrics")
 async def get_stage_metrics(
+    broker_id: Optional[int] = Query(None, description="Filter by broker (superadmin only)"),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get pipeline conversion metrics"""
-    
     try:
-        broker_id = current_user.get("broker_id")
-        metrics = await PipelineService.get_stage_metrics(db=db, broker_id=broker_id)
+        user_role = current_user.get("role", "").upper()
+        effective_broker_id = broker_id if user_role == "SUPERADMIN" else current_user.get("broker_id")
+        metrics = await PipelineService.get_stage_metrics(db=db, broker_id=effective_broker_id)
         return metrics
-        
     except Exception as e:
         logger.error(f"Error getting stage metrics: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

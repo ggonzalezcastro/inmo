@@ -19,13 +19,16 @@ class AuditLog(Base, IdMixin):
     
     # User who made the change
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    # Broker context (nullable — superadmins may not belong to a broker)
+    broker_id = Column(Integer, ForeignKey("brokers.id", ondelete="SET NULL"), nullable=True, index=True)
     
     # Action type
     action = Column(String(50), nullable=False, index=True)  # "create", "update", "delete", "apply_campaign", etc.
     
     # Resource information
     resource_type = Column(String(50), nullable=False, index=True)  # "campaign", "lead", "template", etc.
-    resource_id = Column(Integer, nullable=False, index=True)
+    resource_id = Column(Integer, nullable=True, index=True)
     
     # Changes (JSON with before/after)
     changes = Column(JSON, nullable=True, default={})

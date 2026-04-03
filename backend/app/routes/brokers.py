@@ -2,7 +2,7 @@
 Broker management routes
 Endpoints for creating and managing brokers (superadmin only)
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List, Optional
@@ -12,6 +12,7 @@ from app.database import get_db
 from app.middleware.auth import get_current_user
 from app.models.broker import Broker
 from app.models.user import UserRole
+from app.services.audit import log_audit
 import logging
 
 router = APIRouter()
@@ -45,6 +46,7 @@ class BrokerResponse(BaseModel):
 @router.post("/", response_model=BrokerResponse, status_code=status.HTTP_201_CREATED)
 async def create_broker(
     broker_data: BrokerCreate,
+    request: Request,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -115,9 +117,19 @@ async def create_broker(
         # Default values are already set in the model
     )
     db.add(lead_config)
-    
+
+    await log_audit(
+        db,
+        user_id=current_user.get("user_id"),
+        broker_id=broker.id,
+        action="broker_create",
+        resource_type="broker",
+        resource_id=broker.id,
+        changes={"name": broker.name, "slug": broker.slug},
+        ip_address=request.client.host if request.client else None,
+    )
     await db.commit()
-    
+
     logger.info(f"Broker created: {broker.id} - {broker.name} by superadmin {current_user.get('email')}")
     
     return broker
@@ -210,6 +222,7 @@ async def get_broker(
 async def update_broker(
     broker_id: int,
     broker_data: BrokerCreate,
+    request: Request,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -245,15 +258,26 @@ async def update_broker(
     if broker_data.service_zones:
         broker.service_zones = broker_data.service_zones
     
+    await log_audit(
+        db,
+        user_id=current_user.get("user_id"),
+        broker_id=broker_id,
+        action="broker_update",
+        resource_type="broker",
+        resource_id=broker_id,
+        changes=broker_data.model_dump(exclude_none=True),
+        ip_address=request.client.host if request.client else None,
+    )
     await db.commit()
     await db.refresh(broker)
-    
+
     return broker
 
 
 @router.delete("/{broker_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_broker(
     broker_id: int,
+    request: Request,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -277,8 +301,18 @@ async def delete_broker(
     
     # Soft delete (set is_active = False)
     broker.is_active = False
+    await log_audit(
+        db,
+        user_id=current_user.get("user_id"),
+        broker_id=broker_id,
+        action="broker_deactivate",
+        resource_type="broker",
+        resource_id=broker_id,
+        changes={"name": broker.name},
+        ip_address=request.client.host if request.client else None,
+    )
     await db.commit()
-    
+
     logger.info(f"Broker deactivated: {broker_id} by superadmin {current_user.get('email')}")
     
     return None

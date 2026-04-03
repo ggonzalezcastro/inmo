@@ -47,6 +47,7 @@ from app.models.audit_log import AuditLog
 from app.models.llm_call import LLMCall
 from app.models.prompt_version import PromptVersion
 from app.models.knowledge_base import KnowledgeBase
+from app.models.broker_plan import BrokerPlan
 
 __all__ = [
     "Base",
