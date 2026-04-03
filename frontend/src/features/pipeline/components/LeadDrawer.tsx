@@ -28,6 +28,8 @@ import {
 } from '@/shared/components/ui/dropdown-menu'
 import { PIPELINE_STAGES, DICOM_CONFIG } from '@/shared/lib/constants'
 import { chatService, type ChatMessage } from '../services/chat.service'
+import { appointmentService, type Appointment, type CreateAppointmentDto } from '../services/appointment.service'
+import { pipelineService } from '../services/pipeline.service'
 import { getErrorMessage } from '@/shared/types/api'
 import type { Lead } from '@/features/leads/types'
 
@@ -39,7 +41,7 @@ interface LeadDrawerProps {
   onMoveStage: (lead: Lead, newStage: string) => void
 }
 
-type Tab = 'chat' | 'details'
+type Tab = 'chat' | 'details' | 'citas'
 
 // ── Sub-components ───────────────────────────────────────────────────────────
 
@@ -110,8 +112,13 @@ export function LeadDrawer({ lead, onClose, onMoveStage }: LeadDrawerProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [loadingChat, setLoadingChat] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [appointments, setAppointments] = useState<Appointment[]>([])
+  const [loadingApts, setLoadingApts] = useState(false)
+  const [agents, setAgents] = useState<Array<{ id: number; name: string; email: string }>>([])
+  const [newApt, setNewApt] = useState<Partial<CreateAppointmentDto>>({})
   const chatBottomRef = useRef<HTMLDivElement>(null)
   const drawerRef = useRef<HTMLDivElement>(null)
+  const aptAgentInitRef = useRef(false)
 
   // ── Fetch messages when lead changes ──────────────────────────────────────
   useEffect(() => {
@@ -132,6 +139,27 @@ export function LeadDrawer({ lead, onClose, onMoveStage }: LeadDrawerProps) {
       chatBottomRef.current.scrollIntoView({ behavior: 'smooth' })
     }
   }, [messages, tab])
+
+  // ── Appointments tab ──────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!lead || tab !== 'citas') return
+    aptAgentInitRef.current = false
+    setLoadingApts(true)
+    Promise.all([
+      appointmentService.getForLead(lead.id),
+      pipelineService.listAgents(),
+    ])
+      .then(([apts, agts]) => {
+        setAppointments(apts)
+        setAgents(agts)
+        if (!aptAgentInitRef.current && agts.length > 0) {
+          setNewApt((prev) => ({ ...prev, agent_id: agts[0].id }))
+          aptAgentInitRef.current = true
+        }
+      })
+      .catch((err) => toast.error(getErrorMessage(err)))
+      .finally(() => setLoadingApts(false))
+  }, [lead?.id, tab])
 
   // ── Close on Escape ───────────────────────────────────────────────────────
   useEffect(() => {
