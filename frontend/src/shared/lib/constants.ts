@@ -2,9 +2,8 @@ export const PIPELINE_STAGES = [
   { key: 'entrada', label: 'Entrada' },
   { key: 'perfilamiento', label: 'Perfilamiento' },
   { key: 'calificacion_financiera', label: 'Calificación Financiera' },
+  { key: 'potencial', label: 'Potencial' },
   { key: 'agendado', label: 'Agendado' },
-  { key: 'seguimiento', label: 'Seguimiento' },
-  { key: 'referidos', label: 'Referidos' },
   { key: 'ganado', label: 'Ganado' },
   { key: 'perdido', label: 'Perdido' },
 ] as const
@@ -27,9 +26,8 @@ export const PIPELINE_STAGE_CONFIG = {
   entrada: { label: 'Entrada', color: 'bg-slate-100 text-slate-700 border-slate-200' },
   perfilamiento: { label: 'Perfilamiento', color: 'bg-blue-100 text-blue-700 border-blue-200' },
   calificacion_financiera: { label: 'Cal. Financiera', color: 'bg-violet-100 text-violet-700 border-violet-200' },
+  potencial: { label: 'Potencial', color: 'bg-amber-100 text-amber-700 border-amber-200' },
   agendado: { label: 'Agendado', color: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
-  seguimiento: { label: 'Seguimiento', color: 'bg-amber-100 text-amber-700 border-amber-200' },
-  referidos: { label: 'Referidos', color: 'bg-cyan-100 text-cyan-700 border-cyan-200' },
   ganado: { label: 'Ganado', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
   perdido: { label: 'Perdido', color: 'bg-rose-100 text-rose-600 border-rose-200' },
 } as const

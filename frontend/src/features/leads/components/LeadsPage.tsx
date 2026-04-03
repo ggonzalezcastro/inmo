@@ -10,10 +10,11 @@ import { LeadsTable } from './LeadsTable'
 import { LeadFormDialog } from './LeadFormDialog'
 import { LeadDetail } from './LeadDetail'
 import { ImportCSVDialog } from './ImportCSVDialog'
+import { BrokerFilterBar, type SelectedBroker } from '@/shared/components/filters/BrokerFilterBar'
 import type { Lead } from '../types'
 
 export function LeadsPage() {
-  const { isAdmin } = usePermissions()
+  const { isAdmin, isSuperAdmin } = usePermissions()
   const { leads, total, isLoading, filters, setFilter, resetFilters, refetch } = useLeads()
   const { updateLead, removeLead } = useLeadsStore()
 
@@ -29,6 +30,15 @@ export function LeadsPage() {
     setFilter('skip', (p - 1) * limit)
   }
 
+  const handleBrokerChange = (broker: SelectedBroker | null) => {
+    setFilter('broker_id', broker?.id ?? null)
+    setFilter('skip', 0)
+  }
+
+  const selectedBroker = filters.broker_id
+    ? { id: filters.broker_id as number, name: '' }
+    : null
+
   return (
     <div className="flex h-full">
       {/* Main content */}
@@ -37,18 +47,27 @@ export function LeadsPage() {
           title="Leads"
           description={`${total} leads en total`}
           actions={
-            isAdmin ? (
-              <>
-                <Button variant="outline" size="sm" onClick={() => setShowImport(true)}>
-                  <Upload className="mr-2 h-4 w-4" />
-                  Importar CSV
-                </Button>
-                <Button size="sm" onClick={() => setShowCreate(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Nuevo Lead
-                </Button>
-              </>
-            ) : null
+            <>
+              {isSuperAdmin && (
+                <BrokerFilterBar
+                  value={selectedBroker}
+                  onChange={handleBrokerChange}
+                  label="Broker"
+                />
+              )}
+              {isAdmin && (
+                <>
+                  <Button variant="outline" size="sm" onClick={() => setShowImport(true)}>
+                    <Upload className="mr-2 h-4 w-4" />
+                    Importar CSV
+                  </Button>
+                  <Button size="sm" onClick={() => setShowCreate(true)}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Nuevo Lead
+                  </Button>
+                </>
+              )}
+            </>
           }
         />
 

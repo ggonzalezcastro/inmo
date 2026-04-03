@@ -19,6 +19,9 @@ const DEFAULT_FILTERS: LeadFilters = {
   search: '',
   status: '',
   pipeline_stage: '',
+  dicom_status: '',
+  created_from: '',
+  created_to: '',
   skip: 0,
   limit: 20,
 }

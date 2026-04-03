@@ -164,5 +164,12 @@ export const costsAPI = {
   getVoiceSummary: (params) => api.get('/api/v1/admin/costs/voice-summary', { params }),
 };
 
+export const agentsAPI = {
+  getAll: () => api.get('/api/v1/agents/'),
+  getWorkload: () => api.get('/api/v1/agents/workload'),
+  setCalendar: (agentId, data) => api.put(`/api/v1/agents/${agentId}/calendar`, data),
+  disconnectCalendar: (agentId) => api.delete(`/api/v1/agents/${agentId}/calendar`),
+};
+
 export default api;
 

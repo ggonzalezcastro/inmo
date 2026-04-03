@@ -1,8 +1,11 @@
-import { useState } from 'react'
-import { RefreshCw, X, Loader2 } from 'lucide-react'
+import { useState, useRef } from 'react'
+import { RefreshCw, X, Loader2, MessageSquare, Plus, Tag } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Button } from '@/shared/components/ui/button'
+import { Input } from '@/shared/components/ui/input'
 import { Separator } from '@/shared/components/ui/separator'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/components/ui/tabs'
 import { StatusBadge } from '@/shared/components/common/StatusBadge'
 import { ScoreBadge } from '@/shared/components/common/ScoreBadge'
 import { QualificationBadge } from '@/shared/components/common/QualificationBadge'
@@ -22,15 +25,34 @@ interface LeadDetailProps {
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex justify-between items-center py-2">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className="text-sm font-medium text-right">{value ?? '—'}</span>
+    <div className="flex justify-between items-start py-2 gap-4">
+      <span className="text-sm text-muted-foreground shrink-0">{label}</span>
+      <span className="text-sm font-medium text-right break-words">{value ?? '—'}</span>
     </div>
   )
 }
 
+function DicomBadge({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    clean: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    has_debt: 'bg-rose-50 text-rose-600 border-rose-200',
+    unknown: 'bg-slate-100 text-slate-600 border-slate-200',
+  }
+  const cfg = DICOM_CONFIG[status as keyof typeof DICOM_CONFIG]
+  return (
+    <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${styles[status] ?? styles.unknown}`}>
+      {cfg?.label ?? status}
+    </span>
+  )
+}
+
 export function LeadDetail({ lead, onClose, onUpdate }: LeadDetailProps) {
+  const navigate = useNavigate()
   const [isRecalculating, setIsRecalculating] = useState(false)
+  const [tags, setTags] = useState<string[]>(lead.tags ?? [])
+  const [tagInput, setTagInput] = useState('')
+  const [isSavingTags, setIsSavingTags] = useState(false)
+  const tagInputRef = useRef<HTMLInputElement>(null)
   const { isAdmin } = usePermissions()
   const meta = lead.lead_metadata ?? {}
   const calificacion = meta.calificacion
@@ -49,120 +71,200 @@ export function LeadDetail({ lead, onClose, onUpdate }: LeadDetailProps) {
     }
   }
 
+  const addTag = async () => {
+    const newTag = tagInput.trim().toLowerCase()
+    if (!newTag || tags.includes(newTag)) {
+      setTagInput('')
+      return
+    }
+    const nextTags = [...tags, newTag]
+    setTags(nextTags)
+    setTagInput('')
+    setIsSavingTags(true)
+    try {
+      const updated = await leadsService.updateLead(lead.id, { tags: nextTags })
+      onUpdate({ ...lead, ...updated, tags: nextTags })
+    } catch (error) {
+      setTags(tags) // revert
+      toast.error(getErrorMessage(error))
+    } finally {
+      setIsSavingTags(false)
+    }
+  }
+
+  const removeTag = async (tag: string) => {
+    const nextTags = tags.filter((t) => t !== tag)
+    setTags(nextTags)
+    setIsSavingTags(true)
+    try {
+      const updated = await leadsService.updateLead(lead.id, { tags: nextTags })
+      onUpdate({ ...lead, ...updated, tags: nextTags })
+    } catch (error) {
+      setTags(tags) // revert
+      toast.error(getErrorMessage(error))
+    } finally {
+      setIsSavingTags(false)
+    }
+  }
+
   return (
     <div className="w-80 border-l border-border bg-white flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-border">
-        <h3 className="font-semibold text-foreground truncate">{lead.name}</h3>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-semibold text-foreground truncate">{lead.name}</h3>
+          <p className="text-xs text-muted-foreground">{lead.phone}</p>
+        </div>
         <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onClose} aria-label="Cerrar detalle">
           <X className="h-4 w-4" />
         </Button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Score + Status */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <ScoreBadge score={lead.lead_score} />
-          <StatusBadge status={lead.status} />
-          <PipelineStageBadge stage={lead.pipeline_stage} />
-          {calificacion && <QualificationBadge calificacion={calificacion} />}
-        </div>
+      {/* Badges */}
+      <div className="px-4 pt-3 pb-1 flex items-center gap-1.5 flex-wrap">
+        <ScoreBadge score={lead.lead_score} />
+        <StatusBadge status={lead.status} />
+        <PipelineStageBadge stage={lead.pipeline_stage} />
+        {calificacion && <QualificationBadge calificacion={calificacion} />}
+      </div>
 
-        {/* Basic data */}
-        <div>
-          <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Datos básicos</p>
+      {/* Tabs */}
+      <Tabs defaultValue="datos" className="flex-1 flex flex-col overflow-hidden">
+        <TabsList className="mx-4 mt-2 h-8 text-xs grid grid-cols-3">
+          <TabsTrigger value="datos" className="text-xs">Datos</TabsTrigger>
+          <TabsTrigger value="perfil" className="text-xs">Perfil</TabsTrigger>
+          {isAdmin && <TabsTrigger value="financiero" className="text-xs">Financiero</TabsTrigger>}
+          {!isAdmin && <TabsTrigger value="tags" className="text-xs">Tags</TabsTrigger>}
+        </TabsList>
+
+        {/* Tab: Datos personales */}
+        <TabsContent value="datos" className="flex-1 overflow-y-auto px-4 pb-4 mt-0">
           <div className="divide-y divide-border">
-            <DetailRow label="Teléfono" value={lead.phone} />
-            <DetailRow label="Email" value={lead.email} />
+            <DetailRow label="Teléfono" value={<a href={`tel:${lead.phone}`} className="text-blue-600 hover:underline">{lead.phone}</a>} />
+            <DetailRow label="Email" value={lead.email ? <a href={`mailto:${lead.email}`} className="text-blue-600 hover:underline truncate block max-w-[140px]">{lead.email}</a> : null} />
             <DetailRow label="Creado" value={formatDate(lead.created_at)} />
             <DetailRow label="Último contacto" value={formatDate(lead.last_contacted)} />
           </div>
-        </div>
 
-        <Separator />
+          {/* Tags section */}
+          <Separator className="my-3" />
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase mb-2 flex items-center gap-1">
+              <Tag className="h-3 w-3" /> Tags
+            </p>
+            <div className="flex flex-wrap gap-1 mb-2">
+              {tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-xs text-muted-foreground"
+                >
+                  {tag}
+                  {isAdmin && (
+                    <button
+                      onClick={() => removeTag(tag)}
+                      disabled={isSavingTags}
+                      className="hover:text-destructive transition-colors"
+                      aria-label={`Eliminar tag ${tag}`}
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  )}
+                </span>
+              ))}
+              {tags.length === 0 && <span className="text-xs text-muted-foreground">Sin tags</span>}
+            </div>
+            {isAdmin && (
+              <div className="flex gap-1">
+                <Input
+                  ref={tagInputRef}
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  placeholder="Nuevo tag…"
+                  className="h-7 text-xs flex-1"
+                  onKeyDown={(e) => e.key === 'Enter' && addTag()}
+                />
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="h-7 w-7 shrink-0"
+                  onClick={addTag}
+                  disabled={isSavingTags || !tagInput.trim()}
+                >
+                  <Plus className="h-3 w-3" />
+                </Button>
+              </div>
+            )}
+          </div>
+        </TabsContent>
 
-        {/* Metadata — visible solo para admin */}
+        {/* Tab: Perfil inmobiliario */}
+        <TabsContent value="perfil" className="flex-1 overflow-y-auto px-4 pb-4 mt-0">
+          <div className="divide-y divide-border">
+            <DetailRow label="Presupuesto" value={meta.budget} />
+            <DetailRow label="Ubicación" value={meta.location} />
+            <DetailRow label="Tipo inmueble" value={meta.property_type} />
+            <DetailRow label="Habitaciones" value={meta.rooms} />
+            <DetailRow label="Plazo" value={meta.timeline} />
+            <DetailRow label="Propósito" value={
+              meta.purpose === 'vivienda' ? 'Vivienda propia' :
+              meta.purpose === 'inversion' ? 'Inversión' : meta.purpose
+            } />
+            <DetailRow label="Residencia" value={
+              meta.residency_status === 'residente' ? 'Residente' :
+              meta.residency_status === 'extranjero' ? 'Extranjero' : meta.residency_status
+            } />
+          </div>
+        </TabsContent>
+
+        {/* Tab: Financiero (admin only) */}
         {isAdmin && (
-          <>
-            <div>
-              <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">
-                Perfil inmobiliario
-              </p>
-              <div className="divide-y divide-border">
-                <DetailRow label="Presupuesto" value={meta.budget} />
-                <DetailRow label="Ubicación" value={meta.location} />
-                <DetailRow label="Tipo inmueble" value={meta.property_type} />
-                <DetailRow label="Habitaciones" value={meta.rooms} />
-                <DetailRow label="Timeline" value={meta.timeline} />
-                <DetailRow label="Propósito" value={meta.purpose} />
-                <DetailRow label="Residencia" value={meta.residency_status} />
-              </div>
-            </div>
-
-            <Separator />
-
-            <div>
-              <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">
-                Datos financieros
-              </p>
-              <div className="divide-y divide-border">
+          <TabsContent value="financiero" className="flex-1 overflow-y-auto px-4 pb-4 mt-0">
+            <div className="divide-y divide-border">
+              <DetailRow
+                label="Renta mensual"
+                value={meta.monthly_income ? formatCurrency(Number(meta.monthly_income)) : null}
+              />
+              <DetailRow
+                label="DICOM"
+                value={dicomStatus ? <DicomBadge status={dicomStatus} /> : null}
+              />
+              {meta.morosidad_amount && (
                 <DetailRow
-                  label="Renta mensual"
-                  value={
-                    meta.monthly_income
-                      ? formatCurrency(meta.monthly_income)
-                      : null
-                  }
+                  label="Monto morosidad"
+                  value={<span className="text-rose-600">{formatCurrency(Number(meta.morosidad_amount))}</span>}
                 />
-                <DetailRow
-                  label="DICOM"
-                  value={
-                    dicomStatus ? (
-                      <span className={DICOM_CONFIG[dicomStatus]?.className}>
-                        {DICOM_CONFIG[dicomStatus]?.label}
-                      </span>
-                    ) : null
-                  }
-                />
-                {meta.morosidad_amount && (
-                  <DetailRow
-                    label="Monto morosidad"
-                    value={
-                      <span className="text-rose-600">
-                        {formatCurrency(meta.morosidad_amount)}
-                      </span>
-                    }
-                  />
-                )}
-              </div>
+              )}
             </div>
-          </>
+          </TabsContent>
         )}
 
-        {/* Tags */}
-        {lead.tags?.length > 0 && (
-          <>
-            <Separator />
-            <div>
-              <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Tags</p>
-              <div className="flex flex-wrap gap-1">
-                {lead.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="px-2 py-0.5 rounded-full bg-muted text-xs text-muted-foreground"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
+        {/* Tab: Tags (agents — since they don't have financiero tab) */}
+        {!isAdmin && (
+          <TabsContent value="tags" className="flex-1 overflow-y-auto px-4 pb-4 mt-0">
+            <div className="flex flex-wrap gap-1">
+              {tags.map((tag) => (
+                <span key={tag} className="px-2 py-0.5 rounded-full bg-muted text-xs text-muted-foreground">
+                  {tag}
+                </span>
+              ))}
+              {tags.length === 0 && <span className="text-xs text-muted-foreground">Sin tags</span>}
             </div>
-          </>
+          </TabsContent>
         )}
-      </div>
+      </Tabs>
 
-      {/* Actions */}
-      {isAdmin && (
-        <div className="p-4 border-t border-border">
+      {/* Footer actions */}
+      <div className="p-4 border-t border-border space-y-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={() => navigate('/chat')}
+        >
+          <MessageSquare className="mr-2 h-4 w-4" />
+          Ver chat
+        </Button>
+        {isAdmin && (
           <Button
             variant="outline"
             size="sm"
@@ -177,8 +279,8 @@ export function LeadDetail({ lead, onClose, onUpdate }: LeadDetailProps) {
             )}
             Recalcular score
           </Button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }

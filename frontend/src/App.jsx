@@ -6,6 +6,7 @@ import Dashboard from './components/Dashboard'
 import Pipeline from './pages/Pipeline'
 import Campaigns from './pages/Campaigns'
 import Templates from './pages/Templates'
+import SettingsPage from './pages/SettingsPage'
 
 function PrivateRoute({ children }) {
   const { isLoggedIn } = useAuthStore()
@@ -47,6 +48,14 @@ function App() {
           element={
             <PrivateRoute>
               <Templates />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <PrivateRoute>
+              <SettingsPage />
             </PrivateRoute>
           }
         />

@@ -24,7 +24,11 @@ export default function ChatTest() {
     morosidad_amount: null,
   });
   const [leadInfo, setLeadInfo] = useState(null);
+  const [humanMode, setHumanMode] = useState(false);
+  const [agentName, setAgentName] = useState(null);
   const messagesEndRef = useRef(null);
+  const lastHumanMsgIdRef = useRef(0);
+  const pollingRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -33,6 +37,33 @@ export default function ChatTest() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Poll for human agent messages when in human_mode
+  useEffect(() => {
+    if (!humanMode || !leadId) {
+      clearInterval(pollingRef.current);
+      return;
+    }
+    const poll = async () => {
+      try {
+        const res = await api.get(
+          `/api/v1/chat/${leadId}/pending-messages?after_id=${lastHumanMsgIdRef.current}`
+        );
+        const { messages: newMsgs, agent_name } = res.data;
+        if (agent_name && !agentName) setAgentName(agent_name);
+        if (newMsgs && newMsgs.length > 0) {
+          setMessages(prev => [
+            ...prev,
+            ...newMsgs.map(m => ({ type: 'agent', text: m.message_text, id: m.id, agentName: agent_name })),
+          ]);
+          lastHumanMsgIdRef.current = newMsgs[newMsgs.length - 1].id;
+        }
+      } catch (_) {}
+    };
+    poll(); // llamada inmediata
+    pollingRef.current = setInterval(poll, 3000);
+    return () => clearInterval(pollingRef.current);
+  }, [humanMode, leadId]);
 
   // Fetch lead data when leadId changes or after messages
   useEffect(() => {
@@ -183,7 +214,7 @@ export default function ChatTest() {
         lead_id: leadId
       });
 
-      const { response: aiResponse, lead_id, lead_score, lead_status } = response.data;
+      const { response: aiResponse, lead_id, lead_score, lead_status, debug_info } = response.data;
 
       // Update lead info
       if (!leadId && lead_id) {
@@ -196,8 +227,13 @@ export default function ChatTest() {
       if (lead_score !== undefined) setLeadScore(lead_score);
       if (lead_status) setLeadStatus(lead_status);
 
-      // Add AI response to chat
-      setMessages(prev => [...prev, { type: 'bot', text: aiResponse }]);
+      // Detect human_mode — activate polling, suppress [human_mode] marker
+      if (debug_info?.human_mode) setHumanMode(true);
+
+      // Add AI response to chat (skip internal [human_mode] marker)
+      if (aiResponse && aiResponse !== '[human_mode]') {
+        setMessages(prev => [...prev, { type: 'bot', text: aiResponse }]);
+      }
 
       // Fetch updated lead data to see captured fields
       if (lead_id) {
@@ -239,49 +275,121 @@ export default function ChatTest() {
     <div className="flex h-full bg-white rounded-lg shadow-lg overflow-hidden">
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
-        <div className="bg-blue-600 text-white p-4 flex-shrink-0">
-          <h3 className="text-lg font-semibold">Chat de Prueba - Generador de Leads</h3>
+        {/* Header — WhatsApp style */}
+        <div className="flex items-center gap-3 px-4 py-3 flex-shrink-0" style={{ background: '#075E54' }}>
+          {/* Avatar */}
+          <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-base flex-shrink-0"
+               style={{ background: '#128C7E' }}>
+            {humanMode ? '👤' : '🤖'}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-white font-semibold text-base leading-tight truncate">
+              {humanMode ? (agentName || 'Agente Humano') : 'Sofía — Asesora IA'}
+            </h3>
+            <p className="text-xs leading-tight" style={{ color: '#ACE2DC' }}>
+              {humanMode ? '🟢 Agente en línea' : '🤖 Asistente inmobiliario'}
+            </p>
+          </div>
           {leadId && (
-            <div className="mt-2 flex gap-4 text-sm flex-wrap">
-              <span>Lead ID: {leadId}</span>
-              <span>Score: {Math.round(leadScore)}/100</span>
-              <span className={`px-2 py-1 rounded ${getStatusColor(leadStatus)}`}>
-                {leadStatus}
+            <div className="flex gap-2 flex-shrink-0">
+              <span className="text-xs px-2 py-1 rounded-full font-medium" style={{ background: 'rgba(255,255,255,0.15)', color: '#fff' }}>
+                #{leadId}
+              </span>
+              <span className={`text-xs px-2 py-1 rounded-full font-medium ${getStatusColor(leadStatus)}`}>
+                {Math.round(leadScore)}/100
               </span>
             </div>
           )}
         </div>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
+        {/* Human mode banner */}
+        {humanMode && (
+          <div className="flex items-center gap-2 px-4 py-2 text-xs font-medium flex-shrink-0"
+               style={{ background: '#FFF3CD', borderBottom: '1px solid #FFEAA7', color: '#856404' }}>
+            <span>👤</span>
+            <span>
+              <strong>{agentName || 'Un agente'}</strong> tomó el control de la conversación
+            </span>
+          </div>
+        )}
+
+        {/* Messages — WhatsApp background */}
+        <div className="flex-1 overflow-y-auto p-3 space-y-1"
+             style={{ background: '#ECE5DD', backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000000' fill-opacity='0.02'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E\")" }}>
           {messages.length === 0 && (
-            <div className="text-center text-gray-500 mt-8">
-              <p>¡Hola! Soy tu asistente inmobiliario.</p>
-              <p className="text-sm mt-2">Escribe un mensaje para comenzar la conversación.</p>
+            <div className="text-center mt-8">
+              <div className="inline-block px-4 py-2 rounded-lg text-sm" style={{ background: 'rgba(255,255,255,0.7)', color: '#667781' }}>
+                🔒 Los mensajes son seguros con cifrado de extremo a extremo
+              </div>
+              <p className="text-sm mt-4" style={{ color: '#667781' }}>Escribe un mensaje para comenzar</p>
             </div>
           )}
 
-          {messages.map((msg, idx) => (
-            <div
-              key={idx}
-              className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div
-                className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${msg.type === 'user'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white text-gray-800 border border-gray-200'
-                  }`}
-              >
-                <p className="text-sm">{msg.text}</p>
+          {messages.map((msg, idx) => {
+            const isUser = msg.type === 'user';
+            const isAgent = msg.type === 'agent';
+            const isBot = msg.type === 'bot';
+            const displayName = isAgent ? (msg.agentName || agentName || 'Agente') : 'Sofía';
+
+            // Date separator (simplified — show once)
+            return (
+              <div key={idx} className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-1`}>
+                {/* Avatar for bot/agent messages */}
+                {!isUser && (
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold mr-1 mt-auto"
+                       style={{ background: isAgent ? '#128C7E' : '#25D366', fontSize: '14px' }}>
+                    {isAgent ? displayName.charAt(0).toUpperCase() : '🤖'}
+                  </div>
+                )}
+
+                <div style={{ maxWidth: '70%' }}>
+                  {/* Sender name for non-user messages */}
+                  {!isUser && (
+                    <p className="text-xs font-semibold mb-0.5 ml-1" style={{ color: isAgent ? '#075E54' : '#128C7E' }}>
+                      {isAgent ? displayName : 'Sofía'}
+                    </p>
+                  )}
+
+                  {/* Bubble */}
+                  <div className="relative px-3 py-2 rounded-lg shadow-sm"
+                       style={{
+                         background: isUser ? '#DCF8C6' : '#FFFFFF',
+                         borderRadius: isUser ? '12px 2px 12px 12px' : '2px 12px 12px 12px',
+                         ...(isAgent && { borderLeft: '3px solid #128C7E' }),
+                       }}>
+                    {/* Agent badge */}
+                    {isAgent && (
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold mb-1 px-1.5 py-0.5 rounded"
+                            style={{ background: '#E7F8F5', color: '#128C7E' }}>
+                        👤 Agente
+                      </span>
+                    )}
+                    <p className="text-sm leading-relaxed" style={{ color: '#111B21', wordBreak: 'break-word' }}>
+                      {msg.text}
+                    </p>
+                    {/* Timestamp tail */}
+                    <p className="text-right text-xs mt-0.5" style={{ color: '#667781', fontSize: '10px' }}>
+                      {new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
+                      {isUser && <span className="ml-1 text-blue-500">✓✓</span>}
+                    </p>
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {loading && (
-            <div className="flex justify-start">
-              <div className="bg-white text-gray-800 border border-gray-200 px-4 py-2 rounded-lg">
-                <p className="text-sm">Escribiendo...</p>
+            <div className="flex justify-start mb-1">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs mr-1 mt-auto flex-shrink-0"
+                   style={{ background: '#25D366', fontSize: '14px' }}>
+                🤖
+              </div>
+              <div className="px-3 py-2 rounded-lg shadow-sm" style={{ background: '#FFFFFF', borderRadius: '2px 12px 12px 12px' }}>
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: '#90A4AE', animationDelay: '0ms' }}></span>
+                  <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: '#90A4AE', animationDelay: '150ms' }}></span>
+                  <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: '#90A4AE', animationDelay: '300ms' }}></span>
+                </div>
               </div>
             </div>
           )}
@@ -289,25 +397,28 @@ export default function ChatTest() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input */}
-        <form onSubmit={sendMessage} className="p-4 border-t border-gray-200 flex-shrink-0">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              placeholder="Escribe tu mensaje..."
-              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={loading}
-            />
-            <button
-              type="submit"
-              disabled={loading || !inputMessage.trim()}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Enviar
-            </button>
-          </div>
+        {/* Input — WhatsApp style */}
+        <form onSubmit={sendMessage} className="flex items-end gap-2 p-3 flex-shrink-0" style={{ background: '#F0F2F5' }}>
+          <input
+            type="text"
+            value={inputMessage}
+            onChange={(e) => setInputMessage(e.target.value)}
+            placeholder="Escribe un mensaje..."
+            className="flex-1 px-4 py-2.5 text-sm rounded-full focus:outline-none"
+            style={{ background: '#FFFFFF', border: 'none', boxShadow: '0 1px 2px rgba(0,0,0,0.1)', color: '#111B21' }}
+            disabled={loading}
+          />
+          <button
+            type="submit"
+            disabled={loading || !inputMessage.trim()}
+            className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-all disabled:opacity-40"
+            style={{ background: '#075E54' }}
+            title="Enviar"
+          >
+            <svg viewBox="0 0 24 24" className="w-5 h-5" fill="white">
+              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+            </svg>
+          </button>
         </form>
       </div>
 

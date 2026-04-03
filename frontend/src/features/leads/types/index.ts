@@ -4,9 +4,8 @@ export type PipelineStage =
   | 'entrada'
   | 'perfilamiento'
   | 'calificacion_financiera'
+  | 'potencial'
   | 'agendado'
-  | 'seguimiento'
-  | 'referidos'
   | 'ganado'
   | 'perdido'
 
@@ -27,6 +26,14 @@ export interface LeadMetadata {
   [key: string]: unknown
 }
 
+export interface NextAppointment {
+  id: number
+  start_time: string
+  status: string
+  meet_url: string | null
+  appointment_type: string | null
+}
+
 export interface Lead {
   id: number
   phone: string
@@ -42,6 +49,10 @@ export interface Lead {
   last_contacted?: string | null
   created_at: string
   updated_at?: string
+  next_appointment?: NextAppointment | null
+  assigned_agent_name?: string | null
+  close_reason?: string | null
+  close_reason_detail?: string | null
 }
 
 export interface CreateLeadDto {
@@ -63,9 +74,13 @@ export interface LeadFilters {
   search?: string
   status?: LeadStatus | ''
   pipeline_stage?: PipelineStage | ''
+  dicom_status?: 'clean' | 'has_debt' | 'unknown' | ''
+  created_from?: string
+  created_to?: string
   min_score?: number
   max_score?: number
   assigned_to?: number
+  broker_id?: number | null
   skip?: number
   limit?: number
 }

@@ -1,14 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { toast } from 'sonner'
 import { conversationService, type ConversationLead } from '../services/conversation.service'
 import { chatService, type ChatMessage } from '@/features/pipeline/services/chat.service'
 import { pipelineService } from '@/features/pipeline/services/pipeline.service'
 import { cn } from '@/shared/lib/utils'
-import { useWebSocket } from '@/shared/hooks/useWebSocket'
+import { useWebSocketEvent } from '@/shared/context/WebSocketContext'
+import { useAuthStore } from '@/features/auth'
 import {
   Bot, User, Search, Send, RefreshCw,
   MessageSquare, Inbox, ChevronDown,
   WifiOff, Phone, CheckCheck, Sparkles,
-  UserCheck, ArrowRight, ArrowLeft,
+  UserCheck, ArrowRight, ArrowLeft, AlertTriangle, Wand2,
 } from 'lucide-react'
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -17,9 +19,8 @@ const STAGES: { value: string; label: string; color: string }[] = [
   { value: 'entrada',                 label: 'Entrada',               color: '#94A3B8' },
   { value: 'perfilamiento',           label: 'Perfilamiento',         color: '#60A5FA' },
   { value: 'calificacion_financiera', label: 'Cal. Financiera',       color: '#A78BFA' },
+  { value: 'potencial',               label: 'Potencial',             color: '#FB923C' },
   { value: 'agendado',                label: 'Agendado',              color: '#34D399' },
-  { value: 'seguimiento',             label: 'Seguimiento',           color: '#FBBF24' },
-  { value: 'referidos',               label: 'Referidos',             color: '#F472B6' },
   { value: 'ganado',                  label: 'Ganado',                color: '#10B981' },
   { value: 'perdido',                 label: 'Perdido',               color: '#F87171' },
 ]
@@ -240,6 +241,7 @@ function ConversationDetail({
   const [loading, setLoading] = useState(true)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
+  const [improving, setImproving] = useState(false)
   const [stage, setStage] = useState(lead.pipeline_stage ?? 'entrada')
   const [stageChanging, setStageChanging] = useState(false)
   const [toggling, setToggling] = useState(false)
@@ -247,27 +249,53 @@ function ConversationDetail({
   const bottomRef = useRef<HTMLDivElement>(null)
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const loadMessages = useCallback(async () => {
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  const isNearBottom = () => {
+    const el = scrollRef.current
+    if (!el) return true
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 120
+  }
+
+  const scrollToBottom = (force = false) => {
+    if (force || isNearBottom()) {
+      // Use two timeouts: immediate + delayed to handle both fast and slow renders
+      bottomRef.current?.scrollIntoView({ behavior: 'auto' })
+      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+    }
+  }
+
+  const loadMessages = useCallback(async (opts?: { force?: boolean }) => {
     try {
-      const msgs = await chatService.getMessages(lead.id, 100)
-      setMessages(msgs)
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+      const msgs = await chatService.getMessages(lead.id, 500)
+      setMessages((prev) => {
+        // Only update if there are new messages to avoid unnecessary re-renders
+        if (prev.length === msgs.length && prev[prev.length - 1]?.id === msgs[msgs.length - 1]?.id) return prev
+        return msgs
+      })
+      // Scroll after state update — React will batch and update DOM first
+      scrollToBottom(opts?.force)
     } catch (e) {
       console.error(e)
     } finally {
       setLoading(false)
     }
-  }, [lead.id])
+  }, [lead.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setLoading(true)
     setStage(lead.pipeline_stage ?? 'entrada')
-    loadMessages()
-  }, [lead.id, loadMessages])
+    loadMessages({ force: true })
+  }, [lead.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Polling fallback every 5s in case WebSocket misses an event
+  useEffect(() => {
+    const interval = setInterval(() => loadMessages(), 5000)
+    return () => clearInterval(interval)
+  }, [loadMessages])
 
   // Real-time WebSocket: receive inbound messages and typing indicator
-  useWebSocket({
-    onMessage: useCallback((event) => {
+  useWebSocketEvent(useCallback((event) => {
       const leadId = (event.data as any)?.lead_id
       if (leadId !== lead.id) return
 
@@ -279,8 +307,7 @@ function ConversationDetail({
         typingTimerRef.current && clearTimeout(typingTimerRef.current)
         typingTimerRef.current = setTimeout(() => setTyping(false), 4000)
       }
-    }, [lead.id, lead.human_mode, loadMessages]),
-  })
+    }, [lead.id, lead.human_mode, loadMessages]))
 
   useEffect(() => () => { typingTimerRef.current && clearTimeout(typingTimerRef.current) }, [])
 
@@ -290,11 +317,25 @@ function ConversationDetail({
     try {
       await conversationService.sendMessage(lead.id, text.trim())
       setText('')
-      await loadMessages()
+      await loadMessages({ force: true })
     } catch (e) {
       console.error(e)
     } finally {
       setSending(false)
+    }
+  }
+
+  async function handleImprove() {
+    if (!text.trim() || improving) return
+    setImproving(true)
+    try {
+      const improved = await conversationService.improveMessage(text.trim())
+      setText(improved)
+    } catch (e) {
+      console.error(e)
+      toast.error('No se pudo mejorar el mensaje')
+    } finally {
+      setImproving(false)
     }
   }
 
@@ -427,7 +468,7 @@ function ConversationDetail({
       )}
 
       {/* ── Messages area ── */}
-      <div className="flex-1 overflow-y-auto px-5 py-5">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-5">
         {loading ? (
           <div className="flex items-center justify-center h-40 text-[#9CA3AF] text-sm gap-2">
             <RefreshCw size={15} className="animate-spin" />
@@ -462,7 +503,7 @@ function ConversationDetail({
       {/* ── Input area ── */}
       <div className="px-4 py-3 bg-white border-t border-[#EEF2F7] shrink-0">
         {lead.human_mode ? (
-          <div className="flex items-end gap-2">
+          <div className="flex items-center gap-2">
             <div className="flex-1 relative">
               <textarea
                 value={text}
@@ -476,23 +517,43 @@ function ConversationDetail({
                   'w-full resize-none rounded-xl border border-[#D1D9E6] px-3.5 py-2.5 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-[#1A56DB] focus:border-transparent',
                   'placeholder:text-[#C4CDD8] leading-relaxed transition-shadow',
+                  improving && 'opacity-60',
                 )}
               />
-              <p className="text-[10px] text-[#C4CDD8] absolute right-3 bottom-2">↵ enviar</p>
+              <div className="absolute right-3 bottom-2 flex items-center gap-2">
+                {text.trim() && (
+                  <button
+                    type="button"
+                    onClick={handleImprove}
+                    disabled={improving || sending}
+                    title="Mejorar redacción con IA"
+                    className={cn(
+                      'flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md transition-all',
+                      improving
+                        ? 'text-[#A78BFA] bg-[#F5F3FF] cursor-not-allowed'
+                        : 'text-[#7C3AED] bg-[#F5F3FF] hover:bg-[#EDE9FE]',
+                    )}
+                  >
+                    <Wand2 size={11} className={improving ? 'animate-pulse' : ''} />
+                    {improving ? 'Mejorando…' : 'Mejorar'}
+                  </button>
+                )}
+                <span className="text-[10px] text-[#C4CDD8]">↵ enviar</span>
+              </div>
             </div>
             <button
               onClick={handleSend}
-              disabled={!text.trim() || sending}
+              disabled={!text.trim() || sending || improving}
               className={cn(
                 'h-[52px] w-12 rounded-xl flex items-center justify-center transition-all duration-200 shrink-0',
-                text.trim() && !sending
+                text.trim() && !sending && !improving
                   ? 'bg-[#1A56DB] shadow-sm shadow-blue-200 hover:bg-[#1740B0]'
                   : 'bg-[#E2EAF4] cursor-not-allowed',
               )}
             >
               {sending
                 ? <RefreshCw size={16} className="animate-spin text-white" />
-                : <Send size={16} className={text.trim() ? 'text-white' : 'text-[#9CA3AF]'} />
+                : <Send size={16} className={text.trim() && !improving ? 'text-white' : 'text-[#9CA3AF]'} />
               }
             </button>
           </div>
@@ -526,7 +587,11 @@ export function ConversationsPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [modeFilter, setModeFilter] = useState<'all' | 'human' | 'ai'>('all')
-  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [selectedId, setSelectedId] = useState<number | null>(() => {
+    const params = new URLSearchParams(window.location.search)
+    const leadId = params.get('lead_id')
+    return leadId ? parseInt(leadId, 10) : null
+  })
   const [selectedLead, setSelectedLead] = useState<ConversationLead | null>(null)
   const [mobileShowDetail, setMobileShowDetail] = useState(false)
 
@@ -558,17 +623,16 @@ export function ConversationsPage() {
   }, [selectedId, leads])
 
   // Real-time WebSocket: refresh lead list on new messages or mode changes
-  useWebSocket({
-    onMessage: useCallback((event) => {
+  useWebSocketEvent(useCallback((event) => {
       if (
         event.type === 'new_message' ||
         event.type === 'human_mode_incoming' ||
-        event.type === 'human_mode_changed'
+        event.type === 'human_mode_changed' ||
+        event.type === 'lead_frustrated'
       ) {
         load()
       }
-    }, [load]),
-  })
+    }, [load]))
 
   const humanCount = leads.filter((l) => l.human_mode).length
   const totalUnread = leads.reduce((a, l) => a + l.unread_count, 0)

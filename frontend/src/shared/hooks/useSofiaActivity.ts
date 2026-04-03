@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useWebSocket, type WSEvent } from './useWebSocket'
+import { useWebSocketEvent, type WSEvent } from '@/shared/context/WebSocketContext'
 
 export type SofiaStatus = 'idle' | 'receiving' | 'thinking' | 'responded' | 'stage_change' | 'hot_lead'
 
@@ -15,9 +15,8 @@ const STAGE_LABELS: Record<string, string> = {
   entrada:                  'Entrada',
   perfilamiento:            'Perfilamiento',
   calificacion_financiera:  'Calificación financiera',
+  potencial:                'Potencial',
   agendado:                 'Agendado',
-  seguimiento:              'Seguimiento',
-  referidos:                'Referidos',
   ganado:                   'Ganado',
   perdido:                  'Perdido',
 }
@@ -102,7 +101,7 @@ export function useSofiaActivity(): SofiaActivity {
     }
   }, [scheduleReset])
 
-  useWebSocket({ onMessage: handleEvent })
+  useWebSocketEvent(handleEvent)
 
   // Rotate idle message every 8s when idle
   useEffect(() => {

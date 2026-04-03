@@ -79,7 +79,7 @@ const TRIGGERS: { value: CampaignTrigger; label: string; desc: string }[] = [
   { value: 'stage_change', label: 'Etapa',        desc: 'Al cambiar de etapa en el pipeline' },
 ]
 
-const STAGES = ['entrada','perfilamiento','calificacion_financiera','agendado','seguimiento','referidos','ganado','perdido']
+const STAGES = ['entrada','perfilamiento','calificacion_financiera','potencial','agendado','ganado','perdido']
 
 // ── TriggerConfig ─────────────────────────────────────────────────────────────
 function TriggerConfig({

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Clock, User, Bot } from 'lucide-react'
+import { Clock, User, Bot, AlertTriangle, CalendarCheck } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
 import { StatusBadge } from '@/shared/components/common/StatusBadge'
 import { ScoreBadge } from '@/shared/components/common/ScoreBadge'
@@ -15,8 +15,10 @@ interface KanbanCardProps {
 }
 
 export function KanbanCard({ lead, isInactive, onClick }: KanbanCardProps) {
-  const meta = lead.lead_metadata ?? {}
+  // Pipeline API returns "metadata", leads API returns "lead_metadata" — handle both
+  const meta = (lead as any).metadata ?? lead.lead_metadata ?? {}
   const isHotFastTrack = Boolean(meta.hot_fast_track)
+  const isFrustrated = Boolean(meta.sentiment?.escalated)
   const [humanMode, setHumanMode] = useState(Boolean(meta.human_mode))
   const [toggling, setToggling] = useState(false)
 
@@ -34,6 +36,7 @@ export function KanbanCard({ lead, isInactive, onClick }: KanbanCardProps) {
       }
     } catch (err) {
       console.error(err)
+      setHumanMode(humanMode) // Revert optimistic update on API failure
     } finally {
       setToggling(false)
     }
@@ -48,7 +51,9 @@ export function KanbanCard({ lead, isInactive, onClick }: KanbanCardProps) {
       className={cn(
         'bg-white rounded-lg border p-3 space-y-2',
         'cursor-pointer select-none',
-        humanMode
+        isFrustrated
+          ? 'border-red-300 bg-red-50/40 hover:border-red-400'
+          : humanMode
           ? 'border-[#BFDBFE] bg-[#EFF6FF]/50 hover:border-[#1A56DB]/60'
           : isInactive
           ? 'border-amber-200 bg-amber-50/40 hover:border-amber-300'
@@ -59,7 +64,12 @@ export function KanbanCard({ lead, isInactive, onClick }: KanbanCardProps) {
       {/* Top row */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex items-center gap-1">
-          {isHotFastTrack && (
+          {isFrustrated && (
+            <span title="Lead frustrado — requiere atención humana" className="text-base leading-none">
+              🚨
+            </span>
+          )}
+          {!isFrustrated && isHotFastTrack && (
             <span title="Avanzado automáticamente por ser lead HOT — Sofía debe proponer visita" className="text-base leading-none">
               🔥
             </span>
@@ -77,6 +87,11 @@ export function KanbanCard({ lead, isInactive, onClick }: KanbanCardProps) {
       {/* Badges */}
       <div className="flex flex-wrap gap-1">
         <StatusBadge status={lead.status} size="sm" />
+        {isFrustrated && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700 border border-red-200">
+            <AlertTriangle className="h-2.5 w-2.5" /> Frustrado
+          </span>
+        )}
         {meta.calificacion && (
           <QualificationBadge calificacion={meta.calificacion as 'CALIFICADO' | 'POTENCIAL' | 'NO_CALIFICADO'} size="sm" />
         )}
@@ -92,6 +107,18 @@ export function KanbanCard({ lead, isInactive, onClick }: KanbanCardProps) {
           </span>
         )}
       </div>
+
+      {/* Next appointment badge for agendado leads */}
+      {lead.next_appointment && (lead.next_appointment.status === 'scheduled' || lead.next_appointment.status === 'confirmed') && (
+        <div className="flex items-center gap-1.5 text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-md px-2 py-1">
+          <CalendarCheck className="h-3 w-3 shrink-0" />
+          <span className="truncate">
+            {new Date(lead.next_appointment.start_time).toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })}
+            {' · '}
+            {new Date(lead.next_appointment.start_time).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        </div>
+      )}
 
       {/* Last contact */}
       {lead.last_contacted && (

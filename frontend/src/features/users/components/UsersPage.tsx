@@ -27,14 +27,18 @@ import { getErrorMessage } from '@/shared/types/api'
 import { cn, getInitials } from '@/shared/lib/utils'
 import type { AuthUser } from '@/shared/types/auth'
 import { usersService } from '../services/users.service'
+import { usePermissions } from '@/shared/hooks/usePermissions'
+import { BrokerFilterBar, type SelectedBroker } from '@/shared/components/filters/BrokerFilterBar'
 
 export function UsersPage() {
+  const { isSuperAdmin } = usePermissions()
   const [users, setUsers] = useState<AuthUser[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<AuthUser | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [togglingId, setTogglingId] = useState<number | null>(null)
+  const [selectedBroker, setSelectedBroker] = useState<SelectedBroker | null>(null)
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -45,7 +49,7 @@ export function UsersPage() {
   const load = async () => {
     setIsLoading(true)
     try {
-      const data = await usersService.getAll()
+      const data = await usersService.getAll(selectedBroker?.id ?? null)
       setUsers(Array.isArray(data) ? data : [])
     } catch (error) {
       toast.error(getErrorMessage(error))
@@ -54,7 +58,7 @@ export function UsersPage() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [selectedBroker])
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -194,10 +198,19 @@ export function UsersPage() {
         title="Usuarios"
         description={isLoading ? 'Cargando...' : `${users.length} usuarios · ${users.filter(u => u.is_active).length} activos`}
         actions={
-          <Button size="sm" onClick={() => setShowCreate(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Nuevo Usuario
-          </Button>
+          <>
+            {isSuperAdmin && (
+              <BrokerFilterBar
+                value={selectedBroker}
+                onChange={setSelectedBroker}
+                label="Broker"
+              />
+            )}
+            <Button size="sm" onClick={() => setShowCreate(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Nuevo Usuario
+            </Button>
+          </>
         }
       />
 

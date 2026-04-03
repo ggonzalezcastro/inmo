@@ -8,6 +8,11 @@ interface AuthState {
   isAuthenticated: boolean
   isLoading: boolean
 
+  // Impersonation
+  isImpersonating: boolean
+  originalToken: string | null
+  impersonatedBrokerName: string | null
+
   setAuth: (user: AuthUser, token: string) => void
   clearAuth: () => void
   updateUser: (updates: Partial<AuthUser>) => void
@@ -15,6 +20,9 @@ interface AuthState {
   getUserRole: () => string
   isAdmin: () => boolean
   isSuperAdmin: () => boolean
+
+  startImpersonation: (token: string, brokerName: string) => void
+  exitImpersonation: () => void
 }
 
 function decodeJWT(token: string): JWTPayload | null {
@@ -63,11 +71,37 @@ if (storedToken) {
   }
 }
 
+// Rehydrate impersonation session from sessionStorage (survives page refresh, not tab close)
+function _isTokenAlive(token: string): boolean {
+  const payload = decodeJWT(token)
+  if (!payload) return false
+  return payload.exp > Math.floor(Date.now() / 1000)
+}
+
+const _storedOriginalToken = sessionStorage.getItem('originalToken')
+const _storedBrokerName = sessionStorage.getItem('impersonatedBrokerName')
+let initialIsImpersonating = false
+let initialOriginalToken: string | null = null
+let initialImpersonatedBrokerName: string | null = null
+
+if (_storedOriginalToken && _isTokenAlive(_storedOriginalToken)) {
+  initialIsImpersonating = true
+  initialOriginalToken = _storedOriginalToken
+  initialImpersonatedBrokerName = _storedBrokerName
+} else if (_storedOriginalToken) {
+  // Original token expired — clean up stale sessionStorage silently
+  sessionStorage.removeItem('originalToken')
+  sessionStorage.removeItem('impersonatedBrokerName')
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: initialUser,
   token: initialToken,
   isAuthenticated: !!initialToken,
   isLoading: false,
+  isImpersonating: initialIsImpersonating,
+  originalToken: initialOriginalToken,
+  impersonatedBrokerName: initialImpersonatedBrokerName,
 
   setAuth: (user, token) => {
     // Normalize role to lowercase — backend returns ADMIN/AGENT (uppercase)
@@ -82,8 +116,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   clearAuth: () => {
     localStorage.removeItem('token')
     localStorage.removeItem('user')
+    sessionStorage.removeItem('originalToken')
+    sessionStorage.removeItem('impersonatedBrokerName')
     setTokenGetter(() => null)
-    set({ user: null, token: null, isAuthenticated: false })
+    set({ user: null, token: null, isAuthenticated: false, isImpersonating: false, originalToken: null, impersonatedBrokerName: null })
   },
 
   updateUser: (updates) => {
@@ -92,6 +128,55 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const updated = { ...current, ...updates }
     localStorage.setItem('user', JSON.stringify(updated))
     set({ user: updated })
+  },
+
+  startImpersonation: (token: string, brokerName: string) => {
+    const originalToken = get().token
+    const impersonatedUser = tokenToUser(token)
+    if (!impersonatedUser) return
+
+    // Persist to sessionStorage so impersonation survives a page refresh
+    if (originalToken) sessionStorage.setItem('originalToken', originalToken)
+    sessionStorage.setItem('impersonatedBrokerName', brokerName)
+
+    // Update token in storage and apiClient (without overwriting the original user)
+    localStorage.setItem('token', token)
+    setTokenGetter(() => token)
+    set({
+      token,
+      user: impersonatedUser,
+      isImpersonating: true,
+      originalToken,
+      impersonatedBrokerName: brokerName,
+    })
+  },
+
+  exitImpersonation: () => {
+    // Fallback to sessionStorage in case Zustand state was lost after a page refresh
+    const original = get().originalToken ?? sessionStorage.getItem('originalToken')
+    if (!original || !_isTokenAlive(original)) {
+      // Token missing or expired during impersonation — force re-login
+      sessionStorage.removeItem('originalToken')
+      sessionStorage.removeItem('impersonatedBrokerName')
+      get().clearAuth()
+      return
+    }
+
+    const originalUser = tokenToUser(original)
+    localStorage.setItem('token', original)
+    if (originalUser) localStorage.setItem('user', JSON.stringify(originalUser))
+    setTokenGetter(() => original)
+
+    sessionStorage.removeItem('originalToken')
+    sessionStorage.removeItem('impersonatedBrokerName')
+
+    set({
+      token: original,
+      user: originalUser,
+      isImpersonating: false,
+      originalToken: null,
+      impersonatedBrokerName: null,
+    })
   },
 
   // Legacy interface for backward compat with old components (ChatTest uses this)

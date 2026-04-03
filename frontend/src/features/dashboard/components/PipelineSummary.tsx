@@ -10,14 +10,13 @@ const STAGE_DOT_COLORS: Record<string, string> = {
   entrada: '#9CA3AF',
   perfilamiento: '#1A56DB',
   calificacion_financiera: '#F59E0B',
+  potencial: '#F97316',
   agendado: '#8B5CF6',
-  seguimiento: '#06B6D4',
-  referidos: '#10B981',
 }
 
 export function PipelineSummary({ metrics, isLoading }: PipelineSummaryProps) {
   const stages = PIPELINE_STAGES.filter((s) => s.key !== 'ganado' && s.key !== 'perdido')
-  const total = metrics?.total ?? 0
+  const total = metrics?.total_leads ?? 0
 
   return (
     <div className="flex flex-col bg-white border border-[#D1D9E6] rounded-xl overflow-hidden shadow-sm">
@@ -39,7 +38,7 @@ export function PipelineSummary({ metrics, isLoading }: PipelineSummaryProps) {
           </div>
         ) : (
           stages.map((s) => {
-            const count = metrics?.stages[s.key]?.count ?? 0
+            const count = metrics?.stage_counts?.[s.key] ?? 0
             const pct = total > 0 ? Math.round((count / total) * 100) : 0
             const dotColor = STAGE_DOT_COLORS[s.key] ?? '#C4CDD8'
 

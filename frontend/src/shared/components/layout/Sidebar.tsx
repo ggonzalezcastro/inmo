@@ -17,6 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Cpu,
+  ShieldCheck,
 } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
 import { useAuthStore } from '@/features/auth'
@@ -35,21 +36,23 @@ interface NavItem {
   label: string
   icon: LucideIcon
   roles?: ('admin' | 'agent' | 'superadmin')[]
+  excludeRoles?: ('admin' | 'agent' | 'superadmin')[]
+  dividerBefore?: boolean
 }
 
 const NAV_ITEMS: NavItem[] = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/leads', label: 'Leads', icon: Users },
-  { path: '/pipeline', label: 'Pipeline', icon: GitBranch },
-  { path: '/conversations', label: 'Conversaciones', icon: Inbox },
-  { path: '/campaigns', label: 'Campañas', icon: Megaphone, roles: ['admin', 'superadmin'] },
-  { path: '/appointments', label: 'Citas', icon: Calendar },
-  // { path: '/templates', label: 'Templates', icon: FileText, roles: ['admin', 'superadmin'] },
-  { path: '/chat', label: 'Chat IA', icon: MessageSquare },
+  { path: '/pipeline', label: 'Pipeline', icon: GitBranch, excludeRoles: ['superadmin'] },
+  { path: '/conversations', label: 'Conversaciones', icon: Inbox, excludeRoles: ['superadmin'] },
+  { path: '/campaigns', label: 'Campañas', icon: Megaphone, roles: ['admin'] },
+  { path: '/appointments', label: 'Citas', icon: Calendar, excludeRoles: ['superadmin'] },
+  { path: '/chat', label: 'Chat IA', icon: MessageSquare, excludeRoles: ['superadmin'] },
   { path: '/costs', label: 'Costos LLM', icon: DollarSign, roles: ['admin', 'superadmin'] },
-  { path: '/settings', label: 'Configuración', icon: Settings, roles: ['admin', 'superadmin'] },
+  { path: '/settings', label: 'Configuración', icon: Settings, roles: ['admin'] },
   { path: '/users', label: 'Usuarios', icon: UserCog, roles: ['admin', 'superadmin'] },
-  { path: '/brokers', label: 'Brokers', icon: Building2, roles: ['superadmin'] },
+  { path: '/brokers', label: 'Brokers', icon: Building2, roles: ['superadmin'], dividerBefore: true },
+  { path: '/super-admin', label: 'Super Admin', icon: ShieldCheck, roles: ['superadmin'] },
 ]
 
 const STATUS_COLORS: Record<SofiaStatus, { dot: string; bg: string; text: string; detail: string }> = {
@@ -67,6 +70,7 @@ export function Sidebar({ collapsed, onToggle, onMobileClose }: SidebarProps) {
   const sofia = useSofiaActivity()
 
   const visibleItems = NAV_ITEMS.filter((item) => {
+    if (item.excludeRoles && role && item.excludeRoles.includes(role as 'admin' | 'agent' | 'superadmin')) return false
     if (!item.roles) return true
     return role && item.roles.includes(role as 'admin' | 'agent' | 'superadmin')
   })
@@ -111,34 +115,37 @@ export function Sidebar({ collapsed, onToggle, onMobileClose }: SidebarProps) {
         )}
       >
         {visibleItems.map((item) => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            title={collapsed ? item.label : undefined}
-            onClick={onMobileClose}
-            className={({ isActive }) =>
-              cn(
-                'flex items-center rounded-lg text-[13px] font-medium transition-all',
-                collapsed ? 'justify-center h-9 w-9 mx-auto' : 'gap-[10px] h-[36px] px-3',
-                isActive
-                  ? 'bg-[#EBF2FF] text-[#1A56DB] font-semibold'
-                  : 'text-[#6B7280] hover:bg-[#F5F8FF] hover:text-[#374151]'
-              )
-            }
-          >
-            {({ isActive }) => (
-              <>
-                <item.icon
-                  size={15}
-                  className={cn(
-                    'shrink-0 transition-colors',
-                    isActive ? 'text-[#1A56DB]' : 'text-[#9CA3AF]'
-                  )}
-                />
-                {!collapsed && <span>{item.label}</span>}
-              </>
-            )}
-          </NavLink>
+          <div key={item.path}>
+            {item.dividerBefore && !collapsed && <div className="h-px bg-[#E2EAF4] mx-1 my-2" />}
+            {item.dividerBefore && collapsed && <div className="h-px bg-[#E2EAF4] my-2" />}
+            <NavLink
+              to={item.path}
+              title={collapsed ? item.label : undefined}
+              onClick={onMobileClose}
+              className={({ isActive }) =>
+                cn(
+                  'flex items-center rounded-lg text-[13px] font-medium transition-all',
+                  collapsed ? 'justify-center h-9 w-9 mx-auto' : 'gap-[10px] h-[36px] px-3',
+                  isActive
+                    ? 'bg-[#EBF2FF] text-[#1A56DB] font-semibold'
+                    : 'text-[#6B7280] hover:bg-[#F5F8FF] hover:text-[#374151]'
+                )
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  <item.icon
+                    size={15}
+                    className={cn(
+                      'shrink-0 transition-colors',
+                      isActive ? 'text-[#1A56DB]' : 'text-[#9CA3AF]'
+                    )}
+                  />
+                  {!collapsed && <span>{item.label}</span>}
+                </>
+              )}
+            </NavLink>
+          </div>
         ))}
       </nav>
 

@@ -6,8 +6,8 @@ export const PIPELINE_STAGES = [
   { id: 'entrada', label: 'Entrada', color: 'bg-gray-100' },
   { id: 'perfilamiento', label: 'Perfilamiento', color: 'bg-blue-100' },
   { id: 'calificacion_financiera', label: 'Calificación', color: 'bg-yellow-100' },
+  { id: 'potencial', label: 'Potencial', color: 'bg-orange-100' },
   { id: 'agendado', label: 'Agendado', color: 'bg-purple-100' },
-  { id: 'seguimiento', label: 'Seguimiento', color: 'bg-green-100' },
   { id: 'ganado', label: 'Ganado', color: 'bg-emerald-100' },
   { id: 'perdido', label: 'Perdido', color: 'bg-red-100' },
 ];

@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { AppShell } from '@/shared/components/layout/AppShell'
 import { AuthGuard } from '@/shared/guards/AuthGuard'
 import { RoleGuard } from '@/shared/guards/RoleGuard'
+import { WebSocketProvider } from '@/shared/context/WebSocketContext'
 import { lazy, Suspense } from 'react'
 import { LoadingSpinner } from '@/shared/components/common/LoadingSpinner'
 
@@ -29,7 +30,7 @@ const CampaignsPage = lazy(() =>
   import('@/features/campaigns').then((m) => ({ default: m.CampaignsPage }))
 )
 const AppointmentsPage = lazy(() =>
-  import('@/features/appointments').then((m) => ({ default: m.AppointmentsPage }))
+  import('@/features/appointments').then((m) => ({ default: m.CalendarView }))
 )
 /* const TemplatesPage = lazy(() =>
   import('@/features/templates').then((m) => ({ default: m.TemplatesPage }))
@@ -52,6 +53,9 @@ const ChatPage = lazy(() =>
 const ConversationsPage = lazy(() =>
   import('@/features/conversations').then((m) => ({ default: m.ConversationsPage }))
 )
+const SuperAdminPage = lazy(() =>
+  import('@/features/super-admin').then((m) => ({ default: m.SuperAdminPage }))
+)
 
 function SuspenseWrapper({ children }: { children: React.ReactNode }) {
   return (
@@ -70,7 +74,9 @@ function SuspenseWrapper({ children }: { children: React.ReactNode }) {
 function PrivateLayout() {
   return (
     <AuthGuard>
-      <AppShell />
+      <WebSocketProvider>
+        <AppShell />
+      </WebSocketProvider>
     </AuthGuard>
   )
 }
@@ -158,12 +164,25 @@ export const router = createBrowserRouter([
           </RoleGuard>
         ),
       },
+      {
+        path: '/super-admin',
+        element: (
+          <RoleGuard allowedRoles={['superadmin']}>
+            <SuspenseWrapper><SuperAdminPage /></SuspenseWrapper>
+          </RoleGuard>
+        ),
+      },
     ],
   },
 
   // Catch-all
   { path: '*', element: <Navigate to="/dashboard" replace /> },
-])
+], {
+  future: {
+    v7_startTransition: true,
+    v7_relativeSplatPath: true,
+  },
+})
 
 function ForbiddenPage() {
   return (

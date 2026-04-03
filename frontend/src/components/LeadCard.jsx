@@ -57,6 +57,42 @@ export default function LeadCard({ lead, onClick }) {
     );
   };
 
+  // Agent assignment badge
+  const getAgentBadge = () => {
+    if (lead.assigned_agent_name) {
+      const initials = lead.assigned_agent_name
+        .split(' ')
+        .map((n) => n[0])
+        .slice(0, 2)
+        .join('')
+        .toUpperCase();
+      return (
+        <span
+          title={`Asesor: ${lead.assigned_agent_name}`}
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-800"
+        >
+          <span className="w-4 h-4 rounded-full bg-indigo-500 text-white flex items-center justify-center text-[9px] font-bold">
+            {initials}
+          </span>
+          {lead.assigned_agent_name.split(' ')[0]}
+        </span>
+      );
+    }
+    if (lead.assigned_to) {
+      // Has ID but no name pre-loaded
+      return (
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-600">
+          Asesor #{lead.assigned_to}
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-50 text-red-600">
+        Sin asignar
+      </span>
+    );
+  };
+
   // Get last message snippet
   const getLastMessage = () => {
     // Check if telegram_messages is an array or if we need to fetch it
@@ -130,6 +166,11 @@ export default function LeadCard({ lead, onClick }) {
           </p>
         </div>
         {getStatusBadge()}
+      </div>
+
+      {/* Agent Assignment Badge */}
+      <div className="mb-2">
+        {getAgentBadge()}
       </div>
 
       {/* Score Progress Bar */}

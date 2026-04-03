@@ -19,8 +19,15 @@ import { formatDate } from '@/shared/lib/utils'
 import { cn } from '@/shared/lib/utils'
 import { getErrorMessage } from '@/shared/types/api'
 import { brokersService, type Broker } from '../services/brokers.service'
+import { plansApi } from '@/features/super-admin/services/plansApi'
+import type { BrokerPlan } from '@/features/super-admin/types/plans.types'
+import { useAuthStore } from '@/features/auth'
+import { apiClient } from '@/shared/lib/api-client'
+import { useNavigate } from 'react-router-dom'
 
 export function BrokersPage() {
+  const navigate = useNavigate()
+  const { startImpersonation } = useAuthStore()
   const [brokers, setBrokers] = useState<Broker[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
@@ -30,6 +37,12 @@ export function BrokersPage() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [creating, setCreating] = useState(false)
+
+  // Plan assignment state
+  const [plans, setPlans] = useState<BrokerPlan[]>([])
+  const [planTarget, setPlanTarget] = useState<Broker | null>(null)
+  const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null)
+  const [assigningPlan, setAssigningPlan] = useState(false)
 
   const load = async () => {
     setIsLoading(true)
@@ -43,7 +56,10 @@ export function BrokersPage() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    plansApi.list().then(setPlans).catch(() => {})
+  }, [])
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -90,6 +106,37 @@ export function BrokersPage() {
     }
   }
 
+  const handleImpersonate = async (broker: Broker) => {
+    try {
+      const res = await apiClient.post<{
+        token: string
+        broker_id: number
+        broker_name: string
+        expires_in: number
+      }>(`/api/v1/admin/impersonate/${broker.id}`)
+      startImpersonation(res.token, res.broker_name)
+      toast.success(`Entrando como ${res.broker_name}`)
+      navigate('/dashboard')
+    } catch {
+      toast.error('Error al iniciar impersonation')
+    }
+  }
+
+  const handleAssignPlan = async () => {
+    if (!planTarget) return
+    setAssigningPlan(true)
+    try {
+      await plansApi.assignToBroker(planTarget.id, selectedPlanId)
+      setBrokers((prev) => prev.map((b) => b.id === planTarget.id ? { ...b, plan_id: selectedPlanId } : b))
+      toast.success('Plan asignado')
+      setPlanTarget(null)
+    } catch {
+      toast.error('Error al asignar plan')
+    } finally {
+      setAssigningPlan(false)
+    }
+  }
+
   const columns: ColumnDef<Broker>[] = [
     {
       accessorKey: 'id',
@@ -121,6 +168,16 @@ export function BrokersPage() {
       ),
     },
     {
+      accessorKey: 'plan_id',
+      header: 'Plan',
+      cell: ({ row }) => {
+        const plan = plans.find((p) => p.id === row.original.plan_id)
+        return plan
+          ? <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium">{plan.name}</span>
+          : <span className="text-xs text-slate-400">Sin plan</span>
+      },
+    },
+    {
       accessorKey: 'created_at',
       header: 'Creada',
       cell: ({ row }) => <span className="text-sm text-muted-foreground">{formatDate(row.original.created_at)}</span>,
@@ -133,6 +190,26 @@ export function BrokersPage() {
         const loading = togglingId === b.id
         return (
           <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-violet-600 hover:text-violet-700"
+              onClick={() => handleImpersonate(b)}
+              title="Ver el CRM como este broker"
+            >
+              Ver como
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700"
+              onClick={() => {
+                setPlanTarget(b)
+                setSelectedPlanId(b.plan_id ?? null)
+              }}
+            >
+              Plan
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -221,6 +298,34 @@ export function BrokersPage() {
         onConfirm={handleDelete}
         isLoading={isDeleting}
       />
+
+      {/* Assign plan dialog */}
+      <Dialog open={!!planTarget} onOpenChange={(o) => !o && setPlanTarget(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Asignar plan — {planTarget?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Label className="text-xs">Plan comercial</Label>
+            <select
+              className="w-full text-sm border rounded-lg px-3 py-2 bg-white text-slate-700"
+              value={selectedPlanId ?? ''}
+              onChange={(e) => setSelectedPlanId(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">Sin plan (ilimitado)</option>
+              {plans.filter((p) => p.is_active).map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPlanTarget(null)}>Cancelar</Button>
+            <Button onClick={handleAssignPlan} disabled={assigningPlan}>
+              {assigningPlan ? 'Guardando...' : 'Asignar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

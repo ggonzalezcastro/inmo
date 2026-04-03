@@ -5,12 +5,14 @@ import NavBar from './NavBar';
 import RoleDebugger from './RoleDebugger';
 import LeadTable from './LeadTable';
 import LeadFilters from './LeadFilters';
+import { agentsAPI } from '../services/api';
 
 
 export default function Dashboard() {
   const { leads, total, loading, fetchLeads, filters, setFilters } = useLeadsStore();
   const { isAdmin, getUserRole } = useAuthStore();
   const userRole = getUserRole();
+  const [workload, setWorkload] = useState([]);
   
   // Redirect if not admin
   useEffect(() => {
@@ -18,6 +20,15 @@ export default function Dashboard() {
       window.location.href = '/pipeline';
     }
   }, [userRole, isAdmin]);
+
+  // Load agent workload for admin
+  useEffect(() => {
+    if (isAdmin()) {
+      agentsAPI.getWorkload()
+        .then((res) => setWorkload(res.data || []))
+        .catch(() => {});
+    }
+  }, []);
   const [stats, setStats] = useState({
     total_leads: 0,
     cold: 0,
@@ -130,6 +141,46 @@ export default function Dashboard() {
             }
           }}
         />
+
+        {/* Agent Workload Table (admin only) */}
+        {isAdmin() && workload.length > 0 && (
+          <div className="mt-8 bg-white shadow rounded-lg overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900">📅 Carga de asesores (últimos 30 días)</h2>
+            </div>
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Asesor</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Reuniones (30d)</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Leads asignados</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Calendario</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {workload.map((row) => (
+                  <tr key={row.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-3">
+                      <div className="font-medium text-gray-900">{row.name}</div>
+                      <div className="text-xs text-gray-500">{row.email}</div>
+                    </td>
+                    <td className="px-6 py-3 text-center font-semibold text-gray-800">{row.appointments_30d}</td>
+                    <td className="px-6 py-3 text-center text-gray-700">{row.leads_assigned}</td>
+                    <td className="px-6 py-3 text-center">
+                      {row.calendar_connected ? (
+                        <span className="inline-flex items-center gap-1 text-green-600 font-medium">
+                          <span>✓</span> Activo
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </main>
     </div>
   );

@@ -10,6 +10,7 @@ export type WSEventType =
   | 'ai_response'
   | 'human_mode_changed'
   | 'human_mode_incoming'
+  | 'lead_frustrated'
 
 export interface WSEvent<T = unknown> {
   type: WSEventType

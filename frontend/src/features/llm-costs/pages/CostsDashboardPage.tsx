@@ -403,12 +403,12 @@ export function CostsDashboardPage() {
   const userRole = useAuthStore((s) => s.user?.role ?? '');
   const { fetchAll, error, period, setPeriod, selectedBrokerId } = useCostsStore();
   const isSuperadmin = userRole === 'superadmin';
-  const shouldFetch = !isSuperadmin || selectedBrokerId != null;
   const [activeTab, setActiveTab] = useState<'chat' | 'voice'>('chat');
 
+  // Superadmin sees all brokers by default (no broker_id required)
   useEffect(() => {
-    if (shouldFetch) fetchAll();
-  }, [fetchAll, period, selectedBrokerId, shouldFetch]);
+    fetchAll();
+  }, [fetchAll, period, selectedBrokerId]);
 
   const tabs = [
     { id: 'chat' as const, label: 'Chat IA', icon: MessageSquare },
@@ -430,11 +430,6 @@ export function CostsDashboardPage() {
           <div className="mt-4 h-px bg-[#D1D9E6]" />
         </div>
 
-        {isSuperadmin && selectedBrokerId == null && (
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-blue-800 text-sm">
-            Selecciona un broker en el gráfico &quot;Costos por broker&quot; para ver el detalle del dashboard.
-          </div>
-        )}
         {error && (
           <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">{error}</div>
         )}

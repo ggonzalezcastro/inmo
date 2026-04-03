@@ -34,4 +34,9 @@ export const conversationService = {
   async sendMessage(leadId: number, text: string): Promise<void> {
     await apiClient.post(`/api/v1/conversations/leads/${leadId}/human-message`, { text })
   },
+
+  async improveMessage(text: string): Promise<string> {
+    const res = await apiClient.post<{ improved: string }>('/api/v1/conversations/improve-message', { text })
+    return res.improved
+  },
 }

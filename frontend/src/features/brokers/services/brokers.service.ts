@@ -6,6 +6,7 @@ export interface Broker {
   email?: string
   is_active: boolean
   created_at: string
+  plan_id?: number | null
 }
 
 export interface CreateBrokerDto {

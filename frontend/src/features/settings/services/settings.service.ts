@@ -159,6 +159,24 @@ export const settingsService = {
     await apiClient.delete('/api/broker/calendar/disconnect')
   },
 
+  // Combined status for both providers
+  async getAllCalendarStatus(): Promise<{
+    provider: 'google' | 'outlook' | 'none' | null
+    google: { connected: boolean; email: string | null }
+    outlook: { connected: boolean; email: string | null }
+  }> {
+    return apiClient.get('/api/broker/calendar/all-status')
+  },
+
+  // Outlook Calendar
+  async getOutlookCalendarAuthUrl(): Promise<{ auth_url: string }> {
+    return apiClient.get('/api/broker/calendar/outlook/auth-url')
+  },
+
+  async disconnectOutlookCalendar(): Promise<void> {
+    await apiClient.delete('/api/broker/calendar/outlook/disconnect')
+  },
+
   async getAvailabilitySlots(): Promise<AvailabilitySlot[]> {
     return apiClient.get('/api/broker/calendar/availability')
   },

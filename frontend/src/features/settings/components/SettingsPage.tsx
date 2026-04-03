@@ -2,8 +2,9 @@ import { useState, useEffect, useRef } from 'react'
 import {
   Save, Loader2, TrendingUp, Database, ListOrdered,
   AlertTriangle, GripVertical, ChevronRight, Bot, Calendar,
-  CheckCircle2, XCircle, ExternalLink, Plus, Trash2, Clock,
+  Plus, Trash2, Clock,
 } from 'lucide-react'
+import { CalendarSection } from './CalendarSection'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/shared/components/ui/dialog'
@@ -149,7 +150,7 @@ const TABS = [
   { id: 'weights',  label: 'Scoring',       icon: Database    },
   { id: 'agent',    label: 'Agente IA',    icon: ListOrdered },
   { id: 'prompt',   label: 'Prompt',        icon: Bot         },
-  { id: 'calendar', label: 'Google Calendar', icon: Calendar  },
+  { id: 'calendar', label: 'Calendario',       icon: Calendar  },
 ] as const
 type TabId = (typeof TABS)[number]['id']
 
@@ -162,8 +163,6 @@ export function SettingsPage() {
   const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 })
   const [agentPrompts, setAgentPrompts] = useState<AgentPromptsConfig | null>(null)
   const [agentCustom, setAgentCustom] = useState({ qualifier: '', scheduler: '', follow_up: '' })
-  const [calendarStatus, setCalendarStatus] = useState<{ connected: boolean; email: string | null; calendar_id: string | null } | null>(null)
-  const [calendarLoading, setCalendarLoading] = useState(false)
 
   // Availability
   const [slots, setSlots] = useState<AvailabilitySlot[]>([])
@@ -192,27 +191,9 @@ export function SettingsPage() {
       .finally(() => setIsLoading(false))
   }, [])
 
-  // Detect OAuth callback return (?tab=calendar&status=success)
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    if (params.get('tab') === 'calendar') {
-      setActiveTab('calendar')
-      if (params.get('status') === 'success') {
-        toast.success('Google Calendar conectado correctamente')
-      } else if (params.get('status') === 'error') {
-        toast.error('Error al conectar Google Calendar')
-      }
-      // Clean URL
-      window.history.replaceState({}, '', window.location.pathname)
-    }
-  }, [])
-
-  // Load calendar status + availability when switching to calendar tab
+  // Load availability slots when switching to calendar tab
   useEffect(() => {
     if (activeTab !== 'calendar') return
-    settingsService.getCalendarStatus()
-      .then(setCalendarStatus)
-      .catch(() => { /* non-critical */ })
     setSlotsLoading(true)
     Promise.all([
       settingsService.getAvailabilitySlots(),
@@ -704,8 +685,8 @@ export function SettingsPage() {
               {
                 key: 'follow_up' as const,
                 label: 'FollowUpAgent',
-                subtitle: 'Etapas: agendado → seguimiento → referidos',
-                description: 'Seguimiento post-visita, resolución de dudas y solicitud de referidos.',
+                subtitle: 'Etapas: potencial, agendado',
+                description: 'Nurturing de leads potenciales y acompañamiento post-agendamiento.',
                 color: '#059669',
                 bg: '#F0FDF4',
               },
@@ -762,119 +743,14 @@ export function SettingsPage() {
       </div>
     ),
 
-    // ── TAB 5: GOOGLE CALENDAR ────────────────────────────────────────────────
+    // ── TAB 5: CALENDARIO ─────────────────────────────────────────────────────
     calendar: (
       <div className="space-y-6">
         <div>
-          <SectionLabel>Google Calendar</SectionLabel>
-          <p className="text-sm text-[#6B7280] mb-5">
-            Conecta el Gmail de tu inmobiliaria para que las citas se creen automáticamente en tu calendario con links de Google Meet.
-          </p>
+          <SectionLabel>Calendario</SectionLabel>
         </div>
 
-        {/* Connection status card */}
-        <div className="rounded-xl border bg-white p-5 space-y-4" style={{ borderColor: border }}>
-          <div className="flex items-center gap-3">
-            {calendarStatus?.connected ? (
-              <>
-                <CheckCircle2 className="h-5 w-5 shrink-0" style={{ color: '#22C55E' }} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-[#111827]">Conectado</p>
-                  <p className="text-xs text-[#6B7280] truncate">{calendarStatus.email ?? 'Gmail conectado'}</p>
-                </div>
-              </>
-            ) : (
-              <>
-                <XCircle className="h-5 w-5 shrink-0 text-[#9CA3AF]" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-[#111827]">No conectado</p>
-                  <p className="text-xs text-[#6B7280]">Las citas usarán el calendario compartido global</p>
-                </div>
-              </>
-            )}
-          </div>
-
-          {calendarStatus?.connected && (
-            <div className="flex items-center gap-2 p-3 rounded-lg" style={{ background: '#F0FDF4', border: '1px solid #BBF7D0' }}>
-              <Calendar className="h-4 w-4 shrink-0" style={{ color: '#16A34A' }} />
-              <p className="text-xs text-[#15803D]">
-                Calendario: <span className="font-mono font-semibold">{calendarStatus.calendar_id ?? 'primary'}</span>
-              </p>
-            </div>
-          )}
-
-          <div className="flex gap-2 pt-1">
-            {calendarStatus?.connected ? (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={calendarLoading}
-                onClick={async () => {
-                  setCalendarLoading(true)
-                  try {
-                    await settingsService.disconnectCalendar()
-                    setCalendarStatus({ connected: false, email: null, calendar_id: null })
-                    toast.success('Google Calendar desconectado')
-                  } catch (e) {
-                    toast.error(getErrorMessage(e))
-                  } finally {
-                    setCalendarLoading(false)
-                  }
-                }}
-                style={{ borderColor: '#FCA5A5', color: '#DC2626' }}
-              >
-                {calendarLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                Desconectar
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                disabled={calendarLoading}
-                style={{ background: blue, color: '#fff' }}
-                onClick={async () => {
-                  setCalendarLoading(true)
-                  try {
-                    const { auth_url } = await settingsService.getCalendarAuthUrl()
-                    window.open(auth_url, '_blank', 'width=600,height=700')
-                  } catch (e) {
-                    toast.error(getErrorMessage(e))
-                  } finally {
-                    setCalendarLoading(false)
-                  }
-                }}
-              >
-                {calendarLoading
-                  ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  : <ExternalLink className="h-4 w-4 mr-2" />
-                }
-                Conectar Google Calendar
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* Setup instructions */}
-        {!calendarStatus?.connected && (
-          <div className="rounded-xl border p-5 space-y-3" style={{ borderColor: border, background: '#FAFAFA' }}>
-            <p className="text-xs font-semibold uppercase tracking-wide text-[#9CA3AF]">Cómo funciona</p>
-            {[
-              'Haz clic en "Conectar Google Calendar"',
-              'Inicia sesión con el Gmail de tu inmobiliaria',
-              'Autoriza el acceso al calendario',
-              'Las citas nuevas se crearán automáticamente con Google Meet',
-            ].map((step, i) => (
-              <div key={i} className="flex items-start gap-3">
-                <span
-                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold mt-0.5"
-                  style={{ background: blueLt, color: blue }}
-                >
-                  {i + 1}
-                </span>
-                <p className="text-sm text-[#374151]">{step}</p>
-              </div>
-            ))}
-          </div>
-        )}
+        <CalendarSection />
 
         {/* ── Availability Slots ────────────────────────────────────────── */}
         <div>

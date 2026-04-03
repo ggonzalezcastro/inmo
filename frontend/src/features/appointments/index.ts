@@ -1,2 +1,5 @@
-export { AppointmentsPage } from './components/AppointmentsPage'
+export { CalendarView } from './components/CalendarView'
 export { appointmentsService } from './services/appointments.service'
+export { calendarService } from './services/calendar.service'
+export { useCalendarStore } from './store/calendarStore'
+export type * from './types/calendar.types'

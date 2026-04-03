@@ -40,6 +40,7 @@ export default function PipelineBoard({ onLeadClick }) {
 
   const [activeId, setActiveId] = useState(null);
   const [searchInput, setSearchInput] = useState('');
+  const [agents, setAgents] = useState([]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -51,6 +52,25 @@ export default function PipelineBoard({ onLeadClick }) {
   useEffect(() => {
     fetchAllStages();
   }, []); // Fetch on mount
+
+  // Load agents for the "Asignado a" filter
+  useEffect(() => {
+    const loadAgents = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch('/api/v1/agents/', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setAgents(Array.isArray(data) ? data : []);
+        }
+      } catch (e) {
+        // Non-admin users won't have access — silently ignore
+      }
+    };
+    loadAgents();
+  }, []);
 
   useEffect(() => {
     // Refetch when filters change
@@ -166,7 +186,10 @@ export default function PipelineBoard({ onLeadClick }) {
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">Todos</option>
-              {/* TODO: Fetch users from API */}
+              <option value="unassigned">Sin asignar</option>
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
             </select>
           </div>
 

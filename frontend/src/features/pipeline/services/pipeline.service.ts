@@ -7,6 +7,15 @@ interface PipelineMetrics {
   conversion_rate: number
 }
 
+export interface FunnelMetrics {
+  stage_counts: Record<string, number>
+  conversion_rates: Record<string, number>
+  avg_stage_days: Record<string, number>
+  total_conversion_rate: number
+  lost_by_stage: Record<string, number>
+  total_leads: number
+}
+
 export const pipelineService = {
   async getLeadsByStage(stage: string, params: Record<string, unknown> = {}): Promise<Lead[]> {
     const clean = Object.fromEntries(
@@ -23,15 +32,35 @@ export const pipelineService = {
     return []
   },
 
-  async moveLeadToStage(leadId: number, newStage: string, reason = ''): Promise<Lead> {
+  async moveLeadToStage(
+    leadId: number,
+    newStage: string,
+    closeReason?: string,
+    closeReasonDetail?: string,
+    reason = ''
+  ): Promise<Lead> {
     return apiClient.post(`/api/v1/pipeline/leads/${leadId}/move-stage`, {
       new_stage: newStage,
       reason,
+      close_reason: closeReason ?? null,
+      close_reason_detail: closeReasonDetail ?? null,
     })
+  },
+
+  async assignAgent(leadId: number, agentId: number | null): Promise<void> {
+    await apiClient.post(`/api/v1/pipeline/leads/${leadId}/assign`, { agent_id: agentId })
+  },
+
+  async listAgents(): Promise<Array<{ id: number; name: string; email: string }>> {
+    return apiClient.get('/api/v1/pipeline/agents')
   },
 
   async getMetrics(): Promise<PipelineMetrics> {
     return apiClient.get('/api/v1/pipeline/metrics')
+  },
+
+  async getFunnelMetrics(): Promise<FunnelMetrics> {
+    return apiClient.get('/api/v1/pipeline/funnel-metrics')
   },
 
   async getInactiveLeads(stage: string, inactivityDays = 7): Promise<Lead[]> {

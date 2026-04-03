@@ -9,8 +9,9 @@ export interface CreateUserDto {
 }
 
 export const usersService = {
-  async getAll(): Promise<AuthUser[]> {
-    const res = await apiClient.get<{ users: AuthUser[] } | AuthUser[]>('/api/broker/users')
+  async getAll(brokerId?: number | null): Promise<AuthUser[]> {
+    const params = brokerId ? { broker_id: brokerId } : undefined
+    const res = await apiClient.get<{ users: AuthUser[] } | AuthUser[]>('/api/broker/users', { params })
     // Backend returns { users: [...] }, handle both shapes for safety
     return Array.isArray(res) ? res : (res as { users: AuthUser[] }).users ?? []
   },
