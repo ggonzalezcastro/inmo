@@ -40,6 +40,10 @@ from app.routes.ws import router as ws_router
 from app.routes.knowledge_base import router as kb_router
 from app.routes.conversations import router as conversations_router
 from app.routes.agents import router as agents_router
+from app.features.properties.routes import router as properties_router
+from app.routes.observability.routes import router as observability_router
+from app.routes.observability.health import health_router as observability_health_router
+from app.routes.observability.live_tail import live_router as observability_live_router
 from app.celery_app import celery_app
 
 
@@ -364,6 +368,10 @@ app.include_router(ws_router, prefix="/ws", tags=["websocket"])
 app.include_router(kb_router, prefix="/api/v1/kb", tags=["knowledge-base"])
 app.include_router(conversations_router, prefix="/api/v1/conversations", tags=["conversations"])
 app.include_router(agents_router, prefix="/api/v1/agents", tags=["agents"])
+app.include_router(properties_router, prefix="/api/v1/properties", tags=["properties"])
+app.include_router(observability_router, prefix="/api/v1/admin", tags=["observability"])
+app.include_router(observability_health_router, prefix="/api/v1/admin", tags=["observability"])
+app.include_router(observability_live_router)  # WS route — no prefix needed
 
 
 if __name__ == "__main__":

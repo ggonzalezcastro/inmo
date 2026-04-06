@@ -8,6 +8,7 @@ It:
   3. Applies any context updates returned by the agent
   4. Executes handoffs when the agent signals one
   5. Guards against infinite handoff loops (max 3 hops)
+  6. Logs all routing decisions and handoffs to AgentEventLogger
 
 Usage
 -----
@@ -22,7 +23,7 @@ Usage
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,6 +53,8 @@ class AgentSupervisor:
         message: str,
         context: AgentContext,
         db: AsyncSession,
+        message_id: Optional[int] = None,
+        conversation_id: Optional[int] = None,
     ) -> AgentResponse:
         """
         Route a lead message to the appropriate agent and return its response.
@@ -59,9 +62,12 @@ class AgentSupervisor:
         Handles up to ``_MAX_HANDOFFS`` consecutive handoffs before returning
         the last response to avoid infinite loops.
         """
+        from app.services.observability.event_logger import event_logger
+
         current_context = context
         last_response: Optional[AgentResponse] = None
         hops = 0
+        visited_agents: List[str] = []
 
         while hops < _MAX_HANDOFFS:
             agent = await cls._select_agent(current_context)
@@ -75,11 +81,44 @@ class AgentSupervisor:
                 )
                 agent = _get_qualifier()
 
+            # ── Loop detection ──────────────────────────────────────────────
+            if agent.agent_type.value in visited_agents:
+                await event_logger.log_error(
+                    lead_id=context.lead_id,
+                    broker_id=context.broker_id,
+                    error_type="handoff_loop",
+                    error_message=(
+                        f"Handoff loop detected: "
+                        f"{' → '.join(visited_agents)} → {agent.agent_type.value}"
+                    ),
+                    agent_type="supervisor",
+                    message_id=message_id,
+                    conversation_id=conversation_id,
+                )
+                logger.warning(
+                    "[Supervisor] Handoff loop detected: %s → %s (stopping)",
+                    " → ".join(visited_agents),
+                    agent.agent_type.value,
+                )
+                break
+
             logger.info(
                 "[Supervisor] Routing to %s (hop=%d, lead=%d)",
                 agent.name,
                 hops,
                 context.lead_id,
+            )
+
+            visited_agents.append(agent.agent_type.value)
+
+            # ── Log agent selection ─────────────────────────────────────────
+            await event_logger.log_agent_selected(
+                lead_id=context.lead_id,
+                broker_id=context.broker_id,
+                agent_type=agent.agent_type.value,
+                reason=f"hop {hops + 1}, visited: {visited_agents[:-1] or 'none'}",
+                message_id=message_id,
+                conversation_id=conversation_id,
             )
 
             response = await agent.process(message, current_context, db)
@@ -96,6 +135,11 @@ class AgentSupervisor:
                 message_history=current_context.message_history,
                 current_agent=agent.agent_type,
                 handoff_count=hops,
+                property_preferences=current_context.property_preferences,
+                human_release_note=current_context.human_release_note,
+                last_agent_note=response.metadata.get("agent_note") if response.metadata else current_context.last_agent_note,
+                current_frustration=current_context.current_frustration,
+                tone_hint=current_context.tone_hint,
             )
 
             # Check for handoff
@@ -110,6 +154,17 @@ class AgentSupervisor:
                 handoff.reason,
             )
 
+            # ── Log handoff ─────────────────────────────────────────────────
+            await event_logger.log_handoff(
+                lead_id=context.lead_id,
+                broker_id=context.broker_id,
+                from_agent=agent.agent_type.value,
+                to_agent=handoff.target_agent.value,
+                reason=handoff.reason,
+                message_id=message_id,
+                conversation_id=conversation_id,
+            )
+
             # Apply handoff context updates
             handoff_data = {**updated_data, **handoff.context_updates}
             current_context = AgentContext(
@@ -121,6 +176,11 @@ class AgentSupervisor:
                 message_history=current_context.message_history,
                 current_agent=handoff.target_agent,
                 handoff_count=hops + 1,
+                property_preferences=current_context.property_preferences,
+                human_release_note=current_context.human_release_note,
+                last_agent_note=current_context.last_agent_note,
+                current_frustration=current_context.current_frustration,
+                tone_hint=current_context.tone_hint,
             )
             hops += 1
 

@@ -10,6 +10,7 @@ from app.tasks import whatsapp_tasks
 from app.tasks import sentiment_tasks
 from app.tasks import dlq_tasks
 from app.tasks import human_timeout_tasks
+from app.tasks import alert_evaluator
 
 __all__ = [
     "telegram_tasks",
@@ -20,4 +21,5 @@ __all__ = [
     "sentiment_tasks",
     "dlq_tasks",
     "human_timeout_tasks",
+    "alert_evaluator",
 ]

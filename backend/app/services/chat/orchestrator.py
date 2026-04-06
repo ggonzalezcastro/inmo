@@ -180,6 +180,13 @@ class ChatOrchestratorService:
         # If a human agent has taken control, skip AI processing entirely.
         # On the FIRST message after escalation, send a one-time handoff notice.
         # After that, stay silent so the human agent can take over.
+        #
+        # Re-read lead with a row-level lock to get the current human_mode value
+        # before acting on it. This prevents a race condition where a Celery task
+        # or concurrent request updates human_mode between the initial refresh
+        # (above) and this check.
+        await db.execute(_sa_select(Lead).where(Lead.id == lead.id).with_for_update())
+        await db.refresh(lead)
         if lead.human_mode:
             meta = lead.lead_metadata or {}
             if broker_id:
@@ -281,10 +288,8 @@ class ChatOrchestratorService:
         except Exception as sm_exc:
             logger.warning("State machine advance failed: %s", sm_exc)
 
-        # 4. Acquire row-level lock BEFORE score update to prevent the
-        # Celery sentiment task (which also uses FOR UPDATE) from reading
-        # stale scores and overwriting changes on concurrent execution.
-        await db.execute(_sa_select(Lead).where(Lead.id == lead.id).with_for_update())
+        # 4. Refresh lead before score update (the row-level lock was already
+        # acquired at the human_mode check above; re-using the same lock here).
         await db.refresh(lead)
 
         # Atomic score update (protected by the lock above)

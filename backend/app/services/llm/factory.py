@@ -47,8 +47,18 @@ def _build_provider(provider_name: str) -> BaseLLMProvider:
             temperature=getattr(settings, "OPENAI_TEMPERATURE", 0.7),
         )
 
+    if name == "gemma":
+        # Gemma runs through the Google Generative AI API (same key as Gemini)
+        from app.services.llm.gemini_provider import GeminiProvider
+        return GeminiProvider(
+            api_key=settings.GEMINI_API_KEY,
+            model=getattr(settings, "GEMMA_MODEL", "gemma-4-31b-it"),
+            max_tokens=settings.GEMINI_MAX_TOKENS,
+            temperature=settings.GEMINI_TEMPERATURE,
+        )
+
     raise ValueError(
-        f"Unknown LLM provider: '{provider_name}'. Valid options: gemini, claude, openai"
+        f"Unknown LLM provider: '{provider_name}'. Valid options: gemini, claude, openai, gemma"
     )
 
 

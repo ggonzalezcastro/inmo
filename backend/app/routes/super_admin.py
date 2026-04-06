@@ -140,7 +140,7 @@ async def super_admin_errors(
     if not all([settings.SENTRY_AUTH_TOKEN, settings.SENTRY_ORG, settings.SENTRY_PROJECT]):
         return {"configured": False, "issues": []}
 
-    cached = await cache_get_json(_SENTRY_CACHE_KEY)
+    cached = await cache_get_json(f"{_SENTRY_CACHE_KEY}:{limit}")
     if cached is not None:
         return {"configured": True, "issues": cached}
 
@@ -174,7 +174,7 @@ async def super_admin_errors(
         for issue in raw
     ]
 
-    await cache_set_json(_SENTRY_CACHE_KEY, issues, ttl_seconds=_SENTRY_CACHE_TTL)
+    await cache_set_json(f"{_SENTRY_CACHE_KEY}:{limit}", issues, ttl_seconds=_SENTRY_CACHE_TTL)
 
     return {"configured": True, "issues": issues}
 
@@ -345,8 +345,12 @@ async def start_impersonation(
         raise HTTPException(status_code=404, detail="Broker no encontrado o inactivo")
 
     # Load superadmin user to get email
-    user_result = await db.execute(select(User).where(User.id == int(current_user["user_id"])))
-    sa_user = user_result.scalar_one_or_none()
+    try:
+        sa_uid = int(current_user["user_id"])
+    except (TypeError, ValueError):
+        sa_uid = None
+    user_result = await db.execute(select(User).where(User.id == sa_uid)) if sa_uid else None
+    sa_user = user_result.scalar_one_or_none() if user_result else None
 
     token_data = {
         "sub": current_user["user_id"],       # keeps original user_id
@@ -363,9 +367,13 @@ async def start_impersonation(
     )
 
     # Audit log
+    try:
+        audit_uid = int(current_user["user_id"])
+    except (TypeError, ValueError):
+        audit_uid = None
     await log_audit(
         db,
-        user_id=int(current_user["user_id"]),
+        user_id=audit_uid,
         broker_id=broker_id,
         action="impersonation_start",
         resource_type="broker",
@@ -398,9 +406,13 @@ async def exit_impersonation(
 
     broker_id = current_user.get("broker_id")
 
+    try:
+        exit_uid = int(current_user["user_id"])
+    except (TypeError, ValueError):
+        exit_uid = None
     await log_audit(
         db,
-        user_id=int(current_user["user_id"]),
+        user_id=exit_uid,
         broker_id=broker_id,
         action="impersonation_end",
         resource_type="broker",

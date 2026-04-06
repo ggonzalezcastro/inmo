@@ -18,6 +18,7 @@ class AgentType(str, Enum):
     QUALIFIER = "qualifier"          # Collects lead data + financial qualification
     SCHEDULER = "scheduler"         # Books property visits
     FOLLOW_UP = "follow_up"         # Post-visit engagement / referrals
+    PROPERTY = "property"           # Hybrid property search + recommendations
     SUPERVISOR = "supervisor"       # Internal: routes between agents
 
 
@@ -39,6 +40,19 @@ class AgentContext:
     message_history: List[Dict]       # [{role, content}, ...]
     current_agent: Optional[AgentType] = None
     handoff_count: int = 0            # guard against infinite handoff loops
+
+    # ── Phase 2G additions: token-optimized context ───────────────────────────
+    property_preferences: Dict[str, Any] = field(default_factory=dict)
+    # e.g. {"type": "departamento", "commune": "Las Condes", "bedrooms": 2, "max_uf": 5000}
+    human_release_note: Optional[str] = None   # note left by agent when releasing human mode
+    last_agent_note: Optional[str] = None       # last internal note from previous agent turn
+    current_frustration: float = 0.0            # 0.0–1.0, from sentiment service
+    tone_hint: Optional[str] = None             # "empathetic", "professional", "concise"
+
+    @property
+    def recent_messages(self) -> List[Dict]:
+        """Last 5 messages only — saves ~60-80% tokens vs. full history."""
+        return self.message_history[-5:] if self.message_history else []
 
     # ── Derived helpers ───────────────────────────────────────────────────────
 
@@ -99,3 +113,4 @@ class AgentResponse:
     function_calls: List[Dict] = field(default_factory=list)
     tokens_used: int = 0
     is_final: bool = False                     # True = conversation fully completed
+    metadata: Dict[str, Any] = field(default_factory=dict)  # Agent-specific notes (e.g. agent_note)

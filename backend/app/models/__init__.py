@@ -48,6 +48,11 @@ from app.models.llm_call import LLMCall
 from app.models.prompt_version import PromptVersion
 from app.models.knowledge_base import KnowledgeBase
 from app.models.broker_plan import BrokerPlan
+from app.models.agent_event import AgentEvent
+from app.models.property import Property
+from app.models.conversation import Conversation
+from app.models.escalation_brief import EscalationBrief
+from app.models.observability_alert import ObservabilityAlert
 
 __all__ = [
     "Base",
@@ -95,5 +100,10 @@ __all__ = [
     "ChatMessageDirection",
     "ChatMessageStatus",
     "UserRole",
+    "AgentEvent",
+    "Property",
+    "Conversation",
+    "EscalationBrief",
+    "ObservabilityAlert",
 ]
 

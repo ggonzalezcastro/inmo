@@ -110,6 +110,13 @@ function AgentCalendarRow({ agent, saving, onSave, onDisconnect }) {
   const [connected, setConnected] = useState(agent.calendar_connected || false);
   const [dirty, setDirty] = useState(false);
 
+  // Sync local state when parent updates the agent prop (e.g., after save/disconnect)
+  useEffect(() => {
+    setCalendarId(agent.calendar_id || '');
+    setConnected(agent.calendar_connected || false);
+    setDirty(false);
+  }, [agent.calendar_id, agent.calendar_connected]);
+
   function handleChange(field, value) {
     if (field === 'calendarId') setCalendarId(value);
     if (field === 'connected') setConnected(value);

@@ -90,6 +90,8 @@ class Lead(Base, IdMixin, TimestampMixin):
     human_mode = Column(Boolean, nullable=False, default=False, server_default="false")
     human_assigned_to = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     human_taken_at = Column(DateTime(timezone=True), nullable=True)
+    human_released_at = Column(DateTime(timezone=True), nullable=True)
+    human_release_note = Column(Text, nullable=True)  # Context note left by human agent when returning to AI
 
     # Relationships
     telegram_messages = relationship(

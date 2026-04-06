@@ -26,21 +26,26 @@ async def log_audit(
     user_agent: Optional[str] = None,
 ) -> None:
     """
-    Insert an AuditLog row. Failures are logged but never raised —
-    audit logging must not break the main request flow.
+    Insert an AuditLog row using an independent DB session so the entry is
+    committed even if the caller's transaction is rolled back afterwards.
+    Failures are logged but never raised — audit logging must not break the
+    main request flow.
     """
     try:
-        entry = AuditLog(
-            user_id=user_id,
-            broker_id=broker_id,
-            action=action,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            changes=changes or {},
-            ip_address=ip_address,
-            user_agent=user_agent,
-        )
-        db.add(entry)
-        await db.flush()
+        from app.core.database import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as audit_session:
+            entry = AuditLog(
+                user_id=user_id,
+                broker_id=broker_id,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                changes=changes or {},
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+            audit_session.add(entry)
+            await audit_session.commit()
     except Exception as exc:
         logger.warning("audit log failed: %s", exc)

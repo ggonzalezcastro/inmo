@@ -1,11 +1,12 @@
 from typing import AsyncGenerator
-from sqlalchemy import text
+from sqlalchemy import text, create_engine
 from sqlalchemy.ext.asyncio import (
     create_async_engine,
     AsyncSession,
     async_sessionmaker,
     AsyncEngine
 )
+from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import NullPool
 from app.core.config import settings
 from app.models.base import Base
@@ -62,3 +63,26 @@ async def init_db():
 async def close_db():
     """Close database connections"""
     await engine.dispose()
+
+
+# ── Sync engine for Celery workers ──────────────────────────────────────────
+# Celery tasks run in a synchronous context; replace asyncpg driver with psycopg2.
+_sync_url = settings.DATABASE_URL.replace(
+    "postgresql+asyncpg://", "postgresql+psycopg2://"
+).replace("postgresql+aiopg://", "postgresql+psycopg2://")
+
+_sync_engine = create_engine(
+    _sync_url,
+    echo=settings.DEBUG,
+    future=True,
+    pool_pre_ping=True,
+    pool_size=5,
+    max_overflow=10,
+)
+
+SyncSessionLocal: sessionmaker[Session] = sessionmaker(
+    bind=_sync_engine,
+    autoflush=False,
+    autocommit=False,
+    expire_on_commit=False,
+)

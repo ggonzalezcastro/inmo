@@ -18,6 +18,7 @@ import {
   ChevronRight,
   Cpu,
   ShieldCheck,
+  Activity,
 } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
 import { useAuthStore } from '@/features/auth'
@@ -53,6 +54,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/users', label: 'Usuarios', icon: UserCog, roles: ['admin', 'superadmin'] },
   { path: '/brokers', label: 'Brokers', icon: Building2, roles: ['superadmin'], dividerBefore: true },
   { path: '/super-admin', label: 'Super Admin', icon: ShieldCheck, roles: ['superadmin'] },
+  { path: '/admin/observability', label: 'Observabilidad', icon: Activity, roles: ['superadmin', 'admin'] },
 ]
 
 const STATUS_COLORS: Record<SofiaStatus, { dot: string; bg: string; text: string; detail: string }> = {

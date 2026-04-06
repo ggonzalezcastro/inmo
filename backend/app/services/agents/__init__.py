@@ -33,28 +33,34 @@ from app.services.agents.base import BaseAgent, register_agent, get_agent
 from app.services.agents.qualifier import QualifierAgent
 from app.services.agents.scheduler import SchedulerAgent
 from app.services.agents.follow_up import FollowUpAgent
+from app.services.agents.property import PropertyAgent
 from app.services.agents.supervisor import AgentSupervisor
 
 # ── Singleton instances ───────────────────────────────────────────────────────
 qualifier_agent_instance = QualifierAgent()
 scheduler_agent_instance = SchedulerAgent()
 follow_up_agent_instance = FollowUpAgent()
+property_agent_instance = PropertyAgent()
 
 # Register all agents
 register_agent(qualifier_agent_instance)
 register_agent(scheduler_agent_instance)
 register_agent(follow_up_agent_instance)
+register_agent(property_agent_instance)
 
 
 def get_priority_agents() -> list[BaseAgent]:
     """
     Return registered agents in routing-priority order.
 
-    FollowUp > Scheduler > Qualifier
-    (More specific agents take priority over general ones.)
+    FollowUp > Property > Scheduler > Qualifier
+    (More specific agents take priority over general ones.
+     Property agent is checked before Scheduler because a lead in
+     calificacion_financiera may want to see properties before scheduling.)
     """
     return [
         follow_up_agent_instance,
+        property_agent_instance,
         scheduler_agent_instance,
         qualifier_agent_instance,
     ]
@@ -146,9 +152,11 @@ __all__ = [
     "QualifierAgent",
     "SchedulerAgent",
     "FollowUpAgent",
+    "PropertyAgent",
     "build_context",
     "get_priority_agents",
     "qualifier_agent_instance",
     "scheduler_agent_instance",
     "follow_up_agent_instance",
+    "property_agent_instance",
 ]

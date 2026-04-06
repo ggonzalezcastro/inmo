@@ -7,6 +7,7 @@ service layer; is_active is flipped atomically).
 """
 from sqlalchemy import (
     Column,
+    Float,
     Integer,
     String,
     Text,
@@ -41,11 +42,22 @@ class PromptVersion(Base, IdMixin, TimestampMixin):
 
     # ── Version metadata ─────────────────────────────────────────────────────
     version_tag = Column(String(50), nullable=False)   # e.g. "v1.0.0"
+    prompt_type = Column(String(30), nullable=True)
+    # 'system', 'qualification', 'scheduling', 'property'
+    prompt_hash = Column(String(64), nullable=True)    # SHA-256 for deduplication
     is_active = Column(Boolean, default=False, nullable=False)
+    notes = Column(Text, nullable=True)
 
     # ── Prompt content ────────────────────────────────────────────────────────
     content = Column(Text, nullable=False)             # full prompt text
     sections_json = Column(JSONB, nullable=True)       # optional structured sections
+
+    # ── Aggregated performance metrics (updated by background task) ───────────
+    total_uses = Column(Integer, nullable=False, default=0)
+    avg_tokens_per_call = Column(Float, nullable=True)
+    avg_latency_ms = Column(Float, nullable=True)
+    avg_lead_score_delta = Column(Float, nullable=True)
+    escalation_rate = Column(Float, nullable=True)
 
     # ── Relationships ─────────────────────────────────────────────────────────
     broker = relationship("Broker", back_populates="prompt_versions")

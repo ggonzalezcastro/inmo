@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from pydantic import BaseModel, EmailStr, field_validator
 from datetime import timedelta
+import logging
 
 from app.schemas.user import validate_password_strength
 from app.database import get_db
@@ -18,6 +19,7 @@ from app.services.broker import BrokerInitService
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class UserRegister(BaseModel):
@@ -148,10 +150,6 @@ async def register(user_data: UserRegister, db: AsyncSession = Depends(get_db)):
     access_token = create_access_token(data=token_data)
     
     return {"access_token": access_token, "token_type": "bearer"}
-
-
-import logging
-logger = logging.getLogger(__name__)
 
 
 @router.post(

@@ -56,6 +56,9 @@ const ConversationsPage = lazy(() =>
 const SuperAdminPage = lazy(() =>
   import('@/features/super-admin').then((m) => ({ default: m.SuperAdminPage }))
 )
+const ObservabilityPage = lazy(() =>
+  import('@/features/observability').then((m) => ({ default: m.ObservabilityPage }))
+)
 
 function SuspenseWrapper({ children }: { children: React.ReactNode }) {
   return (
@@ -169,6 +172,14 @@ export const router = createBrowserRouter([
         element: (
           <RoleGuard allowedRoles={['superadmin']}>
             <SuspenseWrapper><SuperAdminPage /></SuspenseWrapper>
+          </RoleGuard>
+        ),
+      },
+      {
+        path: '/admin/observability/*',
+        element: (
+          <RoleGuard allowedRoles={['admin', 'superadmin']}>
+            <SuspenseWrapper><ObservabilityPage /></SuspenseWrapper>
           </RoleGuard>
         ),
       },

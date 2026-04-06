@@ -606,9 +606,17 @@ async def list_prompt_versions(
             {
                 "id": v.id,
                 "version_tag": v.version_tag,
+                "prompt_type": v.prompt_type,
                 "is_active": v.is_active,
+                "notes": v.notes,
                 "created_by": v.created_by,
                 "created_at": v.created_at.isoformat() if v.created_at else None,
+                # Performance metrics (populated by background task)
+                "total_uses": v.total_uses,
+                "avg_tokens_per_call": v.avg_tokens_per_call,
+                "avg_latency_ms": v.avg_latency_ms,
+                "avg_lead_score_delta": v.avg_lead_score_delta,
+                "escalation_rate": v.escalation_rate,
             }
             for v in versions
         ],

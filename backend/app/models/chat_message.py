@@ -40,6 +40,12 @@ class ChatMessage(Base, IdMixin, TimestampMixin):
     # Relations
     lead_id = Column(Integer, ForeignKey("leads.id", ondelete="CASCADE"), nullable=False, index=True)
     broker_id = Column(Integer, ForeignKey("brokers.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id = Column(
+        Integer,
+        ForeignKey("conversations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # Provider
     provider = Column(
@@ -89,6 +95,11 @@ class ChatMessage(Base, IdMixin, TimestampMixin):
     lead = relationship("Lead", back_populates="chat_messages")
     broker = relationship("Broker", back_populates="chat_messages")
     prompt_version = relationship("PromptVersion", foreign_keys=[prompt_version_id])
+    conversation = relationship(
+        "Conversation",
+        back_populates="messages",
+        foreign_keys="ChatMessage.conversation_id",
+    )
 
     __table_args__ = (
         Index("idx_chat_messages_lead_provider", "lead_id", "provider"),

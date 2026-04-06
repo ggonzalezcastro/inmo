@@ -168,6 +168,32 @@ async def _escalate(
         },
     )
 
+    # Log escalation event to agent_events
+    try:
+        from app.services.observability.event_logger import event_logger
+        await event_logger.log_escalation(
+            lead_id=lead_id,
+            broker_id=broker_id,
+            reason="frustration",
+            frustration_score=score,
+        )
+    except Exception as exc:
+        logger.warning("Failed to log escalation event: %s", exc)
+
+    # Generate escalation brief asynchronously (don't block WS broadcast).
+    # NOTE: db.commit() already ran above, so the fresh_db session inside
+    # _generate_brief_background will see committed escalation data.
+    try:
+        import asyncio
+        asyncio.create_task(_generate_brief_background(
+            lead_id=lead_id,
+            broker_id=broker_id,
+            reason="frustration",
+            frustration_score=score,
+        ))
+    except Exception as exc:
+        logger.warning("Failed to schedule brief generation: %s", exc)
+
     # Broadcast to broker dashboard
     try:
         from app.core.websocket_manager import ws_manager
@@ -186,3 +212,57 @@ async def _escalate(
         )
     except Exception as exc:
         logger.warning("sentiment_ws_broadcast_failed: %s", exc)
+
+
+async def _generate_brief_background(
+    lead_id: int,
+    broker_id: int,
+    reason: str,
+    frustration_score: float,
+) -> None:
+    """Fire-and-forget brief generation after escalation."""
+    try:
+        from app.core.database import AsyncSessionLocal
+        from app.models.lead import Lead
+        from sqlalchemy.future import select
+        from app.services.handoff.brief_generator import generate_escalation_brief
+
+        async with AsyncSessionLocal() as fresh_db:
+            result = await fresh_db.execute(select(Lead).where(Lead.id == lead_id))
+            lead = result.scalar_one_or_none()
+            if lead is None:
+                return
+
+            lead_data = {
+                "name": lead.name,
+                "phone": lead.phone,
+                "email": lead.email,
+                **(lead.lead_metadata or {}),
+            }
+
+            # Fetch the last 10 messages for the brief's LLM prompt
+            from app.models.chat_message import ChatMessage
+            from sqlalchemy import desc
+            msg_result = await fresh_db.execute(
+                select(ChatMessage)
+                .where(ChatMessage.lead_id == lead_id)
+                .order_by(desc(ChatMessage.created_at))
+                .limit(10)
+            )
+            recent_msgs = [
+                {"role": m.direction, "content": m.message_text}
+                for m in reversed(msg_result.scalars().all())
+            ]
+
+            await generate_escalation_brief(
+                db=fresh_db,
+                lead_id=lead_id,
+                broker_id=broker_id,
+                reason=reason,
+                lead_data=lead_data,
+                recent_messages=recent_msgs,
+                frustration_score=frustration_score,
+            )
+            await fresh_db.commit()
+    except Exception as exc:
+        logger.warning("Background brief generation failed: %s", exc)

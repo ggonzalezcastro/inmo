@@ -188,6 +188,18 @@ async def takeover_lead(
         uid = int(raw_uid) if raw_uid is not None else None
     except (TypeError, ValueError):
         uid = raw_uid
+
+    # Guard: warn caller if lead is already assigned to a different agent
+    if lead.human_assigned_to is not None and lead.human_assigned_to != uid:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "ALREADY_ASSIGNED",
+                "message": "Este lead ya está siendo atendido por otro agente.",
+                "assigned_to": lead.human_assigned_to,
+            },
+        )
+
     lead.human_mode = True
     lead.human_assigned_to = uid
     lead.human_taken_at = datetime.now(timezone.utc)
@@ -290,7 +302,11 @@ async def send_human_message(
     except Exception:
         pass
 
-    # Format message with agent attribution for real channels (WhatsApp / Telegram)
+    # Format message with agent attribution for WhatsApp (*Name:*\n prefix).
+    # NOTE: The ChatService branch (Telegram / other channels) intentionally
+    # omits the attribution prefix — ChatService may also write the message to
+    # the DB, and we want the plain text stored there. Telegram's own chat UI
+    # already shows the sender name, so the prefix is unnecessary.
     def _format_with_agent(text: str) -> str:
         if not agent_display_name:
             return text
@@ -317,7 +333,7 @@ async def send_human_message(
             broker_id=current_user.get("broker_id"),
             provider_name=provider_name,
             channel_user_id=channel_user_id,
-            message_text=_format_with_agent(body.text),
+            message_text=body.text,
             lead_id=lead_id,
         )
         if not send_result.success:
@@ -376,7 +392,28 @@ async def improve_message(
     )
 
     try:
+        import time as _time
+        _t0 = _time.monotonic()
         improved = await LLMServiceFacade.generate_response(prompt)
+        _latency_ms = int((_time.monotonic() - _t0) * 1000)
+        # Track LLM cost so it appears in the observability dashboard
+        try:
+            from app.services.llm.call_logger import log_llm_call
+            # Spanish text averages ~3.5 chars/token; use // 3 as a conservative
+            # over-estimate rather than the English-biased // 4 heuristic.
+            await log_llm_call(
+                provider="unknown",
+                model="unknown",
+                call_type="improve_message",
+                input_tokens=max(1, len(prompt) // 3),
+                output_tokens=max(1, len(improved) // 3),
+                latency_ms=_latency_ms,
+                broker_id=current_user.get("broker_id"),
+                lead_id=None,
+                used_fallback=False,
+            )
+        except Exception:
+            pass
         return {"improved": improved.strip()}
     except Exception as exc:
         logger.warning("improve_message LLM call failed: %s", exc)

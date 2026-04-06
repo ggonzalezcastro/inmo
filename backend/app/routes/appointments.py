@@ -35,13 +35,18 @@ async def create_appointment(
     """Create a new appointment"""
     
     try:
-        # Verify lead exists
+        # Verify lead exists and belongs to caller's broker
         lead_result = await db.execute(
             select(Lead).where(Lead.id == appointment_data.lead_id)
         )
         lead = lead_result.scalars().first()
         
         if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        
+        broker_id = current_user.get("broker_id") if isinstance(current_user, dict) else getattr(current_user, "broker_id", None)
+        role = current_user.get("role") if isinstance(current_user, dict) else getattr(current_user, "role", None)
+        if role != "SUPERADMIN" and lead.broker_id != broker_id:
             raise HTTPException(status_code=404, detail="Lead not found")
         
         # Validate agent_id is provided (required for multi-agent support)
@@ -51,10 +56,11 @@ async def create_appointment(
                 detail="agent_id is required. Please specify which agent will handle this appointment."
             )
         
-        # Verify agent exists and has valid email
-        agent_result = await db.execute(
-            select(User).where(User.id == appointment_data.agent_id)
-        )
+        # Verify agent exists, belongs to same broker, and has valid email
+        agent_where = [User.id == appointment_data.agent_id]
+        if role != "SUPERADMIN" and broker_id:
+            agent_where.append(User.broker_id == broker_id)
+        agent_result = await db.execute(select(User).where(*agent_where))
         agent = agent_result.scalars().first()
         
         if not agent:
@@ -197,11 +203,16 @@ async def get_appointment(
     if not appointment:
         raise HTTPException(status_code=404, detail="Appointment not found")
     
-    # Get lead info
+    # ── Multi-tenancy guard: verify appointment belongs to caller's broker ───
     lead_result = await db.execute(
         select(Lead).where(Lead.id == appointment.lead_id)
     )
     lead = lead_result.scalars().first()
+    
+    broker_id = current_user.get("broker_id") if isinstance(current_user, dict) else getattr(current_user, "broker_id", None)
+    role = current_user.get("role") if isinstance(current_user, dict) else getattr(current_user, "role", None)
+    if role != "SUPERADMIN" and lead and lead.broker_id != broker_id:
+        raise HTTPException(status_code=404, detail="Appointment not found")
     
     # Get agent info if assigned
     agent_name = None
@@ -211,7 +222,7 @@ async def get_appointment(
         )
         agent = agent_result.scalars().first()
         if agent:
-            agent_name = agent.broker_name
+            agent_name = agent.name  # was agent.broker_name (bug: field does not exist)
     
     appointment_dict = AppointmentResponse.model_validate(appointment).model_dump()
     return AppointmentDetailResponse(
@@ -232,16 +243,32 @@ async def update_appointment(
     """Update an appointment"""
     
     try:
+        # ── Multi-tenancy guard ───────────────────────────────────────────────
+        appt_check = (await db.execute(
+            select(Appointment).where(Appointment.id == appointment_id)
+        )).scalars().first()
+        if appt_check:
+            appt_lead = (await db.execute(
+                select(Lead).where(Lead.id == appt_check.lead_id)
+            )).scalars().first()
+            broker_id = current_user.get("broker_id") if isinstance(current_user, dict) else getattr(current_user, "broker_id", None)
+            role = current_user.get("role") if isinstance(current_user, dict) else getattr(current_user, "role", None)
+            if role != "SUPERADMIN" and appt_lead and appt_lead.broker_id != broker_id:
+                raise HTTPException(status_code=404, detail="Appointment not found")
+
         # Check if agent_id is being updated and validate agent email
         update_dict = appointment_update.dict(exclude_unset=True) if hasattr(appointment_update, 'dict') else {}
         
         if 'agent_id' in update_dict and update_dict['agent_id'] is not None:
             new_agent_id = update_dict['agent_id']
             
-            # Verify new agent exists and has valid email
-            agent_result = await db.execute(
-                select(User).where(User.id == new_agent_id)
-            )
+            broker_id = current_user.get("broker_id") if isinstance(current_user, dict) else getattr(current_user, "broker_id", None)
+            role = current_user.get("role") if isinstance(current_user, dict) else getattr(current_user, "role", None)
+            # Verify new agent belongs to the same broker (issue #4)
+            agent_where = [User.id == new_agent_id]
+            if role != "SUPERADMIN" and broker_id:
+                agent_where.append(User.broker_id == broker_id)
+            agent_result = await db.execute(select(User).where(*agent_where))
             agent = agent_result.scalars().first()
             
             if not agent:
@@ -273,6 +300,18 @@ async def update_appointment(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def _assert_appointment_broker(appointment_id: int, current_user, db: AsyncSession) -> None:
+    """Raise 404 if the appointment's lead doesn't belong to the caller's broker."""
+    appt = (await db.execute(select(Appointment).where(Appointment.id == appointment_id))).scalars().first()
+    if not appt:
+        return  # let the service raise ValueError/404
+    lead = (await db.execute(select(Lead).where(Lead.id == appt.lead_id))).scalars().first()
+    broker_id = current_user.get("broker_id") if isinstance(current_user, dict) else getattr(current_user, "broker_id", None)
+    role = current_user.get("role") if isinstance(current_user, dict) else getattr(current_user, "role", None)
+    if role != "SUPERADMIN" and lead and lead.broker_id != broker_id:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+
+
 @router.post("/{appointment_id}/confirm", response_model=AppointmentResponse)
 async def confirm_appointment(
     appointment_id: int,
@@ -282,8 +321,11 @@ async def confirm_appointment(
     """Confirm an appointment"""
     
     try:
+        await _assert_appointment_broker(appointment_id, current_user, db)
         appointment = await AppointmentService.confirm_appointment(db, appointment_id)
         return appointment
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -298,8 +340,11 @@ async def cancel_appointment(
     """Cancel an appointment"""
     
     try:
+        await _assert_appointment_broker(appointment_id, current_user, db)
         appointment = await AppointmentService.cancel_appointment(db, appointment_id, reason)
         return appointment
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

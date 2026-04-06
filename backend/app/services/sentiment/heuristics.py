@@ -65,8 +65,9 @@ _FRUSTRATION_PATTERNS: List[tuple] = [
     (re.compile(r"\b(es una lata|qu[eé] lata|qu[eé] fome|qu[eé] penca)\b", re.I), 0.40, "frustration", 0.75),  # Chilean idioms
     (re.compile(r"\b(demasiado lento|muy lento|tardando mucho|tardan mucho|tardando demasiado|cu[aá]nto (m[aá]s|más) tardan)\b", re.I), 0.40, "frustration", 0.70),
     (re.compile(r"\b(llevan (mucho tiempo|horas|d[ií]as)|cu[aá]nto (m[aá]s|más) voy a esperar)\b", re.I), 0.45, "frustration", 0.75),
-    # Uppercase frustration — at least 2 all-caps words (2+ chars each)
-    (re.compile(r"(?:^|(?<=\s))[A-ZÁÉÍÓÚÑ]{2,}(?=\s|$).*(?:^|(?<=\s))[A-ZÁÉÍÓÚÑ]{2,}(?=\s|$)", re.M), 0.40, "frustration", 0.60),
+    # Uppercase frustration — at least 3 all-caps words (2+ chars each) to reduce false positives
+    # from common Chilean real estate acronyms like UF, DNI, VER, etc.
+    (re.compile(r"(?:(?:^|(?<=\s))[A-ZÁÉÍÓÚÑ]{2,}(?=\s|$).*?){3,}", re.M), 0.40, "frustration", 0.60),
     # Repeated exclamation marks
     (re.compile(r"!{2,}"), 0.30, "frustration", 0.55),
     (re.compile(r"\b(esto es un desastre|qu[eé] desastre|terrible (servicio|atenci[oó]n))\b", re.I), 0.70, "frustration", 0.85),

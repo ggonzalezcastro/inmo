@@ -396,7 +396,7 @@ async def get_pending_human_messages(
                 user_result = await db.execute(select(User).where(User.id == lead.assigned_to))
                 agent = user_result.scalars().first()
                 if agent:
-                    agent_name = agent.full_name or agent.email.split("@")[0].title()
+                    agent_name = agent.name or agent.email.split("@")[0].title()  # was agent.full_name (field does not exist)
         except Exception:
             pass
 

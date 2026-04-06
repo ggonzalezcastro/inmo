@@ -128,6 +128,20 @@ async def get_current_user(
                 detail="Only superadmins can impersonate other users",
             )
 
+        # Validate that the target broker still exists and is active (issue #6)
+        target_broker_id = payload.get("broker_id")
+        if target_broker_id:
+            from app.models.broker import Broker
+            broker_result = await db.execute(
+                select(Broker).where(Broker.id == target_broker_id)
+            )
+            target_broker = broker_result.scalars().first()
+            if not target_broker or not target_broker.is_active:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Target broker is inactive or does not exist",
+                )
+
         jwt_role = (payload.get("role") or "AGENT").upper()
         return {
             "user_id": user_id,

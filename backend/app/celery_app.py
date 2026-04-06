@@ -50,6 +50,11 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.human_timeout_tasks.check_human_mode_timeouts",
         "schedule": crontab(minute="*/5"),
     },
+    # ── Observability alert evaluation (every 5 min) ───────────────────────
+    "evaluate-observability-alerts": {
+        "task": "observability.evaluate_alerts",
+        "schedule": crontab(minute="*/5"),
+    },
 }
 
 

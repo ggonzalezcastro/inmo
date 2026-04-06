@@ -238,9 +238,22 @@ def _is_simple_confirmation(message: str) -> bool:
         "genial", "me acomoda", "agendame", "ya agendame", "si agendame",
         "sí agendame", "ya", "ok dale", "ok si", "ok sí",
     }
-    return text in _SIMPLE_YES or len(text) <= 15 and any(
-        kw in text for kw in ("si", "sí", "ok", "dale", "agendame", "genial", "listo", "claro")
-    )
+    # Use word-boundary matching to avoid substring false positives.
+    # e.g. "así que no" contains "sí" but is not a confirmation.
+    if text in _SIMPLE_YES:
+        return True
+    if len(text) <= 15:
+        # Bail out if the message starts with a negation or conditional phrase.
+        # e.g. "no sé si", "claro que no", "tal vez si", "si no me llaman"
+        _NEGATION_PREFIX = re.compile(
+            r"^(no|tal vez|quizás|quiz[aá]s|puede|si no|no s[eé]|a ver)\b", re.I
+        )
+        if _NEGATION_PREFIX.search(text):
+            return False
+        for kw in ("si", "sí", "ok", "dale", "agendame", "genial", "listo", "claro"):
+            if re.search(r"\b" + re.escape(kw) + r"\b", text):
+                return True
+    return False
 
 
 def _last_assistant_message(history: list) -> str | None:
