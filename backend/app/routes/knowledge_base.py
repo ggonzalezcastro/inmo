@@ -13,7 +13,11 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+
+logger = logging.getLogger(__name__)
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -87,6 +91,7 @@ async def list_documents(
 @router.post("", status_code=201)
 async def add_document(
     body: DocumentCreate,
+    response: Response,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -96,6 +101,15 @@ async def add_document(
     The document is automatically embedded with Gemini text-embedding-004
     and stored with a pgvector column for semantic search.
     """
+    if body.source_type == "property":
+        logger.warning(
+            "Deprecated: KB entry created with source_type='property' by user %s. "
+            "Use POST /api/v1/properties instead.",
+            current_user.get("id") if isinstance(current_user, dict) else getattr(current_user, "id", "?"),
+        )
+        response.headers["X-Deprecation"] = (
+            "source_type='property' is deprecated. Use POST /api/v1/properties instead."
+        )
     effective_broker_id = _resolve_broker(current_user, body.broker_id)
     entry = await RAGService.add_document(
         db,
@@ -145,6 +159,7 @@ async def search_kb(
 async def update_document(
     entry_id: int,
     body: DocumentUpdate,
+    response: Response,
     broker_id: Optional[int] = Query(None),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -154,6 +169,14 @@ async def update_document(
 
     If ``content`` is changed, the embedding is automatically recomputed.
     """
+    if body.source_type == "property":
+        logger.warning(
+            "Deprecated: KB entry updated to source_type='property'. "
+            "Use PUT /api/v1/properties/{id} instead.",
+        )
+        response.headers["X-Deprecation"] = (
+            "source_type='property' is deprecated. Use PUT /api/v1/properties/{id} instead."
+        )
     effective_broker_id = _resolve_broker(current_user, broker_id)
     updated = await RAGService.update_document(
         db,

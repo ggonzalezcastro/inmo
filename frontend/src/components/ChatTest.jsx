@@ -38,9 +38,12 @@ export default function ChatTest() {
     scrollToBottom();
   }, [messages]);
 
-  // Poll for human agent messages when in human_mode
+  // Poll for human agent messages as soon as leadId is known.
+  // Runs at 3s intervals regardless of humanMode — detects mode change from the
+  // server response so the lead's chat shows advisor messages without needing to
+  // send a message first.
   useEffect(() => {
-    if (!humanMode || !leadId) {
+    if (!leadId) {
       clearInterval(pollingRef.current);
       return;
     }
@@ -49,8 +52,10 @@ export default function ChatTest() {
         const res = await api.get(
           `/api/v1/chat/${leadId}/pending-messages?after_id=${lastHumanMsgIdRef.current}`
         );
-        const { messages: newMsgs, agent_name } = res.data;
+        const { messages: newMsgs, agent_name, human_mode: serverHumanMode } = res.data;
         if (agent_name && !agentName) setAgentName(agent_name);
+        // Detect human_mode transition from server (no need to wait for a send)
+        if (serverHumanMode && !humanMode) setHumanMode(true);
         if (newMsgs && newMsgs.length > 0) {
           setMessages(prev => [
             ...prev,
@@ -63,7 +68,7 @@ export default function ChatTest() {
     poll(); // llamada inmediata
     pollingRef.current = setInterval(poll, 3000);
     return () => clearInterval(pollingRef.current);
-  }, [humanMode, leadId]);
+  }, [leadId]);
 
   // Fetch lead data when leadId changes or after messages
   useEffect(() => {
@@ -231,7 +236,7 @@ export default function ChatTest() {
       if (debug_info?.human_mode) setHumanMode(true);
 
       // Add AI response to chat (skip internal [human_mode] marker)
-      if (aiResponse && aiResponse !== '[human_mode]') {
+      if (aiResponse && aiResponse.trim() !== '[human_mode]') {
         setMessages(prev => [...prev, { type: 'bot', text: aiResponse }]);
       }
 

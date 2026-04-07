@@ -71,10 +71,12 @@ async def _get_embedding(text: str) -> Optional[List[float]]:
         import asyncio
 
         def _sync_embed():
+            from google.genai import types as genai_types
             client = genai.Client(api_key=settings.GEMINI_API_KEY)
             result = client.models.embed_content(
-                model="text-embedding-004",
+                model="gemini-embedding-001",
                 contents=text,
+                config=genai_types.EmbedContentConfig(output_dimensionality=768),
             )
             return list(result.embeddings[0].values)
 

@@ -63,7 +63,7 @@ class TestPropertyAgentRouting:
 class TestPropertyAgentProcess:
     @pytest.mark.asyncio
     async def test_responds_when_no_property_query(self):
-        """Non-property message → conversational response, no tool call."""
+        """Non-property message → conversational response via LLM passthrough, then handoff."""
         agent = PropertyAgent()
         ctx = _ctx()
         db = AsyncMock()
@@ -72,15 +72,14 @@ class TestPropertyAgentProcess:
             "app.services.agents.property.LLMServiceFacade.generate_response_with_function_calling",
             new_callable=AsyncMock,
             return_value=("Hola, soy Sofía. ¿En qué puedo ayudarte?", []),
-        ), patch(
-            "app.services.agents.property.event_logger.log_llm_call",
-            new_callable=AsyncMock,
         ):
             response = await agent.process("Hola", ctx, db)
 
         assert response.message == "Hola, soy Sofía. ¿En qué puedo ayudarte?"
         assert response.agent_type == AgentType.PROPERTY
-        assert not response.function_calls
+        # Non-property message triggers handoff to Qualifier
+        assert response.handoff is not None
+        assert response.handoff.target_agent == AgentType.QUALIFIER
 
     @pytest.mark.asyncio
     async def test_executes_property_search_tool(self):
@@ -91,10 +90,6 @@ class TestPropertyAgentProcess:
                               "location": "Las Condes", "budget": "5000 UF"})
         db = AsyncMock()
 
-        mock_function_call = {
-            "name": "search_properties",
-            "args": {"commune": "Las Condes", "max_uf": 5000},
-        }
         mock_results = [
             {"name": "Edificio Sol", "commune": "Las Condes", "price_uf": 4800,
              "bedrooms": 2, "bathrooms": 1, "area_m2": 65, "property_type": "departamento",
@@ -104,20 +99,16 @@ class TestPropertyAgentProcess:
         with patch(
             "app.services.agents.property.LLMServiceFacade.generate_response_with_function_calling",
             new_callable=AsyncMock,
-            return_value=("Aquí hay opciones:", [mock_function_call]),
+            return_value=("Encontré 1 propiedad en Las Condes.", []),
         ), patch(
             "app.services.agents.property.execute_property_search",
             new_callable=AsyncMock,
             return_value=mock_results,
         ), patch(
-            "app.services.agents.property.LLMServiceFacade.generate_response_with_function_calling",
-            new_callable=AsyncMock,
-            return_value=("Encontré 1 propiedad en Las Condes.", []),
-        ), patch(
-            "app.services.agents.property.event_logger.log_property_search",
+            "app.services.observability.event_logger.event_logger.log_property_search",
             new_callable=AsyncMock,
         ), patch(
-            "app.services.agents.property.event_logger.log_llm_call",
+            "app.services.observability.event_logger.event_logger.log_tool_call",
             new_callable=AsyncMock,
         ):
             response = await agent.process(
@@ -125,35 +116,42 @@ class TestPropertyAgentProcess:
             )
 
         assert response.agent_type == AgentType.PROPERTY
+        assert response.message == "Encontré 1 propiedad en Las Condes."
 
     @pytest.mark.asyncio
     async def test_handoff_when_lead_wants_to_book(self):
-        """When LLM says the lead wants to book, should_handoff emits HandoffSignal."""
+        """should_handoff returns response.handoff — HandoffSignal to Scheduler when set."""
         agent = PropertyAgent()
         ctx = _ctx(pipeline_stage="calificacion_financiera")
 
-        mock_response = MagicMock()
-        mock_response.message = "¡Perfecto! Te agendo una visita."
-        mock_response.context_updates = {"wants_appointment": True}
-        mock_response.function_calls = []
-        mock_response.metadata = {"wants_appointment": True}
+        scheduler_handoff = HandoffSignal(
+            target_agent=AgentType.SCHEDULER,
+            reason="Lead wants to visit a specific property",
+        )
+        from app.services.agents.types import AgentResponse
+        mock_response = AgentResponse(
+            message="¡Perfecto! Te agendo una visita.",
+            agent_type=AgentType.PROPERTY,
+            handoff=scheduler_handoff,
+        )
 
         handoff = await agent.should_handoff(mock_response, ctx)
 
-        # HandoffSignal to Scheduler if wants_appointment is set
-        if handoff is not None:
-            assert handoff.target_agent == AgentType.SCHEDULER
+        assert handoff is not None
+        assert handoff.target_agent == AgentType.SCHEDULER
 
     @pytest.mark.asyncio
     async def test_no_handoff_by_default(self):
-        """Normal property browsing should not trigger handoff."""
+        """Normal property browsing (no schedule intent) → no handoff."""
         agent = PropertyAgent()
         ctx = _ctx()
 
-        mock_response = MagicMock()
-        mock_response.context_updates = {}
-        mock_response.metadata = {}
-        mock_response.message = "Aquí hay departamentos disponibles."
+        from app.services.agents.types import AgentResponse
+        mock_response = AgentResponse(
+            message="Aquí hay departamentos disponibles.",
+            agent_type=AgentType.PROPERTY,
+            handoff=None,
+        )
 
         handoff = await agent.should_handoff(mock_response, ctx)
         assert handoff is None

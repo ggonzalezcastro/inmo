@@ -19,7 +19,10 @@ from app.services.agents.types import (
 
 logger = logging.getLogger(__name__)
 
-_OWN_STAGES = {"potencial", "agendado"}
+# "potencial" removed — PropertyAgent now owns that stage for browsing.
+# "agendado" is only claimed here when conversation is in COMPLETED state
+# (post-visit follow-up). PropertyAgent handles "agendado" for leads still browsing.
+_OWN_STAGES: set = set()
 _OWN_CONV_STATES = {"COMPLETED"}
 
 

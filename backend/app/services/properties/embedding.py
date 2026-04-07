@@ -67,23 +67,11 @@ async def generate_property_query_embedding(query: str) -> List[float]:
 
 async def _embed(text: str) -> List[float]:
     """Embed a string using Gemini text-embedding-004 (same as knowledge_base)."""
-    try:
-        # Reuse the same embedding path that knowledge_base uses
-        from app.services.knowledge.rag_service import RAGService
-        embedding = await RAGService._generate_embedding(text)
-        return embedding
-    except AttributeError:
-        # Fallback: call Gemini directly if RAGService doesn't expose the method
-        import google.generativeai as genai
-        from app.config import settings
-
-        genai.configure(api_key=settings.GEMINI_API_KEY)
-        result = genai.embed_content(
-            model="models/text-embedding-004",
-            content=text,
-            task_type="retrieval_document",
-        )
-        return result["embedding"]
+    from app.services.knowledge.rag_service import _embed_text
+    result = await _embed_text(text)
+    if result is None:
+        raise RuntimeError("Embedding returned None — check GEMINI_API_KEY and connectivity")
+    return result
 
 
 async def embed_and_save_property(prop: Any, db: Any) -> bool:

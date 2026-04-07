@@ -201,9 +201,27 @@ class GeminiProvider(BaseLLMProvider):
                 return self._clean_response(text), [], usage
 
             native_tools = self._convert_tools_to_native(tools)
-            config = types.GenerateContentConfig(
+            # Use tool_config to explicitly control function calling mode per iteration.
+            # First iteration: ANY forces the model to use function calling instead of
+            # generating <tool_code> text blocks (a Gemini 2.5 quirk when tools are present).
+            # Subsequent iterations (after tool results are fed back): AUTO lets the model
+            # decide whether to call another tool or produce a final text response.
+            config_first = types.GenerateContentConfig(
                 **base_config_kwargs,
                 tools=native_tools,
+                tool_config=types.ToolConfig(
+                    function_calling_config=types.FunctionCallingConfig(mode="ANY")
+                ),
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                max_output_tokens=self.max_tokens,
+                temperature=self.temperature,
+            )
+            config_auto = types.GenerateContentConfig(
+                **base_config_kwargs,
+                tools=native_tools,
+                tool_config=types.ToolConfig(
+                    function_calling_config=types.FunctionCallingConfig(mode="AUTO")
+                ),
                 automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
                 max_output_tokens=self.max_tokens,
                 temperature=self.temperature,
@@ -216,12 +234,13 @@ class GeminiProvider(BaseLLMProvider):
 
             for iteration in range(max_iterations):
                 logger.info(f"[Gemini] Tool calling iteration {iteration + 1}/{max_iterations}")
-                
+                # First iteration: force function calling to avoid <tool_code> text output
+                active_config = config_first if iteration == 0 else config_auto
                 start_time = time.time()
                 response = self._client.models.generate_content(
                     model=self.model,
                     contents=contents,
-                    config=config
+                    config=active_config
                 )
                 elapsed = time.time() - start_time
                 logger.info(f"[Gemini] API call time: {elapsed:.2f}s")
@@ -460,22 +479,27 @@ class GeminiProvider(BaseLLMProvider):
         """Clean Gemini-specific response artifacts. Only use fallback when there is no real content."""
         if not text or not text.strip():
             return self.FALLBACK_RESPONSE
-        
+
+        import re
         cleaned = text.strip()
-        
+
+        # Remove <tool_code>...</tool_code> blocks — Gemini 2.5 quirk when
+        # function calling falls back to code-execution style output
+        cleaned = re.sub(r"<tool_code>.*?</tool_code>", "", cleaned, flags=re.DOTALL).strip()
+
         # Remove common Gemini artifacts
         for marker in ["RESPUESTA:", "R:", "RESPONSE:"]:
             if marker in cleaned:
                 parts = cleaned.split(marker)
                 cleaned = parts[-1].strip()
-        
+
         # Remove context markers
         lines = []
         for line in cleaned.split('\n'):
             if not line.startswith(('P:', 'INFO_OK:', 'H:', 'M:')):
                 lines.append(line)
         cleaned = '\n'.join(lines).strip()
-        
+
         # Return any non-empty content; only fallback when truly empty after cleaning
         return cleaned if cleaned else self.FALLBACK_RESPONSE
 

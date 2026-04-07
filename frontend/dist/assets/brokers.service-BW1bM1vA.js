@@ -1,1 +1,0 @@
-import{a as r}from"./index-CnvSNJCm.js";const s={async getAll(){return r.get("/api/brokers/")},async create(e){return r.post("/api/brokers/",e)},async update(e,t){return r.put(`/api/brokers/${e}`,t)},async delete(e){return r.delete(`/api/brokers/${e}`)}};export{s as b};

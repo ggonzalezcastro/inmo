@@ -387,22 +387,26 @@ async def get_pending_human_messages(
         result = await db.execute(q)
         msgs = result.scalars().all()
 
-        # Resolve agent name from lead assignment
+        # Resolve agent name and human_mode from lead assignment
         agent_name = None
+        human_mode = False
         try:
             lead_result = await db.execute(select(Lead).where(Lead.id == lead_id))
             lead = lead_result.scalars().first()
-            if lead and lead.assigned_to:
-                user_result = await db.execute(select(User).where(User.id == lead.assigned_to))
-                agent = user_result.scalars().first()
-                if agent:
-                    agent_name = agent.name or agent.email.split("@")[0].title()  # was agent.full_name (field does not exist)
+            if lead:
+                human_mode = bool(lead.human_mode)
+                if lead.assigned_to:
+                    user_result = await db.execute(select(User).where(User.id == lead.assigned_to))
+                    agent = user_result.scalars().first()
+                    if agent:
+                        agent_name = agent.name or agent.email.split("@")[0].title()
         except Exception:
             pass
 
         return {
             "lead_id": lead_id,
             "agent_name": agent_name,
+            "human_mode": human_mode,
             "messages": [
                 {
                     "id": msg.id,

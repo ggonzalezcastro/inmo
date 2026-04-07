@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Send, Bot, User, RefreshCw, Loader2 } from 'lucide-react'
 import { Button } from '@/shared/components/ui/button'
 import { Input } from '@/shared/components/ui/input'
@@ -185,13 +187,32 @@ export function ChatInterface() {
                 </div>
               )}
               <div
-                className={`max-w-xs lg:max-w-md px-4 py-2.5 text-sm ${
+                className={`max-w-xs lg:max-w-lg px-4 py-2.5 text-sm ${
                   msg.type === 'user'
                     ? 'bg-primary text-primary-foreground rounded-2xl rounded-tr-sm'
                     : 'bg-card border border-border rounded-2xl rounded-tl-sm text-foreground'
                 }`}
               >
-                {msg.text}
+                {msg.type === 'bot' ? (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc pl-4 mb-1 space-y-0.5">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal pl-4 mb-1 space-y-0.5">{children}</ol>,
+                      li: ({ children }) => <li className="leading-snug">{children}</li>,
+                      strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                      hr: () => <hr className="my-2 border-border" />,
+                      h1: ({ children }) => <p className="font-bold text-base mb-1">{children}</p>,
+                      h2: ({ children }) => <p className="font-bold mb-1">{children}</p>,
+                      h3: ({ children }) => <p className="font-semibold mb-0.5">{children}</p>,
+                    }}
+                  >
+                    {msg.text}
+                  </ReactMarkdown>
+                ) : (
+                  msg.text
+                )}
               </div>
               {msg.type === 'user' && (
                 <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center shrink-0 mb-0.5">

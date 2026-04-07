@@ -367,6 +367,13 @@ Retorna JSON con:
         for tool in tools:
             if isinstance(tool, LLMToolDefinition):
                 tool_defs.append(tool)
+            elif isinstance(tool, dict) and "name" in tool:
+                # Plain dict format: {"name": ..., "description": ..., "parameters": ...}
+                tool_defs.append(LLMToolDefinition(
+                    name=tool["name"],
+                    description=tool.get("description", ""),
+                    parameters=tool.get("parameters", {}),
+                ))
             elif hasattr(tool, 'function_declarations'):
                 # Google types.Tool format
                 for fd in tool.function_declarations:

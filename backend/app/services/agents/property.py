@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,7 @@ from app.services.agents.types import (
     AgentType,
     HandoffSignal,
 )
+from app.services.llm.facade import LLMServiceFacade
 from app.services.properties.search_service import (
     SEARCH_PROPERTIES_TOOL,
     execute_property_search,
@@ -36,14 +38,28 @@ logger = logging.getLogger(__name__)
 # Pipeline stages where this agent is relevant
 _ACTIVE_STAGES = {"potencial", "calificacion_financiera", "agendado"}
 
-# Keywords that signal the lead wants to search properties
-_SEARCH_KEYWORDS = [
-    "propiedad", "propiedades", "departamento", "casa", "terreno",
-    "opciones", "disponible", "disponibles", "mostrar", "ver", "buscar",
-    "quiero ver", "qué tienen", "qué hay", "cuánto cuesta", "precio",
-    "cuántos dormitorios", "con piscina", "con estacionamiento",
-    "cerca", "barrio", "comuna", "ubicación",
+# Single-word keywords — matched with word boundaries to avoid false positives.
+# ("ver" was matching "verdad"/"conversar", "cerca" matching "acerca", etc.)
+_WORD_KEYWORDS = [
+    "propiedad", "propiedades", "departamento", "departamentos",
+    "casa", "casas", "terreno", "terrenos",
+    "opciones", "disponible", "disponibles", "mostrar", "buscar",
+    "precio", "dormitorios", "piscina", "estacionamiento",
+    "barrio", "comuna", "ubicacion", "ubicación",
 ]
+
+# Multi-word phrases — safe as substring matches
+_PHRASE_KEYWORDS = [
+    "quiero ver", "qué tienen", "que tienen", "qué hay", "que hay",
+    "cuánto cuesta", "cuanto cuesta", "ver en persona", "mostrar opciones",
+    "cerca de", "con piscina", "con estacionamiento",
+]
+
+# Pre-compiled regex for word-boundary matching (handles accented chars via case-fold)
+_WORD_PATTERN = re.compile(
+    r"\b(" + "|".join(re.escape(kw) for kw in _WORD_KEYWORDS) + r")\b",
+    re.IGNORECASE,
+)
 
 
 class PropertyAgent(BaseAgent):
@@ -55,7 +71,9 @@ class PropertyAgent(BaseAgent):
     def get_system_prompt(self, context: AgentContext) -> str:
         broker_name = context.lead_data.get("broker_name", "nuestra inmobiliaria")
         agent_name = context.lead_data.get("agent_name", "Sofía")
-        lead_name = context.lead_data.get("name") or "el cliente"
+        raw_name = context.lead_data.get("name")
+        name_known = bool(raw_name and raw_name.strip().lower() not in ("user", "usuario", ""))
+        lead_name = raw_name if name_known else "el cliente"
 
         # Build budget context from what we know
         budget_ctx = ""
@@ -69,6 +87,19 @@ class PropertyAgent(BaseAgent):
 
         location = context.lead_data.get("location", "")
 
+        # Build property preferences context
+        prefs = context.property_preferences or {}
+        pref_parts = []
+        if prefs.get("property_type"):
+            pref_parts.append(f"Tipo buscado: {prefs['property_type']}")
+        if prefs.get("commune"):
+            pref_parts.append(f"Zona preferida: {prefs['commune']}")
+        if prefs.get("bedrooms"):
+            pref_parts.append(f"Dormitorios deseados: {prefs['bedrooms']}")
+        if prefs.get("max_uf"):
+            pref_parts.append(f"Presupuesto: hasta {prefs['max_uf']} UF")
+        prefs_ctx = "\n".join(pref_parts) if pref_parts else "Sin preferencias registradas aún"
+
         prompt = f"""Eres {agent_name}, asesora inmobiliaria experta de {broker_name}.
 
 Estás ayudando a {lead_name} a encontrar la propiedad ideal.
@@ -77,6 +108,9 @@ Estás ayudando a {lead_name} a encontrar la propiedad ideal.
 {budget_ctx}
 Zona de interés: {location or 'No especificada'}
 Estado DICOM: {context.lead_data.get('dicom_status', 'No verificado')}
+
+## Preferencias de propiedad registradas
+{prefs_ctx}
 
 ## Tu rol
 - Busca propiedades disponibles usando la herramienta `search_properties`
@@ -101,14 +135,19 @@ Para cada propiedad encontrada, presenta:
 
 ## Tono
 Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedades.
+
+## Datos del cliente pendientes de capturar
+{"- IMPORTANTE: No conoces el nombre del cliente. Al presentar las propiedades, termina tu mensaje con una pregunta natural pidiendo su nombre. Ejemplo: '¿Por cierto, cómo te llamas para atenderte mejor?'" if not name_known else ""}
+{"- No tienes el teléfono del cliente aún. Cuando el cliente muestre interés concreto, pide el teléfono y email." if not context.lead_data.get("phone") else ""}
 """
         return self._inject_human_release_note(self._inject_tone_hint(prompt, context), context)
 
     async def should_handle(self, context: AgentContext) -> bool:
         """
         Handle when:
-        1. Lead is in an active property-search stage, OR
-        2. Lead explicitly asks about properties (regardless of stage)
+        1. Already this agent's turn (sticky routing), OR
+        2. Lead is in an active property-search stage, OR
+        3. Lead's message contains property-search keywords (any stage)
         """
         # Already this agent's turn
         if context.current_agent == AgentType.PROPERTY:
@@ -116,6 +155,10 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
 
         # Active stage check
         if context.pipeline_stage in _ACTIVE_STAGES:
+            return True
+
+        # Keyword intent check — trigger from any stage including 'entrada'
+        if context.current_message and _is_property_intent(context.current_message):
             return True
 
         return False
@@ -134,14 +177,27 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
         3. Execute hybrid search
         4. Format and return results
         """
-        from app.services.llm.facade import LLMServiceFacade
         from app.services.observability.event_logger import event_logger
 
         # First check if we should really handle this message
         if not _is_property_intent(message):
-            # Not a property search — return to qualifier or let supervisor re-route
+            # Not a property search — generate a brief conversational response
+            # and hand off to Qualifier so the lead isn't left with a blank reply.
+            try:
+                passthrough_prompt = self.get_system_prompt(context)
+                response_text, _ = await LLMServiceFacade.generate_response_with_function_calling(
+                    system_prompt=passthrough_prompt,
+                    contents=_build_history(context),
+                    tools=[],
+                    broker_id=context.broker_id,
+                    lead_id=context.lead_id,
+                    agent_type=self.agent_type.value,
+                )
+            except Exception as exc:
+                logger.warning("PropertyAgent passthrough LLM failed: %s", exc)
+                response_text = "Entendido. ¿Hay algo más en lo que pueda ayudarte?"
             return AgentResponse(
-                message="",
+                message=response_text,
                 agent_type=AgentType.PROPERTY,
                 handoff=HandoffSignal(
                     target_agent=AgentType.QUALIFIER,
@@ -215,7 +271,6 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
                 broker_id=context.broker_id,
                 lead_id=context.lead_id,
                 agent_type=self.agent_type.value,
-                rag_chunks_used=[r["id"] for tr in tool_results for r in tr.get("results", [])[:5]],
             )
         except Exception as exc:
             logger.error("PropertyAgent LLM call failed: %s", exc)
@@ -252,9 +307,11 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _is_property_intent(message: str) -> bool:
-    """Quick check: does the message ask about properties?"""
+    """Check if message relates to property search using word-boundary matching."""
+    if _WORD_PATTERN.search(message):
+        return True
     msg_lower = message.lower()
-    return any(kw in msg_lower for kw in _SEARCH_KEYWORDS)
+    return any(phrase in msg_lower for phrase in _PHRASE_KEYWORDS)
 
 
 def _wants_to_schedule(message: str, response: str) -> bool:

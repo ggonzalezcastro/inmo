@@ -210,6 +210,15 @@ async def takeover_lead(
     lead.human_mode = True
     lead.human_assigned_to = uid
     lead.human_taken_at = datetime.now(timezone.utc)
+
+    # Mark as notified immediately so the AI never fires the "Entiendo tu frustración"
+    # escalation message when the advisor manually takes control — the advisor will
+    # write their own greeting. Without this, the next inbound message triggers the
+    # generic handoff notice, which is confusing for leads that aren't frustrated.
+    _meta = dict(lead.lead_metadata or {})
+    _meta["human_mode_notified"] = True
+    lead.lead_metadata = _meta
+
     await db.commit()
 
     # Broadcast to broker so kanban refreshes

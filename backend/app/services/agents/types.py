@@ -40,6 +40,8 @@ class AgentContext:
     message_history: List[Dict]       # [{role, content}, ...]
     current_agent: Optional[AgentType] = None
     handoff_count: int = 0            # guard against infinite handoff loops
+    pre_analysis: Optional[Dict[str, Any]] = None  # result from orchestrator step 3b — avoids duplicate LLM call
+    current_message: Optional[str] = None  # current inbound message — used by agents in should_handle()
 
     # ── Phase 2G additions: token-optimized context ───────────────────────────
     property_preferences: Dict[str, Any] = field(default_factory=dict)

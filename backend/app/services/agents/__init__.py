@@ -86,6 +86,7 @@ def build_context(
     message_history: list | None = None,
     broker_name: str = "",
     agent_name: str = "Sofía",
+    pre_analysis: dict | None = None,
 ) -> AgentContext:
     """
     Convenience factory: build an AgentContext from a Lead ORM object.
@@ -94,11 +95,13 @@ def build_context(
     ----------
     lead             : Lead SQLAlchemy model instance
     broker_id        : The broker that owns this conversation
-    broker_overrides : Optional dict with _custom_*_prompt keys loaded from DB
+    broker_overrides: Optional dict with _custom_*_prompt keys loaded from DB
     message_history  : Conversation history from ChatMessage records (preferred
                        over what may be stale in lead_metadata)
     broker_name      : Human-readable broker name (from Broker.name)
     agent_name       : AI persona name (from BrokerPromptConfig.agent_name)
+    pre_analysis     : Result of analyze_lead_qualification already run by the
+                       orchestrator — passed through to avoid a duplicate LLM call
     """
     from app.core.encryption import decrypt_metadata_fields
     metadata = decrypt_metadata_fields(lead.lead_metadata or {}) or {}
@@ -131,6 +134,15 @@ def build_context(
         message_history=_history,
         current_agent=_parse_agent_type(metadata.get("current_agent")),
         human_release_note=getattr(lead, "human_release_note", None),
+        pre_analysis=pre_analysis,
+        property_preferences={
+            k: v for k, v in {
+                "property_type": metadata.get("property_type"),
+                "commune": metadata.get("location"),
+                "bedrooms": metadata.get("rooms"),
+                "max_uf": metadata.get("budget"),
+            }.items() if v is not None
+        },
     )
 
 

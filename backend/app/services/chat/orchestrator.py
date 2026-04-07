@@ -613,6 +613,7 @@ class ChatOrchestratorService:
             message_history=_message_history,
             broker_name=_broker_name,
             agent_name=_agent_name,
+            pre_analysis=analysis,
         )
         logger.info("[Orchestrator] Step 7d — calling AgentSupervisor.process stage=%s", agent_context.pipeline_stage)
         try:

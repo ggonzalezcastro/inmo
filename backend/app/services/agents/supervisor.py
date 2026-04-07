@@ -69,6 +69,10 @@ class AgentSupervisor:
         hops = 0
         visited_agents: List[str] = []
 
+        # Inject the current message so agents can inspect it inside should_handle()
+        import dataclasses
+        current_context = dataclasses.replace(current_context, current_message=message)
+
         logger.info(
             "[Supervisor] START lead_id=%s broker_id=%s stage=%s state=%s",
             context.lead_id, context.broker_id,
@@ -222,23 +226,22 @@ class AgentSupervisor:
         """
         Select the most appropriate agent for the given context.
 
-        Priority:
-        1. If a current_agent is set, check if it still claims ownership
-        2. Otherwise, poll all registered agents (in priority order)
+        Priority (always applied in order):
+          FollowUp > Property > Scheduler > Qualifier
+
+        Sticky routing: if the current_agent is still the highest-priority
+        agent that claims ownership, it keeps control. This means a higher-
+        priority agent (e.g. PropertyAgent detecting a property-search keyword)
+        can always override a lower-priority current_agent (e.g. QualifierAgent).
         """
         from app.services.agents import get_priority_agents
 
         agents = get_priority_agents()
 
-        # Current agent gets first pick (sticky routing)
-        if context.current_agent:
-            for agent in agents:
-                if agent.agent_type == context.current_agent:
-                    if await agent.should_handle(context):
-                        return agent
-                    break  # current agent released control — re-select
-
-        # Poll all agents in priority order
+        # Always poll all agents in priority order.
+        # The first agent that claims ownership wins — this naturally implements
+        # sticky routing because the current_agent will be re-selected when
+        # it's still the highest-priority match.
         for agent in agents:
             if await agent.should_handle(context):
                 return agent

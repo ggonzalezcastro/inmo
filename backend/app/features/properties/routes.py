@@ -22,11 +22,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.middleware.auth import get_current_user
-from app.models.user import User, UserRole
 from app.models.property import Property
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/properties", tags=["properties"])
+router = APIRouter(tags=["properties"])
+
+_ADMIN_ROLES = {"ADMIN", "SUPERADMIN"}
 
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
@@ -66,8 +67,39 @@ class PropertyCreate(BaseModel):
     subsidio_eligible: bool = False
 
 
-class PropertyUpdate(PropertyCreate):
-    pass
+class PropertyUpdate(BaseModel):
+    name: Optional[str] = None
+    internal_code: Optional[str] = None
+    property_type: Optional[str] = None
+    status: Optional[str] = None
+    commune: Optional[str] = None
+    city: Optional[str] = None
+    region: Optional[str] = None
+    address: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    price_uf: Optional[float] = None
+    price_clp: Optional[int] = None
+    bedrooms: Optional[int] = None
+    bathrooms: Optional[int] = None
+    parking_spots: Optional[int] = None
+    storage_units: Optional[int] = None
+    square_meters_total: Optional[float] = None
+    square_meters_useful: Optional[float] = None
+    floor_number: Optional[int] = None
+    total_floors: Optional[int] = None
+    orientation: Optional[str] = None
+    year_built: Optional[int] = None
+    description: Optional[str] = None
+    highlights: Optional[str] = None
+    amenities: Optional[List[str]] = None
+    nearby_places: Optional[List[Dict[str, Any]]] = None
+    images: Optional[List[Dict[str, Any]]] = None
+    financing_options: Optional[List[str]] = None
+    floor_plan_url: Optional[str] = None
+    virtual_tour_url: Optional[str] = None
+    common_expenses_clp: Optional[int] = None
+    subsidio_eligible: Optional[bool] = None
 
 
 class PropertySearchRequest(BaseModel):
@@ -89,15 +121,15 @@ class PropertySearchRequest(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _require_admin(user: User) -> None:
-    if user.role not in (UserRole.ADMIN, UserRole.SUPERADMIN):
+def _require_admin(user: dict) -> None:
+    if user.get("role") not in _ADMIN_ROLES:
         raise HTTPException(status_code=403, detail="Admin access required")
 
 
-def _get_broker_id(user: User) -> int:
-    if user.role == UserRole.SUPERADMIN and user.broker_id is None:
+def _get_broker_id(user: dict) -> int:
+    if user.get("role") == "SUPERADMIN" and user.get("broker_id") is None:
         raise HTTPException(status_code=400, detail="Provide broker_id as query param")
-    return user.broker_id
+    return user.get("broker_id")
 
 
 def _format(prop: Property) -> Dict[str, Any]:
@@ -156,10 +188,10 @@ async def list_properties(
     limit: int = Query(50, ge=1, le=200),
     broker_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ):
     _require_admin(current_user)
-    target_broker = broker_id if current_user.role == UserRole.SUPERADMIN and broker_id else current_user.broker_id
+    target_broker = broker_id if current_user.get("role") == "SUPERADMIN" and broker_id else current_user.get("broker_id")
 
     q = select(Property).where(Property.broker_id == target_broker)
     if status:
@@ -189,10 +221,10 @@ async def create_property(
     body: PropertyCreate,
     broker_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ):
     _require_admin(current_user)
-    target_broker = broker_id if current_user.role == UserRole.SUPERADMIN and broker_id else current_user.broker_id
+    target_broker = broker_id if current_user.get("role") == "SUPERADMIN" and broker_id else current_user.get("broker_id")
 
     prop = Property(broker_id=target_broker, **body.model_dump(exclude_none=True))
     db.add(prop)
@@ -214,13 +246,13 @@ async def create_property(
 async def get_property(
     property_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ):
     _require_admin(current_user)
     result = await db.execute(
         select(Property).where(
             Property.id == property_id,
-            Property.broker_id == current_user.broker_id if current_user.role != UserRole.SUPERADMIN else True,
+            Property.broker_id == current_user.get("broker_id") if current_user.get("role") != "SUPERADMIN" else True,
         )
     )
     prop = result.scalar_one_or_none()
@@ -233,16 +265,19 @@ async def get_property(
 async def update_property(
     property_id: int,
     body: PropertyUpdate,
+    broker_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ):
     _require_admin(current_user)
-    result = await db.execute(select(Property).where(Property.id == property_id))
+    target_broker = broker_id if current_user.get("role") == "SUPERADMIN" and broker_id else current_user.get("broker_id")
+    q = select(Property).where(Property.id == property_id, Property.broker_id == target_broker)
+    result = await db.execute(q)
     prop = result.scalar_one_or_none()
     if prop is None:
         raise HTTPException(status_code=404, detail="Property not found")
 
-    update_data = body.model_dump(exclude_none=True)
+    update_data = body.model_dump(exclude_unset=True)
     needs_reembed = any(k in update_data for k in ("description", "highlights", "amenities", "nearby_places"))
 
     for k, v in update_data.items():
@@ -263,11 +298,15 @@ async def update_property(
 @router.delete("/{property_id}", status_code=204)
 async def delete_property(
     property_id: int,
+    broker_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ):
     _require_admin(current_user)
-    result = await db.execute(select(Property).where(Property.id == property_id))
+    target_broker = broker_id if current_user.get("role") == "SUPERADMIN" and broker_id else current_user.get("broker_id")
+    result = await db.execute(
+        select(Property).where(Property.id == property_id, Property.broker_id == target_broker)
+    )
     prop = result.scalar_one_or_none()
     if prop is None:
         raise HTTPException(status_code=404, detail="Property not found")
@@ -280,40 +319,101 @@ async def search_properties(
     body: PropertySearchRequest,
     broker_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ):
     """Hybrid property search endpoint — usable by all authenticated users."""
-    target_broker = broker_id if current_user.role == UserRole.SUPERADMIN and broker_id else current_user.broker_id
+    target_broker = broker_id if current_user.get("role") == "SUPERADMIN" and broker_id else current_user.get("broker_id")
     from app.services.properties.search_service import execute_property_search
     results = await execute_property_search(body.model_dump(exclude_none=True), db, target_broker)
     return {"count": len(results), "results": results}
 
 
+@router.get("/migration-status")
+async def migration_status(
+    broker_id: Optional[int] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Show how many KB property entries have been migrated vs. pending."""
+    if current_user.get("role") != "SUPERADMIN":
+        raise HTTPException(status_code=403, detail="Superadmin only")
+
+    from app.models.knowledge_base import KnowledgeBase
+    from sqlalchemy import func as sa_func
+
+    kb_q = select(func.count()).select_from(KnowledgeBase).where(KnowledgeBase.source_type == "property")
+    if broker_id:
+        kb_q = kb_q.where(KnowledgeBase.broker_id == broker_id)
+    total_kb = (await db.execute(kb_q)).scalar_one()
+
+    migrated_q = select(func.count()).select_from(Property).where(Property.kb_entry_id.isnot(None))
+    if broker_id:
+        migrated_q = migrated_q.where(Property.broker_id == broker_id)
+    migrated = (await db.execute(migrated_q)).scalar_one()
+
+    return {
+        "total_kb_property_entries": total_kb,
+        "migrated_count": migrated,
+        "unmigrated_count": total_kb - migrated,
+    }
+
+
 @router.post("/import-from-kb", status_code=202)
 async def import_from_kb(
+    broker_id: Optional[int] = None,
+    dry_run: bool = False,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ):
     """
-    One-time migration: move knowledge_base entries with source_type='property'
-    to the new properties table.
+    Idempotent migration: move knowledge_base entries with source_type='property'
+    to the new properties table. Safe to run multiple times — existing entries
+    (matched by kb_entry_id) are skipped.
+
+    Optional params:
+    - broker_id: restrict migration to a specific broker (superadmin only)
+    - dry_run: preview what would be migrated without creating records
     """
-    if current_user.role != UserRole.SUPERADMIN:
+    if current_user.get("role") != "SUPERADMIN":
         raise HTTPException(status_code=403, detail="Superadmin only")
 
     from app.models.knowledge_base import KnowledgeBase
     from app.services.properties.embedding import embed_and_save_property
 
-    result = await db.execute(
-        select(KnowledgeBase).where(KnowledgeBase.source_type == "property")
-    )
-    kb_entries = result.scalars().all()
+    kb_q = select(KnowledgeBase).where(KnowledgeBase.source_type == "property")
+    if broker_id:
+        kb_q = kb_q.where(KnowledgeBase.broker_id == broker_id)
+    kb_entries = (await db.execute(kb_q)).scalars().all()
+
+    # Fetch already-migrated kb_entry_ids to skip duplicates
+    existing_ids_q = select(Property.kb_entry_id).where(Property.kb_entry_id.isnot(None))
+    if broker_id:
+        existing_ids_q = existing_ids_q.where(Property.broker_id == broker_id)
+    already_migrated = {row for row in (await db.execute(existing_ids_q)).scalars().all()}
 
     migrated = 0
+    skipped = 0
     errors = 0
+    preview = []
+
     for entry in kb_entries:
+        if entry.id in already_migrated:
+            skipped += 1
+            continue
+
+        meta = entry.kb_metadata or {}
+        if dry_run:
+            preview.append({
+                "kb_entry_id": entry.id,
+                "broker_id": entry.broker_id,
+                "name": entry.title,
+                "commune": meta.get("commune") or meta.get("location"),
+                "price_uf": meta.get("price_uf") or meta.get("price"),
+            })
+            migrated += 1
+            continue
+
         try:
-            meta = entry.kb_metadata or {}
             prop = Property(
                 broker_id=entry.broker_id,
                 name=entry.title,
@@ -335,5 +435,16 @@ async def import_from_kb(
             logger.warning("Failed to migrate KB entry %d: %s", entry.id, exc)
             errors += 1
 
-    await db.commit()
-    return {"migrated": migrated, "errors": errors, "total": len(kb_entries)}
+    if not dry_run:
+        await db.commit()
+
+    response = {
+        "dry_run": dry_run,
+        "total_kb_entries": len(kb_entries),
+        "migrated": migrated,
+        "skipped_already_exists": skipped,
+        "errors": errors,
+    }
+    if dry_run:
+        response["preview"] = preview
+    return response

@@ -45,8 +45,9 @@ async def _embed_text(text_input: str) -> Optional[List[float]]:
 
         def _sync_embed() -> List[float]:
             resp = client.models.embed_content(
-                model="text-embedding-004",
+                model="gemini-embedding-001",
                 contents=text_input,
+                config=genai_types.EmbedContentConfig(output_dimensionality=768),
             )
             # Depending on SDK version the embedding may be nested
             if hasattr(resp, "embeddings") and resp.embeddings:

@@ -131,15 +131,25 @@ class QualifierAgent(BaseAgent):
         )
 
         try:
-            # Include message_history so the analysis LLM has context for
-            # short answers like "no" (DICOM question) or "sí" (interest)
-            analysis_context = {**context.lead_data, "message_history": context.message_history}
-            analysis = await LLMServiceFacade.analyze_lead_qualification(
-                message=message,
-                lead_context=analysis_context,
-                broker_id=context.broker_id,
-                lead_id=context.lead_id,
-            )
+            # Reuse analysis from orchestrator step 3b if available — avoids a duplicate LLM call (~4500ms)
+            if context.pre_analysis is not None:
+                analysis = dict(context.pre_analysis)
+                # The orchestrator's lead_context uses `lead.name or "User"` as fallback.
+                # Strip that placeholder so it never overwrites an unset name field.
+                _PLACEHOLDER_NAMES = frozenset({"User", "Test User", "user", "test user"})
+                if analysis.get("name") in _PLACEHOLDER_NAMES:
+                    analysis.pop("name", None)
+                self._log("Reusing pre_analysis from orchestrator", lead_id=context.lead_id)
+            else:
+                # Include message_history so the analysis LLM has context for
+                # short answers like "no" (DICOM question) or "sí" (interest)
+                analysis_context = {**context.lead_data, "message_history": context.message_history}
+                analysis = await LLMServiceFacade.analyze_lead_qualification(
+                    message=message,
+                    lead_context=analysis_context,
+                    broker_id=context.broker_id,
+                    lead_id=context.lead_id,
+                )
         except Exception as exc:
             self._log(f"LLM analysis failed: {exc}", level="warning")
             analysis = {}

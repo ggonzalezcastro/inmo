@@ -211,24 +211,39 @@ async def _semantic_search(
     """Execute cosine similarity search via pgvector."""
     from app.models.property import Property
 
+    # Build optional filter clauses for pre-filtering before vector similarity.
+    # This prevents returning properties that clearly don't match hard constraints.
+    extra_filters = []
+    bind_params: Dict[str, Any] = {"broker_id": broker_id, "lim": _CANDIDATE_POOL}
+
+    if params.get("commune"):
+        extra_filters.append("AND commune ILIKE :commune")
+        bind_params["commune"] = f"%{params['commune']}%"
+    if params.get("min_price_uf") is not None:
+        extra_filters.append("AND price_uf >= :min_uf")
+        bind_params["min_uf"] = params["min_price_uf"]
+    if params.get("max_price_uf") is not None:
+        extra_filters.append("AND price_uf <= :max_uf")
+        bind_params["max_uf"] = params["max_price_uf"]
+    if params.get("min_bedrooms") is not None:
+        extra_filters.append("AND bedrooms >= :min_beds")
+        bind_params["min_beds"] = params["min_bedrooms"]
+
+    extra_sql = " ".join(extra_filters)
+
     # Use raw SQL for pgvector cosine distance operator <=>
-    sql = text("""
+    sql = text(f"""
         SELECT id, (embedding <=> :emb) AS distance
         FROM properties
         WHERE broker_id = :broker_id
           AND status = 'available'
           AND embedding IS NOT NULL
+          {extra_sql}
         ORDER BY distance ASC
         LIMIT :lim
     """)
-    rows = await db.execute(
-        sql,
-        {
-            "emb": str(query_embedding),
-            "broker_id": broker_id,
-            "lim": _CANDIDATE_POOL,
-        },
-    )
+    bind_params["emb"] = str(query_embedding)
+    rows = await db.execute(sql, bind_params)
     rows = rows.fetchall()
 
     if not rows:
@@ -258,12 +273,13 @@ async def _rrf_merge(
     db: AsyncSession,
 ) -> List[Dict[str, Any]]:
     """Apply Reciprocal Rank Fusion and return top-N formatted results."""
-    from app.models.property import Property
-    from sqlalchemy import in_
-
     sql_ranks = {p.id: rank + 1 for rank, p in enumerate(sql_results)}
     sem_ranks = {prop.id: rank + 1 for rank, (prop, _) in enumerate(semantic_results)}
     sem_dist = {prop.id: dist for prop, dist in semantic_results}
+
+    # Build property map from already-fetched objects — no extra DB query needed
+    prop_map = {p.id: p for p in sql_results}
+    prop_map.update({prop.id: prop for prop, _ in semantic_results})
 
     all_ids = set(sql_ranks) | set(sem_ranks)
     rrf_scores: Dict[int, float] = {}
@@ -276,11 +292,6 @@ async def _rrf_merge(
         rrf_scores[pid] = score
 
     sorted_ids = sorted(rrf_scores, key=lambda x: rrf_scores[x], reverse=True)[:limit]
-
-    props = (await db.execute(
-        select(Property).where(Property.id.in_(sorted_ids))
-    )).scalars().all()
-    prop_map = {p.id: p for p in props}
 
     return [
         _format_property(

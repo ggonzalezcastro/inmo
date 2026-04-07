@@ -59,6 +59,9 @@ const SuperAdminPage = lazy(() =>
 const ObservabilityPage = lazy(() =>
   import('@/features/observability').then((m) => ({ default: m.ObservabilityPage }))
 )
+const PropertiesPage = lazy(() =>
+  import('@/features/properties').then((m) => ({ default: m.PropertiesPage }))
+)
 
 function SuspenseWrapper({ children }: { children: React.ReactNode }) {
   return (
@@ -112,6 +115,14 @@ export const router = createBrowserRouter([
         element: (
           <RoleGuard allowedRoles={['admin', 'superadmin']}>
             <SuspenseWrapper><CampaignsPage /></SuspenseWrapper>
+          </RoleGuard>
+        ),
+      },
+      {
+        path: '/properties',
+        element: (
+          <RoleGuard allowedRoles={['admin', 'superadmin']}>
+            <SuspenseWrapper><PropertiesPage /></SuspenseWrapper>
           </RoleGuard>
         ),
       },
