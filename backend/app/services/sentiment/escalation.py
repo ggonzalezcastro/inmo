@@ -26,6 +26,7 @@ async def apply_escalation_action(
     sentiment: Dict[str, Any],
     last_message: str,
     channel: str = "webchat",
+    reason: str = "frustration",
 ) -> None:
     """
     Apply the appropriate escalation action based on ActionLevel.
@@ -51,7 +52,7 @@ async def apply_escalation_action(
         return
 
     if action == ActionLevel.ESCALATE:
-        await _escalate(db, lead_id, broker_id, sentiment, last_message, channel)
+        await _escalate(db, lead_id, broker_id, sentiment, last_message, channel, reason=reason)
 
 
 def _has_stale_tone_hint(sentiment: Dict[str, Any]) -> bool:
@@ -97,6 +98,7 @@ async def _escalate(
     sentiment: Dict[str, Any],
     last_message: str,
     channel: str,
+    reason: str = "frustration",
 ) -> None:
     """
     Full escalation: activate human_mode + broadcast lead_frustrated event.
@@ -127,6 +129,7 @@ async def _escalate(
     sentiment_updated = dict(sentiment)
     sentiment_updated["escalated"] = True
     sentiment_updated["escalated_at"] = datetime.now(timezone.utc).isoformat()
+    sentiment_updated["escalated_reason"] = reason
     sentiment_updated["tone_hint"] = None  # Clear tone_hint when escalating
 
     import json
@@ -142,7 +145,9 @@ async def _escalate(
                     true
                 ),
                 human_mode = true,
-                human_taken_at = NOW()
+                human_taken_at = NOW(),
+                human_released_at = NULL,
+                human_release_note = NULL
             WHERE id = :lead_id
         """),
         {
@@ -174,7 +179,7 @@ async def _escalate(
         await event_logger.log_escalation(
             lead_id=lead_id,
             broker_id=broker_id,
-            reason="frustration",
+            reason=reason,
             frustration_score=score,
         )
     except Exception as exc:
@@ -188,7 +193,7 @@ async def _escalate(
         asyncio.create_task(_generate_brief_background(
             lead_id=lead_id,
             broker_id=broker_id,
-            reason="frustration",
+            reason=reason,
             frustration_score=score,
         ))
     except Exception as exc:

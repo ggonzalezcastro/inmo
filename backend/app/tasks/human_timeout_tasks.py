@@ -139,6 +139,7 @@ async def _auto_release(lead: Any, db_factory: Any) -> None:
                     human_mode = false,
                     human_assigned_to = NULL,
                     human_taken_at = NULL,
+                    human_released_at = NOW(),
                     metadata = jsonb_set(
                         COALESCE(metadata, '{}') - 'human_mode_notified',
                         '{sentiment}',

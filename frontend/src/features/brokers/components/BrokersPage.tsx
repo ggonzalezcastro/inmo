@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Trash2, ToggleLeft, ToggleRight, Loader2 } from 'lucide-react'
+import { Plus, Trash2, ToggleLeft, ToggleRight, Loader2, MessageSquare } from 'lucide-react'
 import { toast } from 'sonner'
 import { type ColumnDef } from '@tanstack/react-table'
 import { Button } from '@/shared/components/ui/button'
@@ -19,6 +19,7 @@ import { formatDate } from '@/shared/lib/utils'
 import { cn } from '@/shared/lib/utils'
 import { getErrorMessage } from '@/shared/types/api'
 import { brokersService, type Broker } from '../services/brokers.service'
+import { BrokerChatConfigDialog } from './BrokerChatConfigDialog'
 import { plansApi } from '@/features/super-admin/services/plansApi'
 import type { BrokerPlan } from '@/features/super-admin/types/plans.types'
 import { useAuthStore } from '@/features/auth'
@@ -43,6 +44,9 @@ export function BrokersPage() {
   const [planTarget, setPlanTarget] = useState<Broker | null>(null)
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null)
   const [assigningPlan, setAssigningPlan] = useState(false)
+
+  // Chat config state
+  const [chatConfigTarget, setChatConfigTarget] = useState<Broker | null>(null)
 
   const load = async () => {
     setIsLoading(true)
@@ -212,6 +216,16 @@ export function BrokersPage() {
             </Button>
             <Button
               variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-indigo-600 hover:text-indigo-700"
+              onClick={() => setChatConfigTarget(b)}
+              title="Configurar canales de chat"
+            >
+              <MessageSquare className="mr-1 h-3.5 w-3.5" />
+              Canales
+            </Button>
+            <Button
+              variant="ghost"
               size="icon"
               className={cn('h-8 w-8', b.is_active ? 'text-amber-600' : 'text-emerald-600')}
               onClick={() => handleToggle(b)}
@@ -326,6 +340,11 @@ export function BrokersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BrokerChatConfigDialog
+        broker={chatConfigTarget}
+        onClose={() => setChatConfigTarget(null)}
+      />
     </div>
   )
 }

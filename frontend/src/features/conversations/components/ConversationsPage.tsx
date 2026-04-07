@@ -585,6 +585,7 @@ function ConversationDetail({
 export function ConversationsPage() {
   const [leads, setLeads] = useState<ConversationLead[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [modeFilter, setModeFilter] = useState<'all' | 'human' | 'ai'>('all')
   const [selectedId, setSelectedId] = useState<number | null>(() => {
@@ -596,6 +597,7 @@ export function ConversationsPage() {
   const [mobileShowDetail, setMobileShowDetail] = useState(false)
 
   const load = useCallback(async () => {
+    setLoadError(null)
     try {
       const data = await conversationService.list(
         modeFilter === 'all' ? undefined : (modeFilter as 'human' | 'ai'),
@@ -605,6 +607,7 @@ export function ConversationsPage() {
       if (data.length > 0 && !selectedId) setSelectedId(data[0].id)
     } catch (e) {
       console.error(e)
+      setLoadError('No se pudieron cargar las conversaciones.')
     } finally {
       setLoading(false)
     }
@@ -720,6 +723,14 @@ export function ConversationsPage() {
             <div className="flex flex-col items-center justify-center h-48 text-[#9CA3AF] gap-2">
               <RefreshCw size={18} className="animate-spin" />
               <span className="text-xs">Cargando…</span>
+            </div>
+          ) : loadError ? (
+            <div className="flex flex-col items-center justify-center h-48 text-[#9CA3AF] px-6 text-center">
+              <div className="h-12 w-12 rounded-full bg-red-50 flex items-center justify-center mb-3">
+                <AlertTriangle size={20} className="text-red-400" />
+              </div>
+              <p className="text-xs font-medium text-[#374151]">{loadError}</p>
+              <button onClick={load} className="mt-2 text-[11px] text-[#1A56DB] hover:underline">Reintentar</button>
             </div>
           ) : leads.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 text-[#9CA3AF] px-6 text-center">

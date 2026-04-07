@@ -6,12 +6,17 @@ Returns a SentimentResult with:
 - emotions: list of detected emotion tags
 - confidence: float — how confident we are (low → send to LLM for confirmation)
 - needs_llm: bool — True if sarcasm detected OR confidence < threshold
+
+Also exposes quick_analyze() for the pre-pipeline gate in the orchestrator:
+- explicit_human_request: lead asked to talk to a real person (immediate escalation)
+- sensitive_topic: money complaints, legal threats, SERNAC (high-priority escalation)
+- loop_detected: lead repeated the same question 3+ times in recent messages
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 
 # ── Data classes ──────────────────────────────────────────────────────────────
@@ -22,6 +27,15 @@ class SentimentResult:
     emotions: List[str]             # e.g. ["abandonment_threat", "confusion"]
     confidence: float               # 0.0 = very uncertain, 1.0 = very certain
     needs_llm: bool = False         # True → pass to LLM analyzer
+
+
+@dataclass
+class QuickAnalysisResult:
+    """Result of quick_analyze() — used by the orchestrator pre-pipeline gate."""
+    sentiment: SentimentResult
+    explicit_human_request: bool = False   # Lead asked to talk to a real person
+    sensitive_topic: bool = False          # Legal threat, money complaint, SERNAC
+    loop_detected: bool = False            # Same question repeated 3+ times recently
 
 
 # ── Pattern definitions ────────────────────────────────────────────────────────
@@ -96,6 +110,31 @@ _POSITIVE_PATTERNS: List[tuple] = [
     (re.compile(r"\b(me interesa|me gusta|s[ií] me interesa|quiero saber m[aá]s)\b", re.I), -0.20),
 ]
 
+# Explicit human request — lead wants to talk to a real person, not just a supervisor.
+# These trigger immediate escalation regardless of the cumulative frustration score.
+_EXPLICIT_HUMAN_PATTERNS: List[re.Pattern] = [
+    re.compile(r"\b(quiero|necesito|prefiero)\b.{0,30}\b(hablar|habla|comunicarme|atenci[oó]n)\b.{0,30}\b(con\b.{0,20}\b)?(persona|humano|humana|alguien real|ser humano|agente real|asesor real)\b", re.I | re.S),
+    re.compile(r"\b(p[aá]same|c[oó]muniqueme|con[ée]ctame)\b.{0,30}\b(persona|humano|alguien|agente)\b", re.I),
+    re.compile(r"\b(no (quiero|me gusta|me atienda|me responda))\b.{0,30}\b(bot|robot|ia|inteligencia artificial|m[aá]quina)\b", re.I),
+    re.compile(r"\b(hablar con (una?|un) (persona|humano|humana|ser humano|asesor real))\b", re.I),
+    re.compile(r"\b(qu[ée]ro|quiero)\b.{0,20}\b(un (humano|persona|ser humano|agente))\b", re.I),
+    re.compile(r"\b(alguien real|una persona de verdad|un ser humano)\b", re.I),
+]
+
+# Sensitive topics — money complaints, legal threats, regulatory bodies.
+# High-score sensitive topics should escalate to human immediately.
+_SENSITIVE_TOPIC_PATTERNS: List[re.Pattern] = [
+    # Legal threats
+    re.compile(r"\b(llamar|llamar[eé]|voy a llamar|llamando)\b.{0,30}\b(abogado|abogada|asesor legal|letrado)\b", re.I),
+    re.compile(r"\b(demandar|denunciar|demanda|denuncia|juicio|recurso legal)\b", re.I),
+    re.compile(r"\b(SERNAC|sernac|defensa del consumidor|consumidor)\b.{0,20}\b(reclamo|queja|denunci|llamar)\b", re.I),
+    re.compile(r"\b(mis derechos (como )?consumidor|ley del consumidor|protecci[oó]n al consumidor)\b", re.I),
+    # Money complaints
+    re.compile(r"\b(me (deben|cobrar[oó]n|descont[oó]|robaron)|cobro incorrecto|cargo (incorrecto|extra|no autorizado))\b", re.I),
+    re.compile(r"\b(devolu[cć]i[oó]n (del|de mi) (dinero|pago|dep[oó]sito)|quiero mi dinero de vuelta|me devuelven)\b", re.I),
+    re.compile(r"\b(estafa|enga[ñn]o|fraude|robo|me robaron|timaron)\b", re.I),
+]
+
 
 # ── Analyzer ──────────────────────────────────────────────────────────────────
 
@@ -156,4 +195,87 @@ def analyze_heuristics(message: str) -> SentimentResult:
         emotions=emotions,
         confidence=max_confidence if max_confidence > 0 else 0.5,
         needs_llm=needs_llm,
+    )
+
+
+# ── Quick analyzer (pre-pipeline gate) ───────────────────────────────────────
+
+def _detect_loop(message: str, recent_messages: List[str]) -> bool:
+    """
+    Return True if the lead repeated a very similar message 3+ times in
+    ``recent_messages`` (the last N inbound messages from DB, which includes
+    the current message since it is logged before this gate runs).
+
+    Uses a simple normalized-overlap ratio: two messages are considered the
+    same if >70% of their words overlap after lowercasing.
+
+    Threshold is >= 3 because the current message is always present in
+    recent_messages (logged in Step 2 before Step 2b), producing one
+    guaranteed self-match. So 3 matches = 1 self + 2 prior repetitions.
+    """
+    if not recent_messages or len(recent_messages) < 3:
+        return False
+
+    def _tokens(text: str) -> set:
+        return set(re.sub(r"[^\w\s]", "", text.lower()).split())
+
+    current_tokens = _tokens(message)
+    if not current_tokens:
+        return False
+
+    match_count = 0
+    for prev in recent_messages[-5:]:
+        prev_tokens = _tokens(prev)
+        if not prev_tokens:
+            continue
+        overlap = len(current_tokens & prev_tokens) / max(len(current_tokens), len(prev_tokens))
+        if overlap >= 0.70:
+            match_count += 1
+
+    return match_count >= 3  # self-match + 2 prior repetitions = 3 total occurrences
+
+
+def quick_analyze(
+    message: str,
+    recent_inbound_messages: Optional[List[str]] = None,
+) -> QuickAnalysisResult:
+    """
+    Fast pre-pipeline gate called by the chat orchestrator BEFORE the AI responds.
+
+    Checks (in priority order):
+    1. Explicit human request → immediate escalation
+    2. Sensitive topic (legal/money) → high-priority escalation
+    3. Loop detection (same question 3+ times) → escalation
+    4. Standard heuristic sentiment analysis
+
+    Parameters
+    ----------
+    message : str
+        The current inbound message from the lead.
+    recent_inbound_messages : list[str] | None
+        The last N inbound messages (direction='in') from this lead, used for
+        loop detection. Should be pre-filtered to inbound only.
+
+    Returns
+    -------
+    QuickAnalysisResult
+        Contains the standard SentimentResult plus three boolean flags.
+    """
+    # 1. Explicit human request (always escalate regardless of score)
+    explicit_human = any(p.search(message) for p in _EXPLICIT_HUMAN_PATTERNS)
+
+    # 2. Sensitive topic
+    sensitive = any(p.search(message) for p in _SENSITIVE_TOPIC_PATTERNS)
+
+    # 3. Loop detection
+    loop = _detect_loop(message, recent_inbound_messages or [])
+
+    # 4. Standard sentiment
+    sentiment = analyze_heuristics(message)
+
+    return QuickAnalysisResult(
+        sentiment=sentiment,
+        explicit_human_request=explicit_human,
+        sensitive_topic=sensitive,
+        loop_detected=loop,
     )

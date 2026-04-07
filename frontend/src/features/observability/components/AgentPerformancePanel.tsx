@@ -115,19 +115,19 @@ export function AgentPerformancePanel() {
                       </Badge>
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-slate-900">
-                      {agent.messages_handled.toLocaleString()}
+                      {(agent.messages_handled ?? 0).toLocaleString()}
                     </td>
-                    <td className={`px-4 py-3 text-right font-mono ${latencyColor(agent.p50_latency_ms)}`}>
-                      {agent.p50_latency_ms.toLocaleString()}
+                    <td className={`px-4 py-3 text-right font-mono ${latencyColor(agent.p50_latency_ms ?? 0)}`}>
+                      {(agent.p50_latency_ms ?? 0).toLocaleString()}
                     </td>
-                    <td className={`px-4 py-3 text-right font-mono ${latencyColor(agent.p95_latency_ms)}`}>
-                      {agent.p95_latency_ms.toLocaleString()}
+                    <td className={`px-4 py-3 text-right font-mono ${latencyColor(agent.p95_latency_ms ?? 0)}`}>
+                      {(agent.p95_latency_ms ?? 0).toLocaleString()}
                     </td>
                     <td className="px-4 py-3 text-right text-slate-700">
-                      {agent.avg_tokens.toLocaleString()}
+                      {(agent.avg_tokens ?? 0).toLocaleString()}
                     </td>
                     <td className="px-4 py-3 text-right text-slate-700 font-mono">
-                      ${agent.avg_cost_usd.toFixed(5)}
+                      ${(agent.avg_cost_usd ?? 0).toFixed(5)}
                     </td>
                     <td className="px-4 py-3 text-right text-slate-700">
                       {agent.handoffs_out}

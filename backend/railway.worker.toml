@@ -1,8 +1,0 @@
-[build]
-builder = "nixpacks"
-buildCommand = "pip install -r requirements.txt"
-
-[deploy]
-startCommand = "celery -A app.celery_app worker --beat --loglevel=warning --concurrency=2"
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 3

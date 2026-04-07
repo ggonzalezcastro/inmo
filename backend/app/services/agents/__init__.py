@@ -130,6 +130,7 @@ def build_context(
         },
         message_history=_history,
         current_agent=_parse_agent_type(metadata.get("current_agent")),
+        human_release_note=getattr(lead, "human_release_note", None),
     )
 
 

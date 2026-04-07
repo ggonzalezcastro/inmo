@@ -1,0 +1,1 @@
+import{a as p}from"./index-CnvSNJCm.js";const t={list:()=>p.get("/api/v1/admin/plans"),create:a=>p.post("/api/v1/admin/plans",a),update:(a,i)=>p.put(`/api/v1/admin/plans/${a}`,i),deactivate:a=>p.delete(`/api/v1/admin/plans/${a}`),assignToBroker:(a,i)=>p.put(`/api/v1/admin/brokers/${a}/plan`,{plan_id:i})};export{t as p};

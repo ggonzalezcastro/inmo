@@ -199,140 +199,324 @@ async def get_conversation_trace(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Full conversation trace: merged timeline of messages + agent_events.
+    Full conversation trace for the debugger.
+    Returns:
+      - summary: header stats (name, channel, score, stage, cost, tokens…)
+      - messages: chat bubbles (lead / bot / human_agent)
+      - timeline: internal events (llm_call, handoff, score_change, sentiment…)
     """
     _require_admin(current_user)
 
-    # Load messages
-    msgs_q = select(ChatMessage).where(ChatMessage.lead_id == lead_id).order_by(ChatMessage.created_at)
-    messages = (await db.execute(msgs_q)).scalars().all()
+    # ── Lead ──────────────────────────────────────────────────────────────────
+    lead_result = await db.execute(select(Lead).where(Lead.id == lead_id))
+    lead = lead_result.scalar_one_or_none()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
 
-    # Load agent events
-    events_q = select(AgentEvent).where(AgentEvent.lead_id == lead_id).order_by(AgentEvent.created_at)
-    events = (await db.execute(events_q)).scalars().all()
+    meta = lead.lead_metadata or {}
+    lead_name = meta.get("nombre") or meta.get("name") or lead.name or lead.phone or str(lead_id)
 
-    # Merge into unified timeline
-    timeline = _merge_timeline(messages, events, include_prompts=include_prompts)
+    # ── Messages ─────────────────────────────────────────────────────────────
+    msgs_result = await db.execute(
+        select(ChatMessage)
+        .where(ChatMessage.lead_id == lead_id)
+        .order_by(ChatMessage.created_at)
+    )
+    messages = msgs_result.scalars().all()
 
-    # Summary stats
+    # ── Agent events ──────────────────────────────────────────────────────────
+    events_result = await db.execute(
+        select(AgentEvent)
+        .where(AgentEvent.lead_id == lead_id)
+        .order_by(AgentEvent.created_at)
+    )
+    events = events_result.scalars().all()
+
+    # ── Derive channel from first inbound message ─────────────────────────────
+    channel = "webchat"
+    for m in messages:
+        if m.direction in ("in", "INBOUND") or (hasattr(m.direction, "value") and m.direction.value == "in"):
+            channel = m.provider.value if hasattr(m.provider, "value") else str(m.provider)
+            break
+
+    # ── Summary ───────────────────────────────────────────────────────────────
     llm_events = [e for e in events if e.event_type == "llm_call"]
+    total_tokens = sum((e.input_tokens or 0) + (e.output_tokens or 0) for e in llm_events)
+    total_cost = round(sum(e.llm_cost_usd or 0 for e in llm_events), 6)
+
+    current_agent = ""
+    for ev in reversed(events):
+        if ev.agent_type:
+            current_agent = ev.agent_type
+            break
+
+    started_at = messages[0].created_at.isoformat() if messages else (
+        events[0].created_at.isoformat() if events else None
+    )
+    last_activity = messages[-1].created_at.isoformat() if messages else (
+        events[-1].created_at.isoformat() if events else None
+    )
+
     summary = {
+        "lead_id": lead_id,
+        "lead_name": lead_name,
+        "channel": channel,
+        "lead_score": lead.lead_score or 0,
+        "current_stage": lead.pipeline_stage or "",
+        "current_agent": current_agent,
+        "started_at": started_at,
+        "last_activity": last_activity,
         "total_messages": len(messages),
-        "total_llm_calls": len(llm_events),
-        "total_input_tokens": sum(e.input_tokens or 0 for e in llm_events),
-        "total_output_tokens": sum(e.output_tokens or 0 for e in llm_events),
-        "total_cost_usd": round(sum(e.llm_cost_usd or 0 for e in llm_events), 6),
-        "agents_used": list({e.agent_type for e in events if e.agent_type}),
-        "handoffs": sum(1 for e in events if e.event_type == "agent_handoff"),
-        "errors": sum(1 for e in events if e.event_type == "error"),
-        "escalated": any(e.event_type == "escalation_triggered" for e in events),
-        "duration_minutes": (
-            round((messages[-1].created_at - messages[0].created_at).total_seconds() / 60, 1)
-            if len(messages) >= 2 else 0
-        ),
+        "total_tokens": total_tokens,
+        "total_cost_usd": total_cost,
+        "human_mode": bool(lead.human_mode),
     }
 
-    return {"lead_id": lead_id, "summary": summary, "timeline": timeline}
+    # ── Chat messages (left panel) ────────────────────────────────────────────
+    chat_messages = _build_chat_messages(messages)
+
+    # ── Internal timeline (right panel) ──────────────────────────────────────
+    timeline = _build_timeline(events, include_prompts=include_prompts)
+
+    return {
+        "lead_id": lead_id,
+        "summary": summary,
+        "messages": chat_messages,
+        "timeline": timeline,
+    }
 
 
-def _merge_timeline(messages, events, include_prompts: bool = False) -> List[Dict]:
-    """Merge messages and agent events into a single chronological timeline."""
-    items = []
+def _build_chat_messages(messages) -> List[Dict]:
+    """Build the left-panel chat bubble list."""
+    result = []
     for msg in messages:
-        items.append({
-            "type": "message",
-            "ts": msg.created_at.isoformat() if msg.created_at else None,
-            "direction": msg.direction,
-            "provider": msg.provider if hasattr(msg.provider, 'value') else str(msg.provider),
-            "text": msg.message_text[:500],
-            "ai_response_used": msg.ai_response_used,
+        direction = msg.direction.value if hasattr(msg.direction, "value") else str(msg.direction)
+        is_inbound = direction in ("in", "inbound", "INBOUND")
+        ai_used = bool(msg.ai_response_used)
+
+        if is_inbound:
+            sender_type = "lead"
+        elif ai_used:
+            sender_type = "bot"
+        else:
+            sender_type = "human_agent"
+
+        result.append({
+            "id": f"msg-{msg.id}",
+            "timestamp": msg.created_at.isoformat() if msg.created_at else None,
+            "direction": "inbound" if is_inbound else "outbound",
+            "sender_type": sender_type,
+            "content": msg.message_text or "",
         })
+    return result
+
+
+def _build_timeline(events, include_prompts: bool = False) -> List[Dict]:
+    """Build the right-panel internal event timeline."""
+    items: List[Dict[str, Any]] = []
+
     for ev in events:
-        item: Dict[str, Any] = {
-            "type": "event",
-            "ts": ev.created_at.isoformat() if ev.created_at else None,
-            "event_type": ev.event_type,
-            "agent_type": ev.agent_type,
-        }
-        if ev.event_type == "llm_call":
-            item.update({
+        ts = ev.created_at.isoformat() if ev.created_at else None
+        base = {"id": f"ev-{ev.id}", "timestamp": ts}
+
+        if ev.event_type == "agent_selected":
+            items.append({**base, "type": "agent_selected", "agent": ev.agent_type})
+
+        elif ev.event_type == "llm_call":
+            item: Dict[str, Any] = {
+                **base,
+                "type": "llm_call",
+                "agent": ev.agent_type,
                 "provider": ev.llm_provider,
                 "model": ev.llm_model,
                 "input_tokens": ev.input_tokens,
                 "output_tokens": ev.output_tokens,
+                "total_tokens": (ev.input_tokens or 0) + (ev.output_tokens or 0),
                 "latency_ms": ev.llm_latency_ms,
                 "cost_usd": ev.llm_cost_usd,
-            })
-            if include_prompts:
-                item["system_prompt_hash"] = ev.system_prompt_hash
-                item["raw_response_snippet"] = ev.raw_response_snippet
+                "prompt_hash": ev.system_prompt_hash,
+                "completion_snippet": ev.raw_response_snippet,
+                "event_metadata": ev.event_metadata,  # user_messages, rag_chunks, temperature
+            }
+            items.append(item)
+
         elif ev.event_type == "agent_handoff":
-            item.update({"from_agent": ev.from_agent, "to_agent": ev.to_agent, "reason": ev.handoff_reason})
+            items.append({
+                **base,
+                "type": "handoff",
+                "from_agent": ev.from_agent,
+                "to_agent": ev.to_agent,
+                "reason": ev.handoff_reason,
+            })
+
         elif ev.event_type == "tool_called":
-            item.update({
+            items.append({
+                **base,
+                "type": "tool",
                 "tool_name": ev.tool_name,
                 "tool_input": ev.tool_input,
                 "tool_output": ev.tool_output,
                 "latency_ms": ev.tool_latency_ms,
                 "success": ev.tool_success,
             })
-        elif ev.event_type == "pipeline_stage_changed":
-            item.update({"before": ev.pipeline_stage_before, "after": ev.pipeline_stage_after,
-                         "score_before": ev.lead_score_before, "score_after": ev.lead_score_after})
-        elif ev.event_type == "error":
-            item.update({"error_type": ev.error_type, "error_message": ev.error_message})
-        elif ev.event_type in ("escalation_triggered", "human_takeover", "human_release"):
-            item["metadata"] = ev.event_metadata
-        items.append(item)
 
-    items.sort(key=lambda x: x.get("ts") or "")
+        elif ev.event_type == "pipeline_stage_changed":
+            items.append({
+                **base,
+                "type": "pipeline_stage",
+                "stage_before": ev.pipeline_stage_before,
+                "stage_after": ev.pipeline_stage_after,
+                "score_before": ev.lead_score_before,
+                "score_after": ev.lead_score_after,
+            })
+
+        elif ev.event_type in ("lead_score_changed", "qualification_analysis"):
+            items.append({
+                **base,
+                "type": "score_change",
+                "agent": ev.agent_type,
+                "score_before": ev.lead_score_before,
+                "score_after": ev.lead_score_after,
+                "score_delta": ev.score_delta,
+                "extracted_fields": ev.extracted_fields,
+            })
+
+        elif ev.event_type == "sentiment_analyzed":
+            m = ev.event_metadata or {}
+            items.append({
+                **base,
+                "type": "sentiment",
+                "score": m.get("frustration_score") or m.get("score"),
+                "emotions": m.get("emotions", []),
+                "escalated": m.get("escalated", False),
+                "event_metadata": ev.event_metadata,  # includes action_level, keywords_matched
+            })
+
+        elif ev.event_type == "escalation_triggered":
+            m = ev.event_metadata or {}
+            items.append({
+                **base,
+                "type": "escalation",
+                "reason": m.get("reason") or ev.handoff_reason,
+                "frustration_score": m.get("frustration_score"),
+            })
+
+        elif ev.event_type == "human_takeover":
+            m = ev.event_metadata or {}
+            items.append({
+                **base,
+                "type": "human_takeover",
+                "agent_id": m.get("agent_id") or m.get("taken_by"),
+                "agent_name": m.get("agent_name"),
+            })
+
+        elif ev.event_type == "human_release":
+            m = ev.event_metadata or {}
+            items.append({
+                **base,
+                "type": "human_release",
+                "note": m.get("note") or m.get("human_release_note"),
+                "sentiment_reset": m.get("sentiment_reset", False),
+            })
+
+        elif ev.event_type == "error":
+            items.append({
+                **base,
+                "type": "error",
+                "agent": ev.agent_type,
+                "error_type": ev.error_type,
+                "error_message": ev.error_message,
+            })
+
+        elif ev.event_type == "fallback_triggered":
+            m = ev.event_metadata or {}
+            items.append({
+                **base,
+                "type": "fallback",
+                "provider": ev.llm_provider,
+                "reason": m.get("reason"),
+            })
+
+        # skip: appointment_created, property_search, llm_response, tool_result
+        # (they're covered by the events above or not useful in the UI)
+
+    items.sort(key=lambda x: x.get("timestamp") or "")
     return items
 
 
 @router.get("/conversations/search")
 async def search_conversations(
-    query: Optional[str] = None,
-    status: Optional[str] = None,
-    channel: Optional[str] = None,
+    q: Optional[str] = None,
+    query: Optional[str] = None,  # alias kept for backward compat
     broker_id: Optional[int] = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Search and filter conversations."""
+    """Search conversations using the Conversation table (populated by the orchestrator)."""
     _require_admin(current_user)
     from app.models.conversation import Conversation
 
+    search_term = q or query
     eff_broker = _broker_filter(current_user, broker_id)
-    q = select(Conversation)
+
+    base_q = select(Conversation).join(Lead, Lead.id == Conversation.lead_id)
     if eff_broker:
-        q = q.where(Conversation.broker_id == eff_broker)
-    if status:
-        q = q.where(Conversation.status == status)
-    if channel:
-        q = q.where(Conversation.channel == channel)
+        base_q = base_q.where(Conversation.broker_id == eff_broker)
+    if search_term:
+        like = f"%{search_term}%"
+        base_q = base_q.where(
+            Lead.name.ilike(like) | Lead.phone.ilike(like)
+        )
 
-    total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
-    convs = (await db.execute(q.order_by(Conversation.started_at.desc()).offset(offset).limit(limit))).scalars().all()
+    total = (await db.execute(select(func.count()).select_from(base_q.subquery()))).scalar_one()
 
-    return {
-        "total": total,
-        "items": [
-            {
-                "id": c.id,
-                "lead_id": c.lead_id,
-                "channel": c.channel,
-                "status": c.status,
-                "current_agent": c.current_agent,
-                "message_count": c.message_count,
-                "started_at": c.started_at.isoformat() if c.started_at else None,
-                "last_message_at": c.last_message_at.isoformat() if c.last_message_at else None,
-                "human_mode": c.human_mode,
-            }
-            for c in convs
-        ],
-    }
+    rows = (
+        await db.execute(
+            base_q
+            .add_columns(Lead)
+            .order_by(Conversation.last_message_at.desc().nulls_last(), Conversation.started_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    ).all()
+
+    # Fetch last message text per conversation lead in one pass
+    conv_lead_ids = [row[1].id for row in rows]
+    last_msgs: dict[int, str] = {}
+    if conv_lead_ids:
+        lm_result = await db.execute(
+            select(ChatMessage.lead_id, ChatMessage.message_text)
+            .where(ChatMessage.lead_id.in_(conv_lead_ids))
+            .order_by(ChatMessage.lead_id, ChatMessage.id.desc())
+            .distinct(ChatMessage.lead_id)
+        )
+        for lead_id_val, msg_text in lm_result.all():
+            last_msgs[lead_id_val] = msg_text or ""
+
+    items = []
+    for row in rows:
+        conv: Conversation = row[0]
+        lead: Lead = row[1]
+        meta = lead.lead_metadata or {}
+        lead_name = meta.get("nombre") or meta.get("name") or lead.name or lead.phone or str(lead.id)
+        last_activity = (
+            conv.last_message_at.isoformat() if conv.last_message_at
+            else (conv.started_at.isoformat() if conv.started_at else "")
+        )
+        items.append({
+            "lead_id": conv.lead_id,
+            "lead_name": lead_name,
+            "current_stage": lead.pipeline_stage or "",
+            "current_agent": conv.current_agent or "",
+            "last_message": last_msgs.get(lead.id, ""),
+            "last_activity": last_activity,
+            "total_messages": conv.message_count,
+            "human_mode": conv.human_mode,
+        })
+
+    return {"total": total, "items": items}
 
 
 # ── Agent performance ─────────────────────────────────────────────────────────

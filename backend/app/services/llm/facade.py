@@ -65,25 +65,65 @@ async def _fire_log(
     input_tokens: Optional[int] = None,
     output_tokens: Optional[int] = None,
     error: Optional[str] = None,
+    agent_type: Optional[str] = None,
+    raw_response_snippet: Optional[str] = None,
+    system_prompt: Optional[str] = None,
+    user_messages: Optional[list] = None,
+    rag_chunks_used: Optional[list] = None,
+    temperature: Optional[float] = None,
 ) -> None:
-    """Await LLM call log inline. Never raises — observability must never block the pipeline."""
+    """Fire LLM call log with a hard timeout. Never raises — observability must never block the pipeline."""
     try:
         from app.services.llm.call_logger import log_llm_call
 
-        await log_llm_call(
-            provider=provider_name,
-            model=model,
-            call_type=call_type,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            latency_ms=latency_ms,
-            broker_id=broker_id,
-            lead_id=lead_id,
-            used_fallback=used_fallback,
-            error=error,
+        await asyncio.wait_for(
+            log_llm_call(
+                provider=provider_name,
+                model=model,
+                call_type=call_type,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                latency_ms=latency_ms,
+                broker_id=broker_id,
+                lead_id=lead_id,
+                used_fallback=used_fallback,
+                error=error,
+            ),
+            timeout=5.0,
         )
-    except Exception:  # noqa: BLE001
-        pass  # observability must never crash the pipeline
+    except Exception as _log_exc:  # noqa: BLE001
+        logger.debug("[LLM-facade] _fire_log skipped: %s", _log_exc)  # observability must never crash the pipeline
+
+    # Also write to agent_events for the conversation debugger
+    if lead_id and broker_id and not error:
+        try:
+            from app.services.llm.call_logger import _estimate_cost
+            from app.services.observability.event_logger import event_logger
+            cost = _estimate_cost(model, input_tokens or 0, output_tokens or 0) or 0.0
+            async def _fire_event_log() -> None:
+                try:
+                    await event_logger.log_llm_call(
+                        lead_id=lead_id,
+                        broker_id=broker_id,
+                        provider=provider_name,
+                        model=model,
+                        input_tokens=input_tokens or 0,
+                        output_tokens=output_tokens or 0,
+                        latency_ms=latency_ms,
+                        cost_usd=cost,
+                        agent_type=agent_type,
+                        system_prompt=system_prompt,
+                        raw_response_snippet=raw_response_snippet,
+                        user_messages=user_messages,
+                        rag_chunks_used=rag_chunks_used,
+                        temperature=temperature,
+                    )
+                except Exception as _inner_exc:
+                    logger.debug("[LLM-facade] event_logger task error: %s", _inner_exc)
+
+            asyncio.ensure_future(_fire_event_log())
+        except Exception as _ev_exc:
+            logger.debug("[LLM-facade] event_logger fire skipped: %s", _ev_exc)
 
 
 class LLMServiceFacade:
@@ -211,10 +251,12 @@ Retorna JSON con:
         pname, model, used_fallback = _provider_meta(provider)
         try:
             # temperature=0.3 for data extraction — financial data must be precise
+            logger.info("[LLM-facade] analyze_lead_qualification START provider=%s model=%s", pname, model)
             _t0 = time.monotonic()
             with trace_span("llm.qualify", {"provider": pname, "model": model, "lead_id": str(lead_id or "")}):
                 result, _usage = await provider.generate_json(analysis_prompt)
             _latency = int((time.monotonic() - _t0) * 1000)
+            logger.info("[LLM-facade] analyze_lead_qualification DONE latency=%dms score_delta=%s", _latency, result.get("score_delta"))
             # Use real token counts from API; fall back to char-length estimate if unavailable
             _in_tok = (_usage.get("input_tokens") if _usage else None) or len(analysis_prompt) // 4
             _out_tok = (_usage.get("output_tokens") if _usage else None) or len(str(result)) // 4
@@ -228,6 +270,8 @@ Retorna JSON con:
                 lead_id=lead_id,
                 input_tokens=_in_tok,
                 output_tokens=_out_tok,
+                agent_type="qualifier",
+                raw_response_snippet=str(result)[:500],
             )
 
             # Ensure all expected fields exist
@@ -290,6 +334,7 @@ Retorna JSON con:
         broker_id: Optional[int] = None,
         lead_id: Optional[int] = None,
         static_system_prompt: Optional[str] = None,
+        agent_type: Optional[str] = None,
     ) -> Tuple[str, List[Dict[str, Any]]]:
         """
         Generate response with function calling.
@@ -359,6 +404,7 @@ Retorna JSON con:
         pname, model, used_fallback = _provider_meta(provider)
         _t0 = time.monotonic()
         _err: Optional[str] = None
+        logger.info("[LLM-facade] generate_response_with_function_calling START provider=%s model=%s", pname, model)
         try:
             with trace_span("llm.chat", {"provider": pname, "model": model, "lead_id": str(lead_id or "")}):
                 result = await provider.generate_with_tools(
@@ -375,6 +421,7 @@ Retorna JSON con:
             if usage:
                 input_tokens = usage.get("input_tokens") or usage.get("prompt_tokens")
                 output_tokens = usage.get("output_tokens") or usage.get("completion_tokens")
+            _response_text = result[0] or ""
             await _fire_log(
                 provider_name=pname,
                 model=model,
@@ -386,7 +433,12 @@ Retorna JSON con:
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 error=None,
+                agent_type=agent_type,
+                raw_response_snippet=_response_text[:500],
+                system_prompt=system_prompt,
+                user_messages=[{"role": m.role.value if hasattr(m.role, "value") else str(m.role), "content": m.content} for m in messages],
             )
+            logger.info("[LLM-facade] generate_response_with_function_calling DONE latency=%dms", int((time.monotonic() - _t0) * 1000))
             return result[0], result[1]
         except Exception as _exc:
             _err = str(_exc)[:500]

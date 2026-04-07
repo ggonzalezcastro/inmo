@@ -38,63 +38,103 @@ export interface OverviewData {
 // Conversation Trace
 // ──────────────────────────────────────────────
 
-export type TimelineItemType =
-  | 'message'
+export interface ConversationSummary {
+  lead_id: number
+  lead_name: string
+  channel: string
+  lead_score: number
+  current_stage: string
+  current_agent: string
+  started_at: string | null
+  last_activity: string | null
+  total_messages: number
+  total_tokens: number
+  total_cost_usd: number
+  human_mode: boolean
+}
+
+export interface ChatMessage {
+  id: string
+  timestamp: string
+  direction: 'inbound' | 'outbound'
+  sender_type: 'lead' | 'bot' | 'human_agent'
+  content: string
+}
+
+export type TimelineEventType =
+  | 'agent_selected'
   | 'llm_call'
   | 'handoff'
-  | 'error'
   | 'tool'
   | 'pipeline_stage'
+  | 'score_change'
+  | 'sentiment'
+  | 'escalation'
+  | 'human_takeover'
+  | 'human_release'
+  | 'error'
+  | 'fallback'
 
-export interface TimelineItem {
+export interface TimelineEvent {
   id: string
-  type: TimelineItemType
+  type: TimelineEventType
   timestamp: string
-  // message
-  direction?: 'inbound' | 'outbound'
-  content?: string
+  // agent_selected
+  agent?: string
   // llm_call
   provider?: string
   model?: string
-  prompt_tokens?: number
-  completion_tokens?: number
+  input_tokens?: number
+  output_tokens?: number
   total_tokens?: number
   latency_ms?: number
   cost_usd?: number
-  prompt?: string
-  completion?: string
+  prompt_hash?: string
+  completion_snippet?: string
   // handoff
   from_agent?: string
   to_agent?: string
   reason?: string
-  // error
-  error_type?: string
-  error_message?: string
   // tool
   tool_name?: string
   tool_input?: Record<string, unknown>
   tool_output?: unknown
+  success?: boolean
   // pipeline_stage
-  stage?: string
-  previous_stage?: string
-}
-
-export interface ConversationSummary {
-  lead_id: number
-  lead_name: string
-  current_stage: string
-  current_agent: string
-  total_messages: number
-  total_tokens: number
-  total_cost_usd: number
-  last_activity: string
+  stage_before?: string
+  stage_after?: string
+  // score_change
+  score_before?: number
+  score_after?: number
+  score_delta?: number
+  extracted_fields?: Record<string, unknown>
+  // sentiment
+  score?: number
+  emotions?: string[]
+  escalated?: boolean
+  // escalation
+  frustration_score?: number
+  // human_takeover
+  agent_id?: number
+  agent_name?: string
+  // human_release
+  note?: string
+  sentiment_reset?: boolean
+  // error
+  error_type?: string
+  error_message?: string
 }
 
 export interface ConversationTrace {
   lead_id: number
   summary: ConversationSummary
-  timeline: TimelineItem[]
+  messages: ChatMessage[]
+  timeline: TimelineEvent[]
 }
+
+// Legacy alias kept so ConversationDebugger compiles without changes
+export type TimelineItem = TimelineEvent
+export type TimelineItemType = TimelineEventType
 
 // ──────────────────────────────────────────────
 // Conversations Search

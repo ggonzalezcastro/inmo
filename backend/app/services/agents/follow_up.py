@@ -71,7 +71,7 @@ class FollowUpAgent(BaseAgent):
                 "es proponer una fecha concreta para la reunión con un asesor. Sé directo/a y entusiasta."
             )
 
-        return self._inject_tone_hint(base_prompt, context)
+        return self._inject_human_release_note(self._inject_tone_hint(base_prompt, context), context)
 
     async def should_handle(self, context: AgentContext) -> bool:
         if context.pipeline_stage in _OWN_STAGES:
@@ -107,6 +107,7 @@ class FollowUpAgent(BaseAgent):
                     tools=[],
                     broker_id=context.broker_id,
                     lead_id=context.lead_id,
+                    agent_type=self.agent_type.value,
                 )
             )
         except Exception as exc:

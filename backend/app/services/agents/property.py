@@ -102,7 +102,7 @@ Para cada propiedad encontrada, presenta:
 ## Tono
 Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedades.
 """
-        return self._inject_tone_hint(prompt, context)
+        return self._inject_human_release_note(self._inject_tone_hint(prompt, context), context)
 
     async def should_handle(self, context: AgentContext) -> bool:
         """
@@ -214,6 +214,8 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
                 tool_executor=tool_executor,
                 broker_id=context.broker_id,
                 lead_id=context.lead_id,
+                agent_type=self.agent_type.value,
+                rag_chunks_used=[r["id"] for tr in tool_results for r in tr.get("results", [])[:5]],
             )
         except Exception as exc:
             logger.error("PropertyAgent LLM call failed: %s", exc)

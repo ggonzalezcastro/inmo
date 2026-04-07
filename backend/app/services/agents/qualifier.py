@@ -10,6 +10,7 @@ Hands off to SchedulerAgent when:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any, Dict
@@ -94,7 +95,7 @@ class QualifierAgent(BaseAgent):
                 + "Agrupa los campos pendientes según la ESTRATEGIA DE RECOPILACIÓN (máximo 3 por mensaje)."
             )
 
-        return self._inject_tone_hint(base_prompt, context)
+        return self._inject_human_release_note(self._inject_tone_hint(base_prompt, context), context)
 
     async def should_handle(self, context: AgentContext) -> bool:
         # Own pipeline stages
@@ -151,6 +152,20 @@ class QualifierAgent(BaseAgent):
             if val and not context.lead_data.get(field):
                 updates[field] = val
 
+        # Log qualification analysis for the conversation debugger
+        if updates or analysis.get("score_delta"):
+            try:
+                from app.services.observability.event_logger import event_logger
+                asyncio.ensure_future(event_logger.log_qualification(
+                    lead_id=context.lead_id,
+                    broker_id=context.broker_id,
+                    extracted_fields=updates,
+                    score_delta=float(analysis.get("score_delta") or 0),
+                    agent_type=self.agent_type.value,
+                ))
+            except Exception:
+                pass
+
         merged_data = {**context.lead_data, **updates}
         temp_context = AgentContext(
             lead_id=context.lead_id,
@@ -187,6 +202,7 @@ class QualifierAgent(BaseAgent):
                         tools=[],
                         broker_id=context.broker_id,
                         lead_id=context.lead_id,
+                        agent_type=self.agent_type.value,
                     )
                 )
             except Exception as exc:

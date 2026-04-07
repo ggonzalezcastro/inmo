@@ -21,6 +21,7 @@ pass only the recent messages to the LLM.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import List, Optional, Tuple, Dict, Any
 
@@ -86,8 +87,11 @@ async def summarize_conversation(
     )
 
     try:
-        summary = await provider.generate_response(prompt)
+        summary = await asyncio.wait_for(provider.generate_response(prompt), timeout=30.0)
         return summary.strip()
+    except asyncio.TimeoutError:
+        logger.warning("[ContextManager] Summarization timed out after 30s, skipping")
+        return prior_summary or ""
     except Exception as exc:
         logger.warning("[ContextManager] Summarization failed: %s", exc)
         return prior_summary or ""

@@ -2,7 +2,7 @@ import httpx
 import logging
 from typing import Optional, Dict, Any
 from app.config import settings
-from app.core.circuit_breakers import telegram_breaker
+from app.core.circuit_breakers import telegram_breaker, call_async_protected
 
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ class TelegramService:
                     raise Exception(f"Telegram API error: {response.text}")
                 return response.json()
 
-        return await telegram_breaker.call_async(_call)
+        return await call_async_protected(telegram_breaker, _call)
 
     async def get_chat(self, chat_id: int) -> Dict[str, Any]:
         """Get chat info (protected by telegram_breaker)."""
@@ -48,7 +48,7 @@ class TelegramService:
                     raise Exception(f"Failed to get chat: {response.text}")
                 return response.json()
 
-        return await telegram_breaker.call_async(_call)
+        return await call_async_protected(telegram_breaker, _call)
     
     async def set_webhook(self, webhook_url: str) -> Dict[str, Any]:
         """Register webhook with Telegram"""

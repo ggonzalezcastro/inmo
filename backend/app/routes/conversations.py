@@ -31,6 +31,13 @@ class ImproveMessageInput(BaseModel):
     text: str
 
 
+class ReleaseBody(BaseModel):
+    note: Optional[str] = None
+    trainable: bool = False
+    resolution_summary: Optional[str] = None
+    resolution_category: Optional[str] = None  # 'precio', 'financiamiento', 'objecion', etc.
+
+
 class ConversationLeadItem(BaseModel):
     id: int
     name: Optional[str]
@@ -108,7 +115,7 @@ async def list_conversations(
         if mode == "ai" and is_human:
             continue
 
-        name = meta.get("nombre") or meta.get("name")
+        name = meta.get("nombre") or meta.get("name") or lead.name
         if search:
             haystack = f"{name or ''} {lead.phone}".lower()
             if search.lower() not in haystack:
@@ -222,20 +229,38 @@ async def takeover_lead(
 @router.post("/leads/{lead_id}/release")
 async def release_lead(
     lead_id: int,
+    body: ReleaseBody = None,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Human agent releases control — AI resumes."""
+    """Human agent releases control — AI resumes.
+
+    Optionally accepts a release note that Sofía injects into her context on
+    the next turn, and a trainable resolution that gets added to the broker's
+    knowledge base for future RAG retrieval.
+    """
+    if body is None:
+        body = ReleaseBody()
+
+    broker_id = current_user.get("broker_id")
     result = await db.execute(
-        select(Lead).where(Lead.id == lead_id, Lead.broker_id == current_user.get("broker_id"))
+        select(Lead).where(Lead.id == lead_id, Lead.broker_id == broker_id)
     )
     lead = result.scalar_one_or_none()
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
 
+    now = datetime.now(timezone.utc)
+
     lead.human_mode = False
     lead.human_assigned_to = None
     lead.human_taken_at = None
+    lead.human_released_at = now
+    lead.human_release_note = body.note  # May be None — clears the previous note if omitted
+
+    # Capture escalated_reason BEFORE clearing the metadata (it's wiped below).
+    _escalated_reason = (lead.lead_metadata or {}).get("sentiment", {}).get("escalated_reason")
+
     # Reset human_mode_notified flag and frustration score atomically via jsonb_set
     # so Sofía resumes without the old escalation state and fires the handoff
     # message again if re-escalated later.
@@ -258,11 +283,34 @@ async def release_lead(
     )
     await db.commit()
 
+    # Feedback loop — create a knowledge-base entry so Sofía can handle
+    # similar cases autonomously in the future.
+    if body.trainable and body.resolution_summary:
+        try:
+            from app.services.knowledge.rag_service import RAGService
+            await RAGService.add_document(
+                db=db,
+                broker_id=broker_id,
+                title=f"Resolución: {body.resolution_category or 'caso_escalado'}",
+                content=body.resolution_summary,
+                source_type="custom",
+                metadata={
+                    "source_subtype": "resolution",
+                    "lead_id": lead_id,
+                    "agent_id": current_user.get("id"),
+                    "escalated_reason": _escalated_reason,
+                    "date": now.isoformat(),
+                },
+            )
+        except Exception as _kb_exc:
+            logger.warning("release_lead: failed to add KB entry: %s", _kb_exc)
+
     try:
         from app.core.websocket_manager import ws_manager
-        await ws_manager.broadcast(current_user.get("broker_id"), "human_mode_changed", {
+        await ws_manager.broadcast(broker_id, "human_mode_changed", {
             "lead_id": lead_id,
             "human_mode": False,
+            "release_note": body.note,
         })
     except Exception:
         pass
@@ -418,3 +466,29 @@ async def improve_message(
     except Exception as exc:
         logger.warning("improve_message LLM call failed: %s", exc)
         return {"improved": body.text}
+
+
+@router.get("/leads/{lead_id}/escalation-brief")
+async def get_escalation_brief(
+    lead_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Return the most recent LLM-generated escalation brief for this lead.
+
+    The brief is shown to the human agent when they open a conversation that
+    was escalated from AI. It includes the escalation reason, lead profile,
+    collected data, conversation summary, emotional context, and a suggested
+    action — all pre-generated at escalation time.
+    """
+    broker_id = current_user.get("broker_id")
+    result = await db.execute(
+        select(Lead).where(Lead.id == lead_id, Lead.broker_id == broker_id)
+    )
+    lead = result.scalar_one_or_none()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    from app.services.handoff.brief_generator import get_latest_brief
+    brief = await get_latest_brief(db, lead_id)
+    return brief or {"brief_text": None}

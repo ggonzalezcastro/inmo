@@ -19,6 +19,7 @@ from app.database import get_db
 from app.middleware.auth import create_access_token, get_current_user
 from app.middleware.permissions import Permissions
 from app.models.broker import Broker
+from app.models.broker_chat_config import BrokerChatConfig
 from app.models.broker_plan import BrokerPlan
 from app.models.lead import Lead
 from app.models.chat_message import ChatMessage
@@ -422,4 +423,205 @@ async def exit_impersonation(
     await db.commit()
 
     return {"status": "exited"}
+
+
+# ---------------------------------------------------------------------------
+# Broker Chat Channel Configuration (WhatsApp / Telegram)
+# ---------------------------------------------------------------------------
+
+_SENSITIVE_FIELDS = {"access_token", "bot_token", "webhook_secret", "app_secret"}
+
+
+class ChatConfigUpdate(BaseModel):
+    enabled_providers: List[str]
+    provider_configs: dict  # {"whatsapp": {...}, "telegram": {...}}
+
+
+class ChatConfigResponse(BaseModel):
+    broker_id: int
+    enabled_providers: List[str]
+    default_provider: str
+    provider_configs: dict  # sensitive values replaced with "***"
+    webhook_configs: dict
+
+
+def _obfuscate_provider_configs(provider_configs: dict) -> dict:
+    """Replace sensitive credential values with *** for safe display."""
+    result = {}
+    for provider, cfg in (provider_configs or {}).items():
+        result[provider] = {
+            k: ("***" if k in _SENSITIVE_FIELDS and v else v)
+            for k, v in (cfg or {}).items()
+        }
+    return result
+
+
+def _merge_provider_configs(existing: dict, incoming: dict) -> dict:
+    """
+    Merge incoming provider_configs into existing ones.
+    For each provider: keep existing values, override with incoming ones.
+    If an incoming value is "***", preserve the existing value (user didn't change it).
+    """
+    merged = dict(existing or {})
+    for provider, new_cfg in (incoming or {}).items():
+        old_cfg = merged.get(provider, {})
+        merged_cfg = dict(old_cfg)
+        for k, v in (new_cfg or {}).items():
+            if v != "***":  # only update when user provided a real value
+                merged_cfg[k] = v
+        merged[provider] = merged_cfg
+    return merged
+
+
+@router.get("/brokers/{broker_id}/chat-config", response_model=ChatConfigResponse)
+async def get_broker_chat_config(
+    broker_id: int,
+    current_user: dict = Depends(Permissions.require_superadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get chat channel configuration for a broker (credentials obfuscated)."""
+    result = await db.execute(
+        select(BrokerChatConfig).where(BrokerChatConfig.broker_id == broker_id)
+    )
+    cfg = result.scalars().first()
+    if cfg is None:
+        return ChatConfigResponse(
+            broker_id=broker_id,
+            enabled_providers=[],
+            default_provider="webchat",
+            provider_configs={},
+            webhook_configs={},
+        )
+    return ChatConfigResponse(
+        broker_id=broker_id,
+        enabled_providers=cfg.enabled_providers or [],
+        default_provider=cfg.default_provider.value if cfg.default_provider else "webchat",
+        provider_configs=_obfuscate_provider_configs(cfg.provider_configs or {}),
+        webhook_configs=cfg.webhook_configs or {},
+    )
+
+
+@router.put("/brokers/{broker_id}/chat-config", response_model=ChatConfigResponse)
+async def update_broker_chat_config(
+    broker_id: int,
+    data: ChatConfigUpdate,
+    current_user: dict = Depends(Permissions.require_superadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Upsert chat channel configuration for a broker.
+    Existing credentials are preserved when the incoming value is "***".
+    Automatically generates webhook_configs entries with the public webhook URLs.
+    """
+    # Verify broker exists
+    broker_result = await db.execute(select(Broker).where(Broker.id == broker_id))
+    if broker_result.scalars().first() is None:
+        raise HTTPException(status_code=404, detail="Broker not found")
+
+    result = await db.execute(
+        select(BrokerChatConfig).where(BrokerChatConfig.broker_id == broker_id)
+    )
+    cfg = result.scalars().first()
+
+    base_url = settings.WEBHOOK_BASE_URL.rstrip("/") if settings.WEBHOOK_BASE_URL else ""
+
+    # Build updated webhook_configs
+    webhook_configs: dict = {}
+    if "whatsapp" in data.enabled_providers:
+        webhook_configs["whatsapp"] = {
+            "url": f"{base_url}/webhooks/whatsapp",
+            "enabled": True,
+        }
+    if "telegram" in data.enabled_providers:
+        webhook_configs["telegram"] = {
+            "url": f"{base_url}/webhooks/telegram/{broker_id}",
+            "enabled": True,
+        }
+
+    if cfg is None:
+        cfg = BrokerChatConfig(
+            broker_id=broker_id,
+            enabled_providers=data.enabled_providers,
+            provider_configs=data.provider_configs,
+            webhook_configs=webhook_configs,
+        )
+        db.add(cfg)
+    else:
+        cfg.enabled_providers = data.enabled_providers
+        cfg.provider_configs = _merge_provider_configs(
+            cfg.provider_configs or {}, data.provider_configs
+        )
+        cfg.webhook_configs = webhook_configs
+
+    await db.commit()
+    await db.refresh(cfg)
+
+    return ChatConfigResponse(
+        broker_id=broker_id,
+        enabled_providers=cfg.enabled_providers or [],
+        default_provider=cfg.default_provider.value if cfg.default_provider else "webchat",
+        provider_configs=_obfuscate_provider_configs(cfg.provider_configs or {}),
+        webhook_configs=cfg.webhook_configs or {},
+    )
+
+
+@router.post("/brokers/{broker_id}/chat-config/register-webhook")
+async def register_broker_webhook(
+    broker_id: int,
+    current_user: dict = Depends(Permissions.require_superadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Register the Telegram webhook for this broker using the stored bot_token.
+    The webhook URL is generated as: {BASE_URL}/webhooks/telegram/{broker_id}
+    """
+    result = await db.execute(
+        select(BrokerChatConfig).where(BrokerChatConfig.broker_id == broker_id)
+    )
+    cfg = result.scalars().first()
+
+    if cfg is None or not (cfg.provider_configs or {}).get("telegram", {}).get("bot_token"):
+        raise HTTPException(
+            status_code=400,
+            detail="No Telegram bot_token configured. Save the configuration first.",
+        )
+
+    bot_token = cfg.provider_configs["telegram"]["bot_token"]
+    base_url = settings.WEBHOOK_BASE_URL.rstrip("/") if settings.WEBHOOK_BASE_URL else ""
+    webhook_url = f"{base_url}/webhooks/telegram/{broker_id}"
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.post(
+            f"https://api.telegram.org/bot{bot_token}/setWebhook",
+            json={"url": webhook_url},
+        )
+
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Telegram API error: {resp.text}",
+        )
+
+    tg_result = resp.json()
+    if not tg_result.get("ok"):
+        raise HTTPException(
+            status_code=502,
+            detail=f"Telegram setWebhook failed: {tg_result.get('description', 'unknown error')}",
+        )
+
+    # Update stored webhook_configs
+    webhook_configs = cfg.webhook_configs or {}
+    webhook_configs["telegram"] = {
+        "url": webhook_url,
+        "enabled": True,
+        "registered_at": datetime.utcnow().isoformat(),
+    }
+    cfg.webhook_configs = webhook_configs
+    await db.commit()
+
+    return {
+        "ok": True,
+        "webhook_url": webhook_url,
+        "telegram_response": tg_result,
+    }
 

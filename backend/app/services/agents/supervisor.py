@@ -69,6 +69,12 @@ class AgentSupervisor:
         hops = 0
         visited_agents: List[str] = []
 
+        logger.info(
+            "[Supervisor] START lead_id=%s broker_id=%s stage=%s state=%s",
+            context.lead_id, context.broker_id,
+            context.pipeline_stage, context.conversation_state,
+        )
+
         while hops < _MAX_HANDOFFS:
             agent = await cls._select_agent(current_context)
             if agent is None:
@@ -121,8 +127,13 @@ class AgentSupervisor:
                 conversation_id=conversation_id,
             )
 
+            logger.info("[Supervisor] Calling agent.process: %s", agent.name)
             response = await agent.process(message, current_context, db)
             last_response = response
+            logger.info(
+                "[Supervisor] agent.process done: %s — response=%r",
+                agent.name, (response.message or "")[:80],
+            )
 
             # Apply context updates
             updated_data = {**current_context.lead_data, **response.context_updates}

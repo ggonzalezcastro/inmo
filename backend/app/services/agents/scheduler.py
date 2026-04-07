@@ -79,7 +79,7 @@ class SchedulerAgent(BaseAgent):
             lead_id=context.lead_id,
             lead_email=lead_email,
         )
-        return self._inject_tone_hint(base_prompt, context)
+        return self._inject_human_release_note(self._inject_tone_hint(base_prompt, context), context)
 
     async def should_handle(self, context: AgentContext) -> bool:
         if context.pipeline_stage in _OWN_STAGES:
@@ -182,6 +182,7 @@ class SchedulerAgent(BaseAgent):
                     tool_executor=tool_executor,
                     broker_id=context.broker_id,
                     lead_id=context.lead_id,
+                    agent_type=self.agent_type.value,
                 )
             )
         except Exception as exc:
@@ -195,6 +196,7 @@ class SchedulerAgent(BaseAgent):
                         tools=[],
                         broker_id=context.broker_id,
                         lead_id=context.lead_id,
+                        agent_type=self.agent_type.value,
                     )
                 )
             except Exception as exc2:

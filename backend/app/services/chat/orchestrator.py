@@ -19,6 +19,7 @@ from app.services.pipeline import PipelineService
 from app.schemas.lead import LeadCreate
 from app.shared.input_sanitizer import sanitize_chat_input, InputSanitizationError
 from app.services.chat.state_machine import ConversationStateMachine
+from app.services.conversations.conversation_service import ConversationService
 from app.core.encryption import encrypt_metadata_fields
 from sqlalchemy.future import select as _sa_select
 import logging
@@ -59,6 +60,10 @@ class ChatOrchestratorService:
         advance pipeline, generate AI response. Returns ChatResult.
         """
         broker_id = (current_user or {}).get("broker_id")
+        logger.info(
+            "[Orchestrator] START broker_id=%s lead_id=%s provider=%s skip_inbound=%s msg=%r",
+            broker_id, lead_id, provider_name, skip_inbound_log, (message or "")[:60],
+        )
 
         # 0. Sanitize input — must happen before anything touches the message
         try:
@@ -84,6 +89,21 @@ class ChatOrchestratorService:
             )
             lead = await LeadService.create_lead(db, lead_data, broker_id=broker_id)
         current_lead_id = lead.id
+        logger.info("[Orchestrator] Step 1 done — lead_id=%s stage=%s", lead.id, lead.pipeline_stage)
+
+        # 1b. Get or create Conversation record (tracks this chat session)
+        _conversation = None
+        if broker_id:
+            try:
+                _conversation = await ConversationService.get_or_create(
+                    db=db,
+                    lead_id=lead.id,
+                    broker_id=broker_id,
+                    channel=provider_name or "webchat",
+                )
+                await db.flush()
+            except Exception as _conv_exc:
+                logger.warning("[Orchestrator] ConversationService.get_or_create failed (continuing): %s", _conv_exc)
 
         # 2. Log inbound message (skip if caller already logged it, e.g. whatsapp_tasks)
         if broker_id and not skip_inbound_log:
@@ -106,15 +126,16 @@ class ChatOrchestratorService:
                 db, lead_id=lead.id, telegram_user_id=0, message_text=message, direction="in"
             )
         await db.refresh(lead)
+        logger.info("[Orchestrator] Step 2 done — inbound message logged")
 
         # ── Sync heuristic sentiment gate ────────────────────────────────────
         # Run fast regex heuristics (microseconds, zero LLM calls) BEFORE the
-        # AI responds. If the current message clearly indicates escalation or
-        # frustration, act immediately rather than letting the AI reply normally.
+        # AI responds. Handles explicit human requests and loop detection with
+        # immediate escalation, before sentiment scoring.
         try:
             from app.config import settings as _cfg_s
             if getattr(_cfg_s, "SENTIMENT_ANALYSIS_ENABLED", True) and broker_id:
-                from app.services.sentiment.heuristics import analyze_heuristics as _h_analyze
+                from app.services.sentiment.heuristics import quick_analyze as _quick_analyze
                 from app.services.sentiment.scorer import (
                     ActionLevel as _AL,
                     compute_action_level as _compute_action,
@@ -122,7 +143,24 @@ class ChatOrchestratorService:
                 )
                 from app.services.sentiment.escalation import apply_escalation_action as _apply_action
 
-                _h_result = _h_analyze(message)
+                # Fetch last 5 inbound messages for loop detection (lightweight query)
+                _recent_inbound: list[str] = []
+                try:
+                    from sqlalchemy import text as _sa_text_loop
+                    _loop_rows = await db.execute(
+                        _sa_text_loop(
+                            "SELECT message_text FROM chat_messages "
+                            "WHERE lead_id = :lid AND direction = 'in' "
+                            "ORDER BY created_at DESC LIMIT 5"
+                        ),
+                        {"lid": lead.id},
+                    )
+                    _recent_inbound = [r[0] for r in _loop_rows.fetchall() if r[0]]
+                except Exception:
+                    pass  # Loop detection is best-effort
+
+                _quick_result = _quick_analyze(message, _recent_inbound)
+                _h_result = _quick_result.sentiment
                 _current_meta_sent = (lead.lead_metadata or {}).get("sentiment") or _empty_sent()
 
                 # Build a temporary sentiment snapshot using the raw per-message
@@ -137,7 +175,74 @@ class ChatOrchestratorService:
                 }
                 _action = _compute_action(_temp_sent)
 
-                if _action == _AL.ESCALATE:
+                # Log sentiment for the conversation debugger
+                if _h_result.score > 0.1 or _h_result.emotions:
+                    try:
+                        from app.services.observability.event_logger import event_logger
+                        import asyncio as _aio
+                        _aio.ensure_future(event_logger.log_sentiment_analyzed(
+                            lead_id=lead.id,
+                            broker_id=broker_id,
+                            frustration_score=_h_result.score,
+                            action_level=_action.value if hasattr(_action, "value") else str(_action),
+                            emotions=list(_h_result.emotions),
+                        ))
+                    except Exception:
+                        pass
+
+                # Immediate escalation for explicit human request — never let the AI reply.
+                if _quick_result.explicit_human_request and not lead.human_mode:
+                    logger.info(
+                        "[Orchestrator] explicit_human_request detected — escalating lead_id=%s", lead.id
+                    )
+                    await _apply_action(
+                        db=db,
+                        lead_id=lead.id,
+                        broker_id=broker_id,
+                        action=_AL.ESCALATE,
+                        sentiment=_current_meta_sent,
+                        last_message=message,
+                        channel=provider_name or "webchat",
+                        reason="explicit_request",
+                    )
+                    await db.refresh(lead)
+
+                # Immediate escalation for loop detection — lead is going in circles.
+                elif _quick_result.loop_detected and not lead.human_mode:
+                    logger.info(
+                        "[Orchestrator] loop_detected — escalating lead_id=%s", lead.id
+                    )
+                    await _apply_action(
+                        db=db,
+                        lead_id=lead.id,
+                        broker_id=broker_id,
+                        action=_AL.ESCALATE,
+                        sentiment=_current_meta_sent,
+                        last_message=message,
+                        channel=provider_name or "webchat",
+                        reason="loop_detected",
+                    )
+                    await db.refresh(lead)
+
+                # Sensitive topic (legal threat, money complaint) + high frustration → escalate.
+                elif _quick_result.sensitive_topic and _h_result.score >= 0.4 and not lead.human_mode:
+                    logger.info(
+                        "[Orchestrator] sensitive_topic + score=%.2f — escalating lead_id=%s",
+                        _h_result.score, lead.id
+                    )
+                    await _apply_action(
+                        db=db,
+                        lead_id=lead.id,
+                        broker_id=broker_id,
+                        action=_AL.ESCALATE,
+                        sentiment=_current_meta_sent,
+                        last_message=message,
+                        channel=provider_name or "webchat",
+                        reason="sensitive_topic",
+                    )
+                    await db.refresh(lead)
+
+                elif _action == _AL.ESCALATE:
                     # Escalate immediately — fall through to human_mode block below
                     # which will send the handoff message and return early.
                     await _apply_action(
@@ -175,6 +280,7 @@ class ChatOrchestratorService:
                     await db.refresh(lead)
         except Exception as _sync_sent_exc:
             logger.debug("[Sentiment] Sync heuristic gate error: %s", _sync_sent_exc)
+        logger.info("[Orchestrator] Step 2b done — sentiment gate passed, human_mode=%s", lead.human_mode)
 
         # ── Human mode: AI silenced ──────────────────────────────────────────
         # If a human agent has taken control, skip AI processing entirely.
@@ -277,10 +383,23 @@ class ChatOrchestratorService:
         conv_machine = ConversationStateMachine.from_lead_metadata(lead.lead_metadata)
 
         # 3. Get context and analyze
-        context = await LeadContextService.get_lead_context(db, lead.id)
-        analysis = await LLMServiceFacade.analyze_lead_qualification(
-            message, context, broker_id=broker_id, lead_id=lead.id
-        )
+        logger.info("[Orchestrator] Step 3 — fetching lead context for lead_id=%s", lead.id)
+        try:
+            context = await LeadContextService.get_lead_context(db, lead.id)
+            logger.info("[Orchestrator] Step 3a — context fetched, history_len=%s", len(context.get("message_history") or []))
+        except Exception as _ctx_exc:
+            logger.error("[Orchestrator] Step 3a FAILED — get_lead_context error: %s", _ctx_exc, exc_info=True)
+            raise
+
+        logger.info("[Orchestrator] Step 3b — calling analyze_lead_qualification")
+        try:
+            analysis = await LLMServiceFacade.analyze_lead_qualification(
+                message, context, broker_id=broker_id, lead_id=lead.id
+            )
+        except Exception as _anlz_exc:
+            logger.error("[Orchestrator] Step 3b FAILED — analyze_lead_qualification error: %s", _anlz_exc, exc_info=True)
+            raise
+        logger.info("[Orchestrator] Step 3 done — analysis score_delta=%s qualified=%s", analysis.get("score_delta"), analysis.get("qualified"))
 
         # 3b. Advance state machine based on LLM analysis output
         try:
@@ -290,24 +409,29 @@ class ChatOrchestratorService:
 
         # 4. Refresh lead before score update (the row-level lock was already
         # acquired at the human_mode check above; re-using the same lock here).
-        await db.refresh(lead)
+        logger.info("[Orchestrator] Step 4 — updating score and metadata")
+        try:
+            await db.refresh(lead)
 
-        # Atomic score update (protected by the lock above)
-        score_delta = analysis.get("score_delta", 0)
-        await db.execute(
-            update(Lead)
-            .where(Lead.id == lead.id)
-            .values(
-                lead_score=func.least(100, func.greatest(0, Lead.lead_score + score_delta))
+            # Atomic score update (protected by the lock above)
+            score_delta = analysis.get("score_delta", 0)
+            await db.execute(
+                update(Lead)
+                .where(Lead.id == lead.id)
+                .values(
+                    lead_score=func.least(100, func.greatest(0, Lead.lead_score + score_delta))
+                )
             )
-        )
-        await db.flush()
-        await db.refresh(lead)
-        new_score = lead.lead_score
-        old_score = new_score - score_delta
+            await db.flush()
+            await db.refresh(lead)
+            new_score = lead.lead_score
+            old_score = new_score - score_delta
+            logger.info("[Orchestrator] Step 4 done — score old=%s new=%s delta=%s", old_score, new_score, score_delta)
+        except Exception as _score_exc:
+            logger.error("[Orchestrator] Step 4 FAILED — score update error: %s", _score_exc, exc_info=True)
+            raise
 
-        # 5. Update lead fields and metadata from analysis (still protected by the lock)
-
+        logger.info("[Orchestrator] Step 5 — updating lead metadata, status")
         if analysis.get("name"):
             lead.name = analysis["name"]
         if analysis.get("phone"):
@@ -401,10 +525,16 @@ class ChatOrchestratorService:
             lead.pipeline_stage = "entrada"
             lead.stage_entered_at = datetime.now()
 
-        await db.commit()
-        await db.refresh(lead)
+        try:
+            await db.commit()
+            await db.refresh(lead)
+        except Exception as _commit_exc:
+            logger.error("[Orchestrator] Step 5 FAILED — metadata commit error: %s", _commit_exc, exc_info=True)
+            raise
+        logger.info("[Orchestrator] Step 5 done — metadata updated, status=%s", lead.status)
 
         # 6. Auto-advance pipeline
+        logger.info("[Orchestrator] Step 6 — pipeline advancement")
         try:
             await PipelineService.auto_advance_stage(db, lead.id)
             await db.refresh(lead)
@@ -419,11 +549,26 @@ class ChatOrchestratorService:
             await db.rollback()
         await db.commit()
         await db.refresh(lead)
+        logger.info("[Orchestrator] Step 6 done — pipeline stage=%s", lead.pipeline_stage)
 
-        # 7. Invalidate context cache so we get the latest messages, then re-fetch
-        from app.core.cache import cache_delete
-        await cache_delete(f"lead_context:{lead.id}")
-        context = await LeadContextService.get_lead_context(db, lead.id)
+        # 7. Build AgentSupervisor context.
+        # We intentionally REUSE the context dict from step 3 instead of
+        # re-fetching it from the DB.  Reasons:
+        #   • The inbound message was already logged by the caller (whatsapp_task /
+        #     telegram_task) before invoking the orchestrator, so step-3 context
+        #     already contains the full current history.
+        #   • Re-fetching would trigger a second round of context-window compression
+        #     (≥ 10 messages), which makes a synchronous LLM call inside the asyncio
+        #     event loop and causes the worker to hang.
+        #   • The `lead` ORM object is already up-to-date (refreshed in steps 5 & 6).
+        # We still invalidate the Redis cache so the *next* request gets fresh data.
+        logger.info("[Orchestrator] Step 7 — invalidating cache and calling AgentSupervisor")
+        try:
+            from app.core.cache import cache_delete
+            await cache_delete(f"lead_context:{lead.id}")
+            logger.info("[Orchestrator] Step 7a — cache invalidated (reusing step-3 context)")
+        except Exception as _cache_exc:
+            logger.warning("[Orchestrator] Step 7a cache invalidation error (continuing): %s", _cache_exc)
         broker_id = current_user.get("broker_id") if current_user else None
 
         # ── Multi-agent path: AgentSupervisor generates the response ─────────
@@ -454,11 +599,13 @@ class ChatOrchestratorService:
             _broker = _br_res.scalars().first()
             if _broker:
                 _broker_name = _broker.name or ""
+            logger.info("[Orchestrator] Step 7b — broker config loaded: agent=%s broker=%r", _agent_name, _broker_name)
         except Exception as _ov_exc:
-            logger.debug("[Orchestrator] Could not load broker config: %s", _ov_exc)
+            logger.warning("[Orchestrator] Step 7b could not load broker config (continuing): %s", _ov_exc)
 
         # message_history comes from ChatMessage records (already fetched above)
         _message_history = context.get("message_history", [])
+        logger.info("[Orchestrator] Step 7c — building AgentContext history_len=%s", len(_message_history))
 
         agent_context = build_context(
             lead, broker_id,
@@ -467,9 +614,18 @@ class ChatOrchestratorService:
             broker_name=_broker_name,
             agent_name=_agent_name,
         )
-        agent_result = await AgentSupervisor.process(message, agent_context, db)
+        logger.info("[Orchestrator] Step 7d — calling AgentSupervisor.process stage=%s", agent_context.pipeline_stage)
+        try:
+            agent_result = await AgentSupervisor.process(message, agent_context, db)
+        except Exception as _agent_exc:
+            logger.error("[Orchestrator] Step 7 FAILED — AgentSupervisor error: %s", _agent_exc, exc_info=True)
+            raise
         ai_response = agent_result.message
         function_calls = agent_result.function_calls or []
+        logger.info(
+            "[Orchestrator] Step 7 done — agent=%s response_len=%d response=%r",
+            agent_result.agent_type, len(ai_response or ""), (ai_response or "")[:80],
+        )
 
         # Always persist current_agent + any context_updates from the agent
         refreshed_metadata = dict(lead.lead_metadata or {})
@@ -479,6 +635,21 @@ class ChatOrchestratorService:
         lead.lead_metadata = encrypt_metadata_fields(refreshed_metadata)
         await db.commit()
         await db.refresh(lead)
+        logger.info("[Orchestrator] Step 8 done — agent metadata persisted")
+
+        # 8b. Update Conversation stats (message count, last_message_at, agent state)
+        if _conversation:
+            try:
+                await ConversationService.on_message(db, _conversation.id)
+                await ConversationService.update_agent_state(
+                    db,
+                    _conversation.id,
+                    current_agent=agent_result.agent_type.value,
+                    conversation_state=refreshed_metadata.get("conversation_state"),
+                )
+                await db.commit()
+            except Exception as _conv_upd_exc:
+                logger.warning("[Orchestrator] ConversationService update failed (continuing): %s", _conv_upd_exc)
 
         if new_score != old_score:
             await ActivityService.log_activity(
@@ -560,6 +731,10 @@ class ChatOrchestratorService:
 
         await db.refresh(lead)
 
+        logger.info(
+            "[Orchestrator] COMPLETE lead_id=%s score=%s state=%s",
+            current_lead_id, new_score, conv_machine.state,
+        )
         return ChatResult(
             response=ai_response,
             lead_id=current_lead_id,

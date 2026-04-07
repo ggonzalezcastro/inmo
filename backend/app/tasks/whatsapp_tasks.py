@@ -41,6 +41,11 @@ def process_whatsapp_message(
 
         pid = str(phone_number_id)
 
+        logger.info(
+            "WhatsApp task starting: from=%s phone_number_id=%s wamid=%s",
+            from_number, pid, wamid,
+        )
+
         from app.models.broker_chat_config import BrokerChatConfig
         from app.models.chat_message import MessageStatus
         from app.schemas.lead import LeadCreate
@@ -51,26 +56,52 @@ def process_whatsapp_message(
         from app.services.leads import LeadService
 
         async with AsyncSessionLocal() as db:
-            # 1. Resolve broker via phone_number_id stored in BrokerChatConfig JSONB
+            # 1. Resolve broker via phone_number_id stored in BrokerChatConfig JSONB.
+            #    Guard against NULL provider_configs with isnot(None) filter.
             result = await db.execute(
                 select(BrokerChatConfig).where(
+                    BrokerChatConfig.provider_configs.isnot(None),
                     BrokerChatConfig.provider_configs["whatsapp"]["phone_number_id"].astext
-                    == pid
+                    == pid,
                 )
             )
             config = result.scalars().first()
+
+            # Fallback: if global env-var matches, use any broker_chat_config with
+            # whatsapp enabled (legacy single-broker setup without per-broker DB config).
+            if not config and settings.WHATSAPP_PHONE_NUMBER_ID and settings.WHATSAPP_PHONE_NUMBER_ID == pid:
+                fallback = await db.execute(
+                    select(BrokerChatConfig).where(
+                        BrokerChatConfig.enabled_providers.contains(["whatsapp"])
+                    ).limit(1)
+                )
+                config = fallback.scalars().first()
+
             if not config:
                 logger.warning(
-                    "WhatsApp task: no broker found for phone_number_id=%s", pid
+                    "WhatsApp task: no BrokerChatConfig found for phone_number_id=%s. "
+                    "Configure the broker WhatsApp channel in the Superadmin panel.",
+                    pid,
                 )
                 return
             broker_id = config.broker_id
+            logger.info("WhatsApp task: resolved broker_id=%s for phone_number_id=%s", broker_id, pid)
+
+            # Extract per-broker WA credentials (fall back to global env vars if not set)
+            _wa_cfg = (config.provider_configs or {}).get("whatsapp", {})
+            _wa_phone_id = _wa_cfg.get("phone_number_id") or pid
+            _wa_token = _wa_cfg.get("access_token")
+            logger.info(
+                "WhatsApp task: credentials source=%s",
+                "db" if _wa_token else "env-vars",
+            )
 
             # 2. Find or create lead
             lead = await ChatService.find_lead_by_channel(
                 db, broker_id, "whatsapp", from_number
             )
             if not lead:
+                logger.info("WhatsApp task: creating new lead for from_number=%s", from_number)
                 lead = await LeadService.create_lead(
                     db,
                     LeadCreate(
@@ -80,6 +111,7 @@ def process_whatsapp_message(
                     ),
                     broker_id=broker_id,
                 )
+            logger.info("WhatsApp task: using lead_id=%s", lead.id)
 
             # 3. Log inbound message
             await ChatService.log_message(
@@ -101,25 +133,53 @@ def process_whatsapp_message(
                 status=MessageStatus.DELIVERED,
                 ai_used=False,
             )
+            logger.info("WhatsApp task: inbound message logged, running AI orchestrator")
 
             # 4. Run AI orchestrator (message already logged above — skip double log)
-            chat_result = await ChatOrchestratorService.process_chat_message(
-                db=db,
-                current_user={"broker_id": broker_id, "id": None},
-                message=message_text,
-                lead_id=lead.id,
-                provider_name="whatsapp",
-                skip_inbound_log=True,
+            logger.info("WhatsApp task: starting AI orchestrator for lead_id=%s", lead.id)
+            try:
+                chat_result = await ChatOrchestratorService.process_chat_message(
+                    db=db,
+                    current_user={"broker_id": broker_id, "id": None},
+                    message=message_text,
+                    lead_id=lead.id,
+                    provider_name="whatsapp",
+                    skip_inbound_log=True,
+                )
+            except Exception as _orch_exc:
+                logger.error(
+                    "WhatsApp task: orchestrator FAILED for lead_id=%s: %s",
+                    lead.id, _orch_exc, exc_info=True,
+                )
+                raise
+            logger.info(
+                "WhatsApp task: orchestrator done, response_len=%d response=%r",
+                len(chat_result.response or ""),
+                (chat_result.response or "")[:80],
             )
 
             # 5. Send AI reply (skip if human agent has taken control)
             if chat_result.response and chat_result.response != "[human_mode]":
-                wa = WhatsAppService()
-                await wa.send_text_message(from_number, chat_result.response)
+                logger.info("WhatsApp task: sending reply to %s via phone_number_id=%s", from_number, _wa_phone_id)
+                wa = WhatsAppService(phone_number_id=_wa_phone_id, access_token=_wa_token)
+                try:
+                    await wa.send_text_message(from_number, chat_result.response)
+                except Exception as _send_exc:
+                    logger.error("WhatsApp task: send_text_message FAILED: %s", _send_exc, exc_info=True)
+                    raise
+                logger.info("WhatsApp task: reply sent to %s", from_number)
+            elif chat_result.response == "[human_mode]":
+                logger.info("WhatsApp task: human_mode active, skipping AI reply for %s", from_number)
+            else:
+                logger.warning("WhatsApp task: empty response from orchestrator for lead_id=%s", lead.id)
 
             # 6. Mark original message as read
-            wa = WhatsAppService()
-            await wa.mark_as_read(wamid)
+            wa = WhatsAppService(phone_number_id=_wa_phone_id, access_token=_wa_token)
+            try:
+                await wa.mark_as_read(wamid)
+            except Exception as _read_exc:
+                logger.warning("WhatsApp task: mark_as_read FAILED (non-fatal): %s", _read_exc)
+            logger.info("WhatsApp task: completed successfully for wamid=%s", wamid)
 
         try:
             await _engine.dispose()

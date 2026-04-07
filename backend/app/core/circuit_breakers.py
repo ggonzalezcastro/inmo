@@ -19,8 +19,8 @@ Usage::
     @llm_breaker
     async def call_llm(): ...
 
-    # Option B — explicit call (async)
-    result = await llm_breaker.call_async(coro_fn, *args, **kwargs)
+    # Option B — explicit call (async) — use call_async_protected() instead of call_async()
+    result = await call_async_protected(llm_breaker, coro_fn, *args, **kwargs)
 
     # Option C — sync
     result = llm_breaker.call(sync_fn, *args, **kwargs)
@@ -117,3 +117,23 @@ def get_breaker_states() -> Dict[str, str]:
         cb.name: cb.current_state
         for cb in _ALL_BREAKERS
     }
+
+
+async def call_async_protected(
+    breaker: pybreaker.CircuitBreaker,
+    fn,
+    *args,
+    **kwargs,
+):
+    """
+    Call an async function protected by a circuit breaker.
+
+    Workaround for pybreaker's `call_async` which uses Tornado's `@gen.coroutine`
+    and raises NameError: name 'gen' is not defined in environments without Tornado.
+    Uses the decorator pattern instead, which works correctly with native asyncio.
+    """
+    @breaker
+    async def _inner():
+        return await fn(*args, **kwargs)
+
+    return await _inner()

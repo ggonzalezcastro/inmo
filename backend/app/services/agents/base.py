@@ -114,6 +114,22 @@ class BaseAgent(ABC):
             )
         return prompt
 
+    def _inject_human_release_note(self, prompt: str, context: AgentContext) -> str:
+        """Prepend the human agent's handoff note to the system prompt when the AI resumes.
+
+        Called at the START of each agent's get_system_prompt() return so the AI
+        sees the human's context before anything else. The note persists in the DB
+        until the lead is re-escalated (which clears it), so it remains available
+        across multiple turns after the handoff.
+        """
+        note = getattr(context, "human_release_note", None)
+        if not note or not note.strip():
+            return prompt
+        return (
+            f"NOTA DEL AGENTE HUMANO (contexto al retomar control de la IA): {note.strip()}\n\n"
+            + prompt
+        )
+
 
 # ── Registry ──────────────────────────────────────────────────────────────────
 

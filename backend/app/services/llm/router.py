@@ -132,7 +132,7 @@ class LLMRouter(BaseLLMProvider):
             retry_if_exception,
             RetryError,
         )
-        from app.core.circuit_breakers import llm_breaker
+        from app.core.circuit_breakers import llm_breaker, call_async_protected
         import pybreaker
 
         _MAX_RETRIES = 2  # 2 attempts after the initial call = 3 total
@@ -153,7 +153,7 @@ class LLMRouter(BaseLLMProvider):
             ):
                 with attempt:
                     method = getattr(primary_provider, method_name)
-                    result = await llm_breaker.call_async(method, *args, **kwargs)
+                    result = await call_async_protected(llm_breaker, method, *args, **kwargs)
 
             # Success on primary
             if self._failover_active:
@@ -208,7 +208,7 @@ class LLMRouter(BaseLLMProvider):
         # ── Step 2: try fallback ──────────────────────────────────────────────
         try:
             fallback_method = getattr(fallback_provider, method_name)
-            return await llm_breaker.call_async(fallback_method, *args, **kwargs)
+            return await call_async_protected(llm_breaker, fallback_method, *args, **kwargs)
         except pybreaker.CircuitBreakerError as cb_exc:
             logger.error(
                 "[LLMRouter] Circuit breaker OPEN — both providers unavailable",
@@ -234,9 +234,12 @@ class LLMRouter(BaseLLMProvider):
         self,
         messages: List[LLMMessage],
         system_prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        cached_content: Optional[str] = None,
     ) -> LLMResponse:
         return await self._call_with_failover(
-            "generate_with_messages", messages, system_prompt
+            "generate_with_messages", messages, system_prompt,
+            temperature=temperature, cached_content=cached_content,
         )
 
     async def generate_with_tools(
@@ -245,9 +248,11 @@ class LLMRouter(BaseLLMProvider):
         tools: List[LLMToolDefinition],
         system_prompt: Optional[str] = None,
         tool_executor: Optional[Callable] = None,
+        cached_content: Optional[str] = None,
     ) -> Tuple[str, List[Dict[str, Any]]]:
         return await self._call_with_failover(
-            "generate_with_tools", messages, tools, system_prompt, tool_executor
+            "generate_with_tools", messages, tools, system_prompt, tool_executor,
+            cached_content=cached_content,
         )
 
     async def generate_json(

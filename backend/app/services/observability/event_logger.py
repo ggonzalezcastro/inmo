@@ -94,11 +94,26 @@ class AgentEventLogger:
         agent_type: Optional[str] = None,
         message_id: Optional[int] = None,
         conversation_id: Optional[int] = None,
-        system_prompt: Optional[str] = None,  # hashed, not stored raw
+        system_prompt: Optional[str] = None,       # hashed; raw only stored in debug mode
+        raw_response_snippet: Optional[str] = None,  # first 500 chars of response
+        user_messages: Optional[List[Dict]] = None,  # messages sent to LLM (stored in metadata)
+        rag_chunks_used: Optional[List] = None,       # KB chunk IDs used (stored in metadata)
+        temperature: Optional[float] = None,
     ) -> None:
         prompt_hash = None
         if system_prompt:
             prompt_hash = hashlib.sha256(system_prompt.encode()).hexdigest()
+
+        extra_meta: Dict[str, Any] = {}
+        if user_messages:
+            # Store truncated messages (cap each at 300 chars to avoid DB bloat)
+            extra_meta["user_messages"] = [
+                {**m, "content": str(m.get("content", ""))[:300]} for m in (user_messages[:20])
+            ]
+        if rag_chunks_used:
+            extra_meta["rag_chunks_used"] = rag_chunks_used[:10]
+        if temperature is not None:
+            extra_meta["temperature"] = temperature
 
         await self._log(
             event_type="llm_call",
@@ -114,6 +129,8 @@ class AgentEventLogger:
             llm_latency_ms=latency_ms,
             llm_cost_usd=cost_usd,
             system_prompt_hash=prompt_hash,
+            raw_response_snippet=(raw_response_snippet or "")[:500] if raw_response_snippet else None,
+            event_metadata=extra_meta or None,
         )
 
     async def log_tool_call(
@@ -328,6 +345,8 @@ class AgentEventLogger:
         frustration_score: float,
         action_level: str,
         tone_hint: Optional[str] = None,
+        emotions: Optional[List[str]] = None,
+        keywords_matched: Optional[List[str]] = None,
         message_id: Optional[int] = None,
     ) -> None:
         await self._log(
@@ -339,6 +358,8 @@ class AgentEventLogger:
                 "frustration_score": frustration_score,
                 "action_level": action_level,
                 "tone_hint": tone_hint,
+                "emotions": emotions or [],
+                "keywords_matched": keywords_matched or [],
             },
         )
 
