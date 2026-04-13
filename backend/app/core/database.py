@@ -54,10 +54,9 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 # Initialize database
 async def init_db():
-    """Create all tables. Ensures pgvector extension exists for knowledge_base."""
+    """Ensure pgvector extension exists. Alembic handles schema migrations."""
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        await conn.run_sync(Base.metadata.create_all)
 
 
 async def close_db():
