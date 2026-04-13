@@ -1,7 +1,24 @@
 import axios from 'axios';
 
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Get API URL from env (build-time) or fallback to /api proxy for local dev
+const getApiUrl = () => {
+  // Try build-time env first
+  const buildTimeUrl = import.meta.env.VITE_API_BASE_URL;
+  if (buildTimeUrl) return buildTimeUrl;
+
+  // In production on Railway, construct from window.location
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    // Replace 'frontend-' with 'backend-' in domain
+    const domain = window.location.hostname.replace(/^frontend-/, 'backend-');
+    return `https://${domain}`;
+  }
+
+  // Dev/local fallback
+  return 'http://localhost:8000';
+};
+
+const API_URL = getApiUrl();
 
 
 const api = axios.create({

@@ -1,0 +1,1 @@
+import{a as r}from"./index-CgCNgDBj.js";const a={async login(t){return r.post("/auth/login",t)},async register(t){return r.post("/auth/register",t)},async getCurrentUser(){return r.get("/auth/me")}};export{a};
