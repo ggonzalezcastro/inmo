@@ -254,7 +254,7 @@ class AgentToolsService:
             broker_id = lead.broker_id if lead else None
 
             if broker_id:
-                agent = await RoundRobinService.get_next_agent(db, broker_id=broker_id)
+                agent = await RoundRobinService.assign_next_agent(db, broker_id=broker_id)
             else:
                 # Last-resort fallback: first active agent
                 agent_result = await db.execute(

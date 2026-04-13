@@ -171,5 +171,24 @@ export const agentsAPI = {
   disconnectCalendar: (agentId) => api.delete(`/api/v1/agents/${agentId}/calendar`),
 };
 
+export const voiceSettingsAPI = {
+  // Agent profile
+  getMyProfile: () => api.get('/api/v1/calls/agents/me/voice-profile'),
+  updateMyProfile: (data) => api.put('/api/v1/calls/agents/me/voice-profile', data),
+
+  // Templates (admin)
+  listTemplates: () => api.get('/api/v1/calls/brokers/voice-templates'),
+  createTemplate: (data) => api.post('/api/v1/calls/brokers/voice-templates', data),
+  updateTemplate: (id, data) => api.put(`/api/v1/calls/brokers/voice-templates/${id}`, data),
+  deleteTemplate: (id) => api.delete(`/api/v1/calls/brokers/voice-templates/${id}`),
+  getAvailableVoices: (templateId) => api.get(`/api/v1/calls/brokers/voice-templates/${templateId}/available-voices`),
+  getAvailableTones: (templateId) => api.get(`/api/v1/calls/brokers/voice-templates/${templateId}/available-tones`),
+  getVoiceCatalog: () => api.get('/api/v1/calls/brokers/voice-catalog'),
+
+  // Assign template to agent (admin)
+  assignTemplate: (userId, templateId) =>
+    api.put(`/api/v1/calls/brokers/agents/${userId}/voice-template`, { template_id: templateId }),
+};
+
 export default api;
 

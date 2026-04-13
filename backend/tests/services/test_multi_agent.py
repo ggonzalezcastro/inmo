@@ -16,7 +16,7 @@ from app.services.agents.types import (
     HandoffSignal,
 )
 from app.services.agents.qualifier import QualifierAgent
-from app.services.agents.scheduler import SchedulerAgent, _is_appointment_confirmed
+from app.services.agents.scheduler import SchedulerAgent
 from app.services.agents.follow_up import FollowUpAgent
 from app.services.agents.supervisor import AgentSupervisor
 from app.services.agents import (
@@ -155,7 +155,13 @@ class TestQualifierAgent:
             "dicom_status": "clean",
             "location": "Las Condes",
         }
-        mock_response = ("¡Perfecto, Juan! Ya tenemos todo. ¿Cuándo te viene bien visitar?", [])
+
+        async def mock_generate(*args, **kwargs):
+            # Simulate the LLM calling handoff_to_scheduler via tool_executor
+            tool_executor = kwargs.get("tool_executor")
+            if tool_executor:
+                await tool_executor("handoff_to_scheduler", {"reason": "Lead calificado"})
+            return ("¡Perfecto, Juan! Ya tenemos todo. ¿Cuándo te viene bien visitar?", [])
 
         with (
             patch(
@@ -164,7 +170,7 @@ class TestQualifierAgent:
             ),
             patch(
                 "app.services.llm.facade.LLMServiceFacade.generate_response_with_function_calling",
-                AsyncMock(return_value=mock_response),
+                side_effect=mock_generate,
             ),
         ):
             db = MagicMock()
@@ -256,10 +262,16 @@ class TestSchedulerAgent:
         agent = SchedulerAgent()
         ctx = _qualified_context()
 
-        mock_response = ("¡Confirmado! Te esperamos el sábado a las 10:00.", [])
+        async def mock_generate(*args, **kwargs):
+            # Simulate LLM calling handoff_to_follow_up after appointment created
+            tool_executor = kwargs.get("tool_executor")
+            if tool_executor:
+                await tool_executor("handoff_to_follow_up", {"reason": "Cita agendada exitosamente."})
+            return ("¡Confirmado! Te esperamos el sábado a las 10:00.", [])
+
         with patch(
             "app.services.llm.facade.LLMServiceFacade.generate_response_with_function_calling",
-            AsyncMock(return_value=mock_response),
+            side_effect=mock_generate,
         ):
             db = MagicMock()
             response = await agent.process(
@@ -283,17 +295,6 @@ class TestSchedulerAgent:
             response = await agent.process("¿Tienen horario el sábado?", ctx, db)
 
         assert response.handoff is None
-
-
-class TestAppointmentConfirmation:
-    def test_confirmed_when_user_says_ok_and_agent_confirms(self):
-        assert _is_appointment_confirmed("Perfecto, ese horario me acomoda", "Confirmado, te esperamos el sábado.")
-
-    def test_not_confirmed_when_only_user_agrees(self):
-        assert not _is_appointment_confirmed("Dale", "¿Qué horario prefieres?")
-
-    def test_not_confirmed_when_neither_confirms(self):
-        assert not _is_appointment_confirmed("¿Tienen el viernes?", "Tenemos viernes y sábado disponibles.")
 
 
 # ── AgentSupervisor ───────────────────────────────────────────────────────────

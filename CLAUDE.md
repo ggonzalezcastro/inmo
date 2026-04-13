@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) when working in this repo.
 
 ## Commands
 
@@ -62,7 +62,7 @@ docker-compose exec backend alembic upgrade head        # run migrations in cont
 
 ### Overview
 
-A multi-tenant real estate CRM where each **Broker** (real estate company) gets isolated leads, agents, and AI configuration. The AI agent **"Sofía"** qualifies leads and schedules property visits via chat (Telegram / WhatsApp) and voice calls (VAPI).
+Multi-tenant real estate CRM. Each **Broker** (real estate company) gets isolated leads, agents, AI config. AI agent **"Sofía"** qualifies leads, schedules property visits via chat (Telegram / WhatsApp) and voice calls (VAPI).
 
 ```
 Frontend (React/Vite) ──HTTPS──► Backend (FastAPI)
@@ -77,25 +77,25 @@ Frontend (React/Vite) ──HTTPS──► Backend (FastAPI)
 
 ### Backend Structure (`backend/app/`)
 
-The codebase uses a **dual-directory** pattern: most business domains live under `app/features/` (self-contained vertical slices), while older/shared code lives under `app/routes/` and `app/services/`.
+**Dual-directory** pattern: most business domains under `app/features/` (vertical slices), older/shared code under `app/routes/` and `app/services/`.
 
-**`app/features/`** — each subdirectory contains its own `routes.py` and is a full vertical slice:
+**`app/features/`** — each subdir has `routes.py`, full vertical slice:
 - `auth/` — JWT registration/login
 - `leads/` — lead CRUD
 - `chat/` — inbound chat handling (delegates to `app/services/chat/orchestrator.py`)
 - `broker/` — three route files: `routes_config.py`, `routes_users.py`, `routes_brokers.py`
 - `appointments/`, `campaigns/`, `pipeline/`, `templates/`, `telegram/`, `voice/`, `webhooks/`
 
-Most `app/features/X/routes.py` files are thin re-exports of the matching file in `app/routes/`.
+Most `app/features/X/routes.py` = thin re-exports of matching file in `app/routes/`.
 
-**`app/routes/`** — actual implementation of several endpoints:
+**`app/routes/`** — actual endpoint implementations:
 - `ws.py` — WebSocket endpoint (real-time events per broker)
 - `knowledge_base.py` — RAG CRUD + semantic search
 - `costs.py` — LLM cost analytics dashboard
 - `admin_tasks.py` — DLQ management UI endpoints
 - `health.py` — health check
 
-**`app/services/`** — all business logic, organized by subdomain:
+**`app/services/`** — all business logic by subdomain:
 
 | Directory | Purpose |
 |---|---|
@@ -113,7 +113,7 @@ Most `app/features/X/routes.py` files are thin re-exports of the matching file i
 
 ### LLM Provider Layer (`app/services/llm/`)
 
-All LLM calls go through `LLMServiceFacade` (static methods, never instantiate). The facade delegates to the provider selected by `LLM_PROVIDER` env var.
+All LLM calls go through `LLMServiceFacade` (static methods, never instantiate). Facade delegates to provider selected by `LLM_PROVIDER` env var.
 
 ```
 LLMServiceFacade          ← single entry point for all code
@@ -126,25 +126,52 @@ LLMServiceFacade          ← single entry point for all code
 
 Key methods on `LLMServiceFacade`:
 - `analyze_lead_qualification(message, lead_context, ...)` — returns structured dict
-- `generate_response_with_function_calling(system_prompt, contents, tools, ...)` — returns `(text, function_calls)`
-- `build_llm_prompt(broker_id, lead_context, ...)` — assembles the full system prompt
+- `generate_response_with_function_calling(system_prompt, contents, tools, tool_executor, tool_mode_override, ...)` — returns `(text, function_calls)`, triggers tool execution via executor callback
+- `build_llm_prompt(broker_id, lead_context, ...)` — assembles full system prompt
 
-`LLMMessage` (the unified message type) is defined in `base_provider.py`. When mocking LLM calls in tests, patch `app.services.llm.facade.LLMServiceFacade.<method>`.
+**Function Calling & Tools:**
+- `LLMToolDefinition` — unified tool format: name, description, parameters (JSON Schema)
+- `tool_executor` — async callback invoked per tool call. Agents wrap tool logic here, capture handoff intents.
+- `tool_mode_override` — controls Gemini function calling mode (phase 3.1):
+  - Passed to `GeminiProvider.generate_with_tools()`, used on first iteration
+  - `"ANY"` forces function calling; `"AUTO"` lets LLM decide; defaults to `"ANY"`
+- Agentic loop (Gemini provider): calls LLM → extracts tool calls → executor runs → feeds results back → repeats up to 5 times
+
+`LLMMessage` (unified message type) defined in `base_provider.py`. When mocking LLM calls in tests, patch `app.services.llm.facade.LLMServiceFacade.<method>`.
 
 ### Multi-Agent System (`app/services/agents/`)
 
-Specialist agents replace the monolithic chat orchestrator when `MULTI_AGENT_ENABLED=true`.
+Specialist agents replace monolithic chat orchestrator when `MULTI_AGENT_ENABLED=true`.
 
 ```
 AgentSupervisor.process(message, AgentContext, db)
     ├── QualifierAgent   — stages: entrada, perfilamiento
-    │       └── handoff to SchedulerAgent when all fields collected + DICOM clean
+    │       └── hands off via tool_call (LLM decides when ready)
+    ├── PropertyAgent    — stages: entrada, perfilamiento (property search intent)
+    │       └── hands off via tool_call
     ├── SchedulerAgent   — stage: calificacion_financiera
-    │       └── handoff to FollowUpAgent on appointment confirmation
+    │       └── hands off via tool_call on appointment confirmation
     └── FollowUpAgent    — stages: agendado, seguimiento, referidos
+            └── hands off via tool_call for rescheduling
 ```
 
-Routing priority (most specific first): FollowUp > Scheduler > Qualifier. `AgentContext` is an immutable snapshot; `HandoffSignal` carries context updates across agent boundaries.
+#### Routing Strategy (Phase 3.1 — Tool-based Handoffs)
+
+**Stage-based initial routing** (`_STAGE_TO_AGENT` lookup):
+- Deterministic: lead stage → agent type
+- Sticky: if `current_agent` set, stay until agent signals handoff
+
+**Handoff mechanism** (semantic, LLM-driven):
+- Each agent has `_HANDOFF_TOOLS` — tool definitions passed to LLM
+- LLM calls `handoff_to_<agent>` when ready to transfer (tool calling)
+- Tool executor captures intent in `_handoff_intent` dict → builds `HandoffSignal`
+- `tool_mode_override` controls LLM behavior:
+  - `"ANY"` — force function calling (agents with mandatory tool actions)
+  - `"AUTO"` — let LLM decide (agents with optional handoff tools)
+
+**Why tool-based?** Replaces fragile keyword lists (`["comprar", "casa", "departamento"]`) with semantic understanding. LLM reads natural language, calls right handoff tool.
+
+`AgentContext` = immutable snapshot. `HandoffSignal` carries context updates across agent boundaries.
 
 ### Pipeline Stages
 
@@ -157,9 +184,9 @@ Stage transitions trigger WebSocket broadcasts (`ws_manager.broadcast`) and acti
 
 ### Celery Tasks (`app/tasks/`)
 
-All tasks use `DLQTask` as base class (defined in `tasks/base.py`). When `max_retries` is exhausted, the task is automatically pushed to the Dead Letter Queue (`tasks/dlq.py` — Redis-backed).
+All tasks use `DLQTask` base class (defined in `tasks/base.py`). When `max_retries` exhausted, task pushed to Dead Letter Queue (`tasks/dlq.py` — Redis-backed).
 
-Key task files: `campaign_executor.py`, `scoring_tasks.py`, `telegram_tasks.py`, `voice_tasks.py`, `dlq_tasks.py` (DLQ retry/discard operations).
+Key task files: `campaign_executor.py`, `scoring_tasks.py`, `telegram_tasks.py`, `voice_tasks.py`, `dlq_tasks.py` (DLQ retry/discard ops).
 
 ### WebSocket (`app/core/websocket_manager.py`)
 
@@ -167,29 +194,58 @@ Singleton `ws_manager` manages connections per `broker_id`. Frontend connects at
 
 ### MCP Server (`app/mcp/`)
 
-Standalone FastMCP server exposing appointment-scheduling tools. Can run as a sidecar (`python -m app.mcp.server`) or be called in-process via `MCPClientAdapter`. Transport controlled by `MCP_TRANSPORT` (`http` or `stdio`).
+Standalone FastMCP server exposing appointment-scheduling tools. Runs as sidecar (`python -m app.mcp.server`) or in-process via `MCPClientAdapter`. Transport controlled by `MCP_TRANSPORT` (`http` or `stdio`).
 
 ### Data Model Key Points
 
-- **Multi-tenancy**: every table with user data has a `broker_id` FK — always filter by it.
-- `Lead.lead_metadata` (JSONB): stores everything not in a typed column — conversation state, pipeline metadata, scoring components.
+- **Multi-tenancy**: every table with user data has `broker_id` FK — always filter by it.
+- `Lead.lead_metadata` (JSONB): stores everything not in typed column — conversation state, pipeline metadata, scoring components.
 - `BrokerPromptConfig`: per-broker AI persona, system prompt, few-shot examples, DICOM instructions.
 - `KnowledgeBase`: pgvector table with 768-dim embeddings (Gemini `text-embedding-004`), searched via cosine similarity.
 
 ### Frontend (`frontend/src/`)
 
-React 18 + Vite, state management with **Zustand** stores (`store/*.js`). Organized by feature under `features/`. API calls proxy through Vite's `/api` and `/auth` dev proxy to `localhost:8000`.
+React 18 + Vite, state via **Zustand** stores (`store/*.js`). Organized by feature under `features/`. API calls proxy through Vite's `/api` and `/auth` dev proxy to `localhost:8000`.
 
 ### Testing
 
-- Integration tests (`tests/conftest.py`) require running PostgreSQL + Redis — they import the full app.
-- Unit tests for agents / evals are self-contained: run with `--noconftest` to skip the DB-requiring conftest.
+- Integration tests (`tests/conftest.py`) require running PostgreSQL + Redis — import full app.
+- Unit tests for agents/evals self-contained: run with `--noconftest` to skip DB-requiring conftest.
 - Eval dataset at `tests/evals/dataset/conversations.json` (51 labeled conversations).
-- DICOM rule metric and task-completion metric are deterministic (regex) and never call an LLM.
-- Baseline scores recorded in `docs/testing/eval_baseline.md`.
+- DICOM rule metric and task-completion metric deterministic (regex), never call LLM.
+- Baseline scores in `docs/testing/eval_baseline.md`.
 
 ### Critical Domain Rules
 
-- **DICOM rule**: never promise credit pre-approval, financing, or "pre-aprobación" to a lead whose `dicom_status == "dirty"`. The `QualifierAgent` enforces this — no handoff is emitted when DICOM is dirty. The `DicomRuleMetric` in the eval suite validates this.
-- Pipeline stages are defined in `app/services/pipeline/constants.py` (`PIPELINE_STAGES` dict) — do not hardcode stage strings elsewhere.
-- `lead_metadata` is encrypted at rest for PII fields (see `app/core/encryption.py`).
+- **DICOM rule**: never promise credit pre-approval, financing, or "pre-aprobación" to lead with `dicom_status == "dirty"`. `QualifierAgent` enforces this — no handoff emitted when DICOM dirty. `DicomRuleMetric` in eval suite validates.
+- Pipeline stages defined in `app/services/pipeline/constants.py` (`PIPELINE_STAGES` dict) — never hardcode stage strings elsewhere.
+- `lead_metadata` encrypted at rest for PII fields (see `app/core/encryption.py`).
+
+---
+
+## Known Issues & Tech Debt (Phase 3.1)
+
+### Minor Code Quality Issues (Non-blocking)
+
+1. **Type hint mismatch in `gemini_provider.py` line 178**
+   - Signature declares `-> Tuple[str, List[Dict[str, Any]]]` (2-tuple)
+   - Implementation returns `(text, function_calls, usage)` (3-tuple) always
+   - Facade handles with `len(result) >= 3` check, but hint misleading
+   - Fix: Update signature to `-> Tuple[str, List[Dict[str, Any]], Optional[Dict]]`
+
+2. **Redundant variable initialization in `scheduler.py` line 163**
+   - `tools: list = list(_HANDOFF_TOOLS)` immediately overwritten on line 178
+   - Remove line 163 for clarity
+
+3. **Inconsistent `tool_mode_override` in `scheduler.py` line 203–211**
+   - Missing explicit `tool_mode_override="ANY"` in LLM facade call
+   - Other agents (Qualifier, FollowUp) explicitly set "AUTO" for consistency
+   - Functional (defaults to "ANY") but should be explicit for maintainability
+
+### Recent Refactors (Phase 3.1 — Tool-based Agent Handoffs)
+
+- **Removed:** keyword-based routing (brittle regex patterns like `_WORD_KEYWORDS`)
+- **Added:** tool-based handoffs; agents define `_HANDOFF_TOOLS`, LLM decides when to call them
+- **Changed:** `AgentSupervisor._select_agent()` uses deterministic `_STAGE_TO_AGENT` table instead of polling `should_handle()`
+- **Deprecated:** `BaseAgent.should_handle()` no longer abstract; still exists for backward compat but supervisor doesn't call it
+- **Status:** Core functionality verified (3 critical bugs fixed). 3 minor code quality issues pending.

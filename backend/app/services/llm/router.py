@@ -61,6 +61,19 @@ def _is_retriable(exc: Exception) -> bool:
                 return True
         except ImportError:
             pass
+        # google.genai.errors (nueva librería google-genai, distinta de google-api-core)
+        try:
+            from google.genai import errors as _genai_errors
+            if isinstance(exc, _genai_errors.ServerError):
+                return True
+            if isinstance(exc, _genai_errors.ClientError) and hasattr(exc, "code") and exc.code == 429:
+                return True
+        except (ImportError, AttributeError):
+            pass
+        # Fallback por string para cualquier variante futura de error Google
+        exc_str = str(exc)
+        if any(sig in exc_str for sig in ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "DeadlineExceeded")):
+            return True
 
     # Anthropic Claude errors
     if "anthropic" in exc_module:
@@ -249,10 +262,12 @@ class LLMRouter(BaseLLMProvider):
         system_prompt: Optional[str] = None,
         tool_executor: Optional[Callable] = None,
         cached_content: Optional[str] = None,
+        tool_mode_override: Optional[str] = None,
     ) -> Tuple[str, List[Dict[str, Any]]]:
         return await self._call_with_failover(
             "generate_with_tools", messages, tools, system_prompt, tool_executor,
             cached_content=cached_content,
+            tool_mode_override=tool_mode_override,
         )
 
     async def generate_json(

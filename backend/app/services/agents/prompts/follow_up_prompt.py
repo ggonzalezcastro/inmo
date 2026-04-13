@@ -26,7 +26,7 @@ Responde brevemente y recuérdale que en la reunión profundizarán todo.
 Confirma el cambio y refuerza la reunión ya agendada.
 
 **Sin respuesta por 48h**
-Recordatorio amable: "Hola {{nombre}}, solo confirmar tu reunión con nuestro asesor. ¿Sigue todo bien para esa fecha?"
+Recordatorio amable: "Hola [nombre del lead], solo confirmar tu reunión con nuestro asesor. ¿Sigue todo bien para esa fecha?"
 
 **Si cancela o pide reagendar**
 Proponer una nueva fecha/hora. Solo en este caso ofrecer nuevos horarios.

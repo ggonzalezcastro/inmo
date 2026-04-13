@@ -7,6 +7,7 @@ from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Float, Boolean,
     ForeignKey, JSON, Enum as SQLEnum, Index
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from app.models.base import Base, IdMixin, TimestampMixin
 
@@ -27,6 +28,17 @@ class SpeakerType(str, Enum):
     """Speaker in call transcript"""
     BOT = "bot"
     CUSTOMER = "customer"
+    AGENT = "agent"  # Human agent in transcriptor mode
+
+
+class CallPurpose(str, Enum):
+    """Purpose of the call — maps to pipeline stage context."""
+    CALIFICACION_INICIAL = "calificacion_inicial"
+    CALIFICACION_FINANCIERA = "calificacion_financiera"
+    CONFIRMACION_REUNION = "confirmacion_reunion"
+    CONFIRMACION_VISITA = "confirmacion_visita"
+    SEGUIMIENTO_POST_VISITA = "seguimiento_post_visita"
+    REACTIVACION = "reactivacion"
 
 
 class VoiceCall(Base, IdMixin, TimestampMixin):
@@ -78,11 +90,28 @@ class VoiceCall(Base, IdMixin, TimestampMixin):
     
     # Multi-tenancy
     broker_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    
+
+    # CRM agent who initiated the call (NULL for campaign/outbound calls)
+    agent_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    # Call mode: "ai_agent" | "transcriptor"
+    call_mode = Column(String(20), nullable=True)
+
+    # Purpose of the call (CallPurpose enum value)
+    call_purpose = Column(String(50), nullable=True)
+
+    # Structured output per call_purpose (JSONB)
+    call_output = Column(JSONB, nullable=True)
+
+    # Audit snapshots at call-start time
+    template_snapshot = Column(JSONB, nullable=True)
+    profile_snapshot = Column(JSONB, nullable=True)
+
     # Relationships
     lead = relationship("Lead")
     campaign = relationship("Campaign", foreign_keys=[campaign_id])
     broker = relationship("User", foreign_keys=[broker_id])
+    agent_user = relationship("User", foreign_keys=[agent_user_id])
     transcript_lines = relationship("CallTranscript", back_populates="voice_call", cascade="all, delete-orphan")
     
     # Indices

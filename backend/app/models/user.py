@@ -28,6 +28,9 @@ class User(Base, IdMixin, TimestampMixin):
     
     is_active = Column(Boolean, default=True, nullable=False)
 
+    # Assignment priority — lower number = higher priority (NULL = not in priority queue)
+    assignment_priority = Column(Integer, nullable=True)
+
     # Google Calendar — per-agent calendar (shared with service account)
     google_calendar_id = Column(String(255), nullable=True)        # email del calendario (ej: juan@gmail.com)
     google_calendar_connected = Column(Boolean, default=False, nullable=False)  # incluir en round-robin
@@ -45,6 +48,13 @@ class User(Base, IdMixin, TimestampMixin):
     # Relationships
     broker = relationship("Broker", back_populates="users", foreign_keys=[broker_id])
     
+    voice_profile = relationship(
+        "AgentVoiceProfile",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
     appointments = relationship(
         "Appointment",
         back_populates="agent",

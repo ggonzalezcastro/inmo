@@ -5,7 +5,7 @@ Single entry point for chat flow to improve testability and maintainability.
 """
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import update, func
 
@@ -278,6 +278,34 @@ class ChatOrchestratorService:
                     )
                     await db.commit()
                     await db.refresh(lead)
+
+                # Off-topic / prompt injection: auto-increment counter, enable
+                # do_not_reply after 3 detected messages.
+                if _quick_result.off_topic_detected:
+                    import json as _json
+                    from sqlalchemy import text as _sa_text
+                    _off_count = int((lead.lead_metadata or {}).get("off_topic_count", 0)) + 1
+                    await db.execute(
+                        _sa_text(
+                            "UPDATE leads SET metadata = jsonb_set("
+                            "jsonb_set(COALESCE(metadata,'{}'), '{off_topic_count}',"
+                            " CAST(:cnt AS jsonb), true),"
+                            " '{do_not_reply}', CAST(:dnr AS jsonb), true)"
+                            " WHERE id = :lid"
+                        ),
+                        {
+                            "cnt": _json.dumps(_off_count),
+                            "dnr": "true" if _off_count >= 3 else "false",
+                            "lid": lead.id,
+                        },
+                    )
+                    await db.commit()
+                    await db.refresh(lead)
+                    if _off_count >= 3:
+                        logger.info(
+                            "[Orchestrator] auto do_not_reply set for lead_id=%s (off_topic_count=%d)",
+                            lead.id, _off_count,
+                        )
         except Exception as _sync_sent_exc:
             logger.debug("[Sentiment] Sync heuristic gate error: %s", _sync_sent_exc)
         logger.info("[Orchestrator] Step 2b done — sentiment gate passed, human_mode=%s", lead.human_mode)
@@ -356,6 +384,30 @@ class ChatOrchestratorService:
 
             return ChatResult(
                 response="[human_mode]",
+                lead_id=lead.id,
+                lead_score=lead.lead_score or 0,
+                lead_status=str(lead.status) if lead.status else "cold",
+            )
+        # ─────────────────────────────────────────────────────────────────────
+
+        # ── Do-not-reply mode ─────────────────────────────────────────────────
+        # Silences the AI for this lead and sends a configurable fallback message
+        # instead of going through the LLM. Activated manually from the dashboard
+        # or automatically after 3 off-topic/prompt-injection messages.
+        _dnr_meta = lead.lead_metadata or {}
+        if _dnr_meta.get("do_not_reply"):
+            logger.info("[Orchestrator] do_not_reply active for lead_id=%s — skipping AI", lead.id)
+            from app.models.broker import BrokerPromptConfig
+            from sqlalchemy.future import select as sa_select_dnr
+            _cfg_res_dnr = await db.execute(
+                sa_select_dnr(BrokerPromptConfig).where(BrokerPromptConfig.broker_id == broker_id)
+            )
+            _prompt_cfg_dnr = _cfg_res_dnr.scalar_one_or_none()
+            _templates_dnr = (_prompt_cfg_dnr.message_templates or {}) if _prompt_cfg_dnr else {}
+            _default_dnr = "Gracias por tu mensaje. Solo puedo ayudarte con consultas sobre propiedades e inmuebles. 🏠"
+            fallback_dnr = _templates_dnr.get("do_not_reply_fallback", _default_dnr)
+            return ChatResult(
+                response=fallback_dnr,
                 lead_id=lead.id,
                 lead_score=lead.lead_score or 0,
                 lead_status=str(lead.status) if lead.status else "cold",
@@ -449,47 +501,16 @@ class ChatOrchestratorService:
                 if field == "salary":
                     current_metadata["monthly_income"] = analysis[field]
 
-        message_lower = message.lower().strip()
-        interest_confirmations = [
-            "si", "sí", "yes", "claro", "por supuesto", "obvio", "porfavor",
-            "por favor", "dale", "ok", "okay", "va", "si porfavor", "sí por favor", "yes please"
-        ]
-        is_positive_confirmation = (
-            message_lower in interest_confirmations
-            or any(c in message_lower for c in ["si ", "sí ", "yes ", "claro ", "ok "])
-            or (message_lower.startswith("si") and len(message_lower) <= 10)
-            or (message_lower.startswith("sí") and len(message_lower) <= 10)
-        )
-        message_history = context.get("message_history", [])
-        bot_asked_about_interest = False
-        if isinstance(message_history, list):
-            for msg in reversed(message_history):
-                role = msg.get("role", "")
-                content = msg.get("content", "")
-                if role == "assistant" and content:
-                    content_lower = content.lower()
-                    if any(
-                        kw in content_lower
-                        for kw in ["interes", "calificas", "sigues buscando", "te gustaría"]
-                    ):
-                        bot_asked_about_interest = True
-                        break
-        elif isinstance(message_history, str):
-            prev = message_history.lower()
-            bot_asked_about_interest = (
-                "interes" in prev or "calificas" in prev
-                or "sigues buscando" in prev or "te gustaría" in prev
-            )
-        if is_positive_confirmation and bot_asked_about_interest:
+        # Use LLM analysis to detect interest confirmation — no keyword matching needed.
+        # interest_level >= 7 or timeline == "immediate"/"30days" signals confirmed intent.
+        if analysis.get("interest_level", 0) >= 7 or analysis.get("timeline") in ("immediate", "30days"):
             current_metadata["interest_confirmed"] = True
             current_metadata["interest_confirmed_at"] = datetime.now().isoformat()
 
         if analysis.get("salary") and not analysis.get("budget"):
             current_metadata["monthly_income"] = analysis["salary"]
             current_metadata["salary"] = analysis["salary"]
-        if analysis.get("budget") and (
-            "presupuesto" in message_lower or "precio" in message_lower or "valor máximo" in message_lower
-        ):
+        if analysis.get("budget"):
             current_metadata["budget"] = analysis["budget"]
         if analysis.get("key_points"):
             current_points = current_metadata.get("key_points", []) or []
@@ -633,10 +654,33 @@ class ChatOrchestratorService:
         for k, v in (agent_result.context_updates or {}).items():
             refreshed_metadata[k] = v
         refreshed_metadata["current_agent"] = agent_result.agent_type.value
+
+        # Append to agent_history for auditability (keep last 20 entries)
+        agent_history = refreshed_metadata.get("agent_history", [])
+        agent_history.append({
+            "agent": agent_result.agent_type.value,
+            "at": datetime.now(timezone.utc).isoformat(),
+            "stage": lead.pipeline_stage,
+        })
+        refreshed_metadata["agent_history"] = agent_history[-20:]
+
         lead.lead_metadata = encrypt_metadata_fields(refreshed_metadata)
-        await db.commit()
-        await db.refresh(lead)
-        logger.info("[Orchestrator] Step 8 done — agent metadata persisted")
+        try:
+            await db.commit()
+            await db.refresh(lead)
+            logger.info("[Orchestrator] Step 8 done — agent metadata persisted")
+        except Exception as _meta_commit_exc:
+            logger.error(
+                "[Orchestrator] Step 8 commit failed — agent_history/context_updates NOT persisted: %s",
+                _meta_commit_exc,
+                exc_info=True,
+            )
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            # Degrade gracefully: AI response was already generated.
+            # Next request will rebuild context from the last committed state.
 
         # 8b. Update Conversation stats (message count, last_message_at, agent state)
         if _conversation:

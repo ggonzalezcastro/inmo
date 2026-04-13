@@ -5,6 +5,8 @@ import AgentConfigTab from '../components/AgentConfigTab';
 import LeadConfigTab from '../components/LeadConfigTab';
 import AlertsConfigTab from '../components/AlertsConfigTab';
 import AgentsCalendarTab from '../components/AgentsCalendarTab';
+import VoiceSettingsTab from '../components/VoiceSettingsTab';
+import { useAuthStore } from '../features/auth/store/authStore';
 
 /**
  * SettingsPage - Main settings page with tabs for Agent, Lead Scoring, and Alerts
@@ -15,6 +17,9 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('agent');
   const [error, setError] = useState(null);
+
+  const { getUserRole } = useAuthStore();
+  const isAdmin = ['admin', 'superadmin'].includes(getUserRole());
   
   useEffect(() => {
     loadConfig();
@@ -125,6 +130,16 @@ export default function SettingsPage() {
               >
                 📅 Calendarios
               </button>
+              <button
+                onClick={() => setActiveTab('voice')}
+                className={`flex-1 px-6 py-4 text-sm font-medium text-center border-b-2 transition-colors ${
+                  activeTab === 'voice'
+                    ? 'border-blue-500 text-blue-600 bg-blue-50'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                🎙️ Voz
+              </button>
             </nav>
           </div>
           
@@ -152,6 +167,9 @@ export default function SettingsPage() {
               <AgentsCalendarTab
                 serviceAccountEmail={config?.google_service_account_email}
               />
+            )}
+            {activeTab === 'voice' && (
+              <VoiceSettingsTab isAdmin={isAdmin} />
             )}
           </div>
         </div>

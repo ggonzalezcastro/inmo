@@ -226,7 +226,8 @@ async def get_broker_config(
                 "contact_email": broker.contact_email,
                 "business_hours": broker.business_hours,
                 "service_zones": broker.service_zones,
-                "is_active": broker.is_active
+                "is_active": broker.is_active,
+                "priority_assignment_enabled": getattr(broker, "priority_assignment_enabled", False),
             },
             "prompt_config": {
                 "agent_name": safe_get(prompt_config_data, 'agent_name', 'Sofía'),
@@ -285,6 +286,31 @@ async def get_broker_config(
             status_code=500,
             detail=f"Error al cargar configuración del broker: {str(e)}"
         )
+
+
+@router.put("/config/assignment")
+async def update_assignment_config(
+    body: dict,
+    current_user: dict = Depends(Permissions.require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Toggle priority-based lead assignment on or off for this broker."""
+    broker_id = current_user.get("broker_id")
+    if not broker_id:
+        raise HTTPException(status_code=404, detail="User does not belong to a broker")
+
+    enabled = body.get("priority_assignment_enabled")
+    if not isinstance(enabled, bool):
+        raise HTTPException(status_code=422, detail="priority_assignment_enabled must be a boolean")
+
+    result = await db.execute(select(Broker).where(Broker.id == broker_id))
+    broker = result.scalars().first()
+    if not broker:
+        raise HTTPException(status_code=404, detail="Broker no encontrado")
+
+    broker.priority_assignment_enabled = enabled
+    await db.commit()
+    return {"priority_assignment_enabled": broker.priority_assignment_enabled}
 
 
 @router.put("/config/prompt")
@@ -796,7 +822,7 @@ async def get_calendar_auth_url(
         from google_auth_oauthlib.flow import Flow
         flow = Flow.from_client_config(
             {
-                "installed": {
+                "web": {
                     "client_id": settings.GOOGLE_CLIENT_ID,
                     "client_secret": settings.GOOGLE_CLIENT_SECRET,
                     "redirect_uris": [settings.GOOGLE_OAUTH_REDIRECT_URI],
@@ -841,7 +867,7 @@ async def calendar_oauth_callback(
 
         flow = Flow.from_client_config(
             {
-                "installed": {
+                "web": {
                     "client_id": settings.GOOGLE_CLIENT_ID,
                     "client_secret": settings.GOOGLE_CLIENT_SECRET,
                     "redirect_uris": [settings.GOOGLE_OAUTH_REDIRECT_URI],

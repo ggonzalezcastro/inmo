@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from app.services.llm.base_provider import LLMToolDefinition
+
 
 # ── Agent types ───────────────────────────────────────────────────────────────
 
@@ -31,6 +33,24 @@ class AgentContext:
 
     Agents should treat this as read-only.  Updates are returned via
     ``AgentResponse.context_updates`` and applied by the supervisor.
+
+    ## Two independent routing dimensions (Phase 3.3)
+
+    ``pipeline_stage`` and ``conversation_state`` are **independent** axes:
+
+    * ``pipeline_stage`` advances only when objective criteria are met
+      (required data collected, appointment confirmed, visit completed).
+      It is stored on ``Lead.pipeline_stage`` and managed by PipelineService.
+
+    * ``conversation_state`` advances only when conversational signals from
+      the LLM output indicate a state transition (e.g. GREETING → DATA_COLLECTION).
+      It is managed by ConversationStateMachine and stored in ``lead_metadata``.
+
+    The supervisor reads *both* dimensions but never assumes they are
+    synchronised.  A lead can be in pipeline stage "entrada" (no data yet)
+    while the conversation_state is already "FINANCIAL_QUAL" (the user jumped
+    ahead), and vice-versa.  Each dimension should be treated as a hint, not
+    as the authoritative routing signal on its own.
     """
     lead_id: int
     broker_id: int
@@ -101,6 +121,30 @@ class HandoffSignal:
 
     def __str__(self) -> str:
         return f"HandoffSignal({self.target_agent.value}, reason={self.reason!r})"
+
+
+# ── Handoff tool factory ──────────────────────────────────────────────────────
+
+def make_handoff_tool(target_agent: str, description: str) -> LLMToolDefinition:
+    """Create a handoff tool definition for the given target agent.
+
+    Used by specialist agents to let the LLM decide when to transfer control.
+    The LLM calls the returned tool when it determines a handoff is warranted.
+    """
+    return LLMToolDefinition(
+        name=f"handoff_to_{target_agent}",
+        description=description,
+        parameters={
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "description": "Motivo del traspaso (en español, 1-2 oraciones)",
+                }
+            },
+            "required": ["reason"],
+        },
+    )
 
 
 # ── Agent response ────────────────────────────────────────────────────────────

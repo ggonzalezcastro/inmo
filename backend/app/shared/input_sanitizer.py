@@ -34,32 +34,18 @@ MAX_MESSAGE_LENGTH = 1000  # characters — sufficient for any legitimate lead m
 # Each tuple is (pattern_regex, description).
 # Patterns are case-insensitive and match anywhere in the message.
 _INJECTION_PATTERNS: list[tuple[str, str]] = [
-    # Classic override attempts
-    (r"ignore\s+(all\s+)?previous\s+instructions?", "override previous instructions"),
-    (r"forget\s+(all\s+)?(previous\s+)?instructions?", "forget instructions"),
-    (r"disregard\s+(all\s+)?previous", "disregard previous"),
-    # Role / persona hijacking
-    (r"you\s+are\s+now\s+(a\s+)?(?!sofía|sofia|an?\s+assistant)", "role reassignment"),
-    (r"act\s+as\s+(if\s+you\s+are\s+)?(a\s+)?(?!an?\s+assistant|sofía|sofia)", "act-as attack"),
-    (r"new\s+persona", "persona override"),
-    (r"pretend\s+you\s+(are|were)", "pretend attack"),
-    # System / instruction injection markers
+    # Structural markers — imposible en mensajes legítimos (tags de sistema)
     (r"\[system\]", "system tag injection"),
     (r"<\s*system\s*>", "XML system tag"),
     (r"\[inst\]", "instruction tag"),
     (r"<<SYS>>", "llama system tag"),
-    # Data exfiltration probes
-    (r"(print|show|reveal|display|output)\s+(your\s+)?(system\s+)?prompt", "prompt exfiltration"),
-    (r"what\s+(is\s+your|are\s+your)\s+(system\s+)?prompt", "prompt exfiltration"),
-    (r"repeat\s+everything\s+(above|before)", "repeat-above attack"),
-    (r"tell\s+me\s+your\s+(instructions?|rules?|guidelines?)", "rules exfiltration"),
-    # Privilege escalation
-    (r"admin\s+(mode|access|password|credentials?)", "admin escalation"),
-    (r"developer\s+mode", "developer mode bypass"),
-    (r"jailbreak", "jailbreak attempt"),
-    (r"DAN\b", "DAN jailbreak"),
-    # Separator injection (commonly used to break context)
     (r"---+\s*(SYSTEM|HUMAN|ASSISTANT|USER)\s*---+", "separator injection"),
+    # Exfiltración de prompt — requieren la palabra "prompt" (no es española)
+    (r"(print|show|reveal|display|output)\s+(\w+\s+)?(your\s+)?(system\s+)?prompt", "prompt exfiltration"),
+    (r"what\s+(is\s+your|are\s+your)\s+(system\s+)?prompt", "prompt exfiltration"),
+    # Términos de jailbreak muy específicos
+    (r"jailbreak", "jailbreak attempt"),
+    (r"(?-i:\bDAN\b)", "DAN jailbreak — solo mayúsculas"),
 ]
 
 # Compile patterns once at module load

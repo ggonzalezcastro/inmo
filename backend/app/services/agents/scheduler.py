@@ -8,8 +8,8 @@ Hands off to FollowUpAgent when appointment is confirmed.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
-import re
 from datetime import datetime
 
 import pytz
@@ -23,6 +23,7 @@ from app.services.agents.types import (
     AgentResponse,
     AgentType,
     HandoffSignal,
+    make_handoff_tool,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,16 @@ _DEFAULT_PROJECTS = """\
 - Torre Ñuñoa: Av. Irarrázaval 1234, Ñuñoa. 1D/2D/3D. Entrega Q1 2027.
 - Parque Las Condes: Av. Apoquindo 5600, Las Condes. 2D/3D. Entrega Q3 2026.
 """
+
+# Handoff tool — LLM calls this after create_appointment responds successfully.
+_HANDOFF_TOOLS = [
+    make_handoff_tool(
+        "follow_up",
+        "Llama SOLO después de que create_appointment haya respondido con éxito. "
+        "Pasa el lead a seguimiento post-agendamiento. "
+        "reason: 'Cita agendada exitosamente.'",
+    ),
+]
 
 
 class SchedulerAgent(BaseAgent):
@@ -79,6 +90,19 @@ class SchedulerAgent(BaseAgent):
             lead_id=context.lead_id,
             lead_email=lead_email,
         )
+
+        # Inject handoff context so the agent knows why it was activated
+        handoff_reason = lead_data.get("_handoff_reason")
+        if handoff_reason:
+            base_prompt += f"\n\n[CONTEXTO DE ACTIVACIÓN]: {handoff_reason}. El lead ya completó la calificación."
+
+        base_prompt += (
+            "\n\n### Paso 4 — Traspaso\n"
+            "Una vez que create_appointment responda con éxito, llama handoff_to_follow_up. "
+            "NO llames handoff_to_follow_up si create_appointment devolvió error."
+        )
+
+        base_prompt = self._inject_handoff_context(base_prompt, context)
         return self._inject_human_release_note(self._inject_tone_hint(base_prompt, context), context)
 
     async def should_handle(self, context: AgentContext) -> bool:
@@ -106,8 +130,9 @@ class SchedulerAgent(BaseAgent):
         from sqlalchemy.future import select
 
         self._log(
-            "Processing scheduling message",
+            "START",
             lead_id=context.lead_id,
+            broker_id=context.broker_id,
             stage=context.pipeline_stage,
         )
 
@@ -125,37 +150,56 @@ class SchedulerAgent(BaseAgent):
 
         system_prompt = self.get_system_prompt(context, broker_timezone=broker_timezone)
 
-        # --- Simple confirmation shortcut -----------------------------------
-        # When the user simply says "si" / "ok" / "dale" etc. and the previous
-        # assistant message already offered a concrete datetime, inject an
-        # explicit reminder so the LLM knows to call create_appointment now.
-        effective_message = message
-        if _is_simple_confirmation(message):
-            last_bot = _last_assistant_message(context.message_history)
-            if last_bot:
-                effective_message = (
-                    f"{message}\n\n"
-                    "[INSTRUCCIÓN INTERNA — NO mostrar al usuario: "
-                    "El lead está confirmando el horario que ofreciste. "
-                    "Llama AHORA a `create_appointment` con el horario exacto "
-                    f"que aparece en tu mensaje anterior: \"{last_bot[:300]}\". "
-                    "No preguntes de nuevo por disponibilidad.]"
-                )
-                self._log(
-                    "Simple confirmation detected — injecting create_appointment hint",
-                    lead_id=context.lead_id,
-                )
+        _handoff_intent: dict = {}
 
-        # Build tool definitions for appointment scheduling
-        tools = []
-        tool_executor = None
+        # Always set up the handoff tool executor first — it works independently
+        # of whether AgentToolsService is available.
+        async def _handoff_only_executor(tool_name: str, arguments: dict):
+            if tool_name == "handoff_to_follow_up":
+                self._log(
+                    "handoff requested → FollowUpAgent",
+                    lead_id=context.lead_id,
+                    reason=arguments.get("reason"),
+                )
+                _handoff_intent["target"] = AgentType.FOLLOW_UP
+                _handoff_intent["reason"] = arguments.get("reason", "Cita agendada")
+                return {
+                    "status": "ok",
+                    "instruction": "Traspaso iniciado. Genera AHORA un mensaje cálido (1-2 oraciones, en español) confirmando que la cita quedó agendada y despidiéndote hasta el día de la visita.",
+                }
+            return {"error": f"Unknown tool: {tool_name}"}
+
+        # Try to load AgentToolsService appointment tools alongside handoff tool.
+        tools: list = list(_HANDOFF_TOOLS)
+        tool_executor = _handoff_only_executor
         try:
             from app.services.shared import AgentToolsService
             function_declarations = AgentToolsService.get_function_declarations()
-            from google.genai import types as genai_types
-            tools = [genai_types.Tool(function_declarations=function_declarations)]
 
-            async def _tool_executor(tool_name: str, arguments: dict):
+            from app.services.llm.base_provider import LLMToolDefinition
+            appointment_tools = [
+                LLMToolDefinition(
+                    name=fd.name,
+                    description=fd.description or "",
+                    parameters=dict(fd.parameters) if fd.parameters else {},
+                )
+                for fd in function_declarations
+            ]
+            tools = appointment_tools + _HANDOFF_TOOLS
+
+            async def _full_executor(tool_name: str, arguments: dict):
+                if tool_name == "handoff_to_follow_up":
+                    self._log(
+                        "handoff requested → FollowUpAgent",
+                        lead_id=context.lead_id,
+                        reason=arguments.get("reason"),
+                    )
+                    _handoff_intent["target"] = AgentType.FOLLOW_UP
+                    _handoff_intent["reason"] = arguments.get("reason", "Cita agendada")
+                    return {
+                        "status": "ok",
+                        "instruction": "Traspaso iniciado. Genera AHORA un mensaje cálido (1-2 oraciones, en español) confirmando que la cita quedó agendada y despidiéndote hasta el día de la visita.",
+                    }
                 try:
                     return await AgentToolsService.execute_tool(
                         db=db,
@@ -168,35 +212,44 @@ class SchedulerAgent(BaseAgent):
                     logger.error("SchedulerAgent tool %s error: %s", tool_name, _te)
                     return {"error": str(_te), "success": False}
 
-            tool_executor = _tool_executor
+            tool_executor = _full_executor
         except Exception as _tools_exc:
-            logger.warning("SchedulerAgent: could not load tools (%s), proceeding without", _tools_exc)
-            tools = []
+            logger.warning("SchedulerAgent: could not load AgentToolsService (%s), using handoff-only tools", _tools_exc)
 
         try:
             response_text, function_calls = (
                 await LLMServiceFacade.generate_response_with_function_calling(
                     system_prompt=system_prompt,
-                    contents=_build_messages(context.message_history, effective_message),
+                    contents=_build_messages(context.message_history, message),
                     tools=tools,
                     tool_executor=tool_executor,
                     broker_id=context.broker_id,
                     lead_id=context.lead_id,
                     agent_type=self.agent_type.value,
+                    tool_mode_override="ANY",
+                    db=db,
                 )
             )
         except Exception as exc:
             self._log(f"LLM response failed: {exc}", level="error")
-            # Retry without tools on failure
             try:
+                logger.warning(
+                    "[SchedulerAgent] LLM with tools failed: %s. Retrying without tools in 1s.", exc
+                )
+                await asyncio.sleep(1)
                 response_text, function_calls = (
                     await LLMServiceFacade.generate_response_with_function_calling(
-                        system_prompt=system_prompt,
-                        contents=_build_messages(context.message_history, effective_message),
+                        system_prompt=(
+                            system_prompt
+                            + "\n\n[NOTA: No puedes verificar disponibilidad en este momento. "
+                            "Indica al lead que te contacte directamente para coordinar una visita.]"
+                        ),
+                        contents=_build_messages(context.message_history, message),
                         tools=[],
                         broker_id=context.broker_id,
                         lead_id=context.lead_id,
                         agent_type=self.agent_type.value,
+                        db=db,
                     )
                 )
             except Exception as exc2:
@@ -204,21 +257,22 @@ class SchedulerAgent(BaseAgent):
                 response_text = "Disculpa, estoy teniendo dificultades para mostrarte los horarios. Por favor contáctame directamente."
                 function_calls = []
 
-        # Detect appointment confirmation keywords
-        appointment_confirmed = _is_appointment_confirmed(message, response_text)
-        updates = {}
-        if appointment_confirmed:
-            updates["appointment_pending"] = True
-
+        updates: dict = {}
         handoff: HandoffSignal | None = None
-        if appointment_confirmed:
-            self._log("Appointment confirmed — signalling handoff to FollowUp",
-                      lead_id=context.lead_id)
+        if _handoff_intent.get("target"):
+            self._log("Tool-based handoff → follow_up", lead_id=context.lead_id)
+            updates["appointment_pending"] = True
             handoff = HandoffSignal(
-                target_agent=AgentType.FOLLOW_UP,
-                reason="Appointment confirmed; transitioning to post-visit follow-up.",
+                target_agent=_handoff_intent["target"],
+                reason=_handoff_intent["reason"],
                 context_updates=updates,
             )
+
+        self._log(
+            "DONE",
+            lead_id=context.lead_id,
+            handoff_target=_handoff_intent.get("target"),
+        )
 
         return AgentResponse(
             message=response_text,
@@ -229,35 +283,6 @@ class SchedulerAgent(BaseAgent):
         )
 
 
-def _is_simple_confirmation(message: str) -> bool:
-    """Return True when the user message is a bare affirmative with no new info."""
-    text = message.strip().lower()
-    # Remove punctuation
-    text = re.sub(r"[!¡?¿.,;:]", "", text).strip()
-    _SIMPLE_YES = {
-        "si", "sí", "yes", "ok", "dale", "va", "claro", "bueno", "perfecto",
-        "de acuerdo", "por supuesto", "obvio", "súper", "bien", "listo",
-        "genial", "me acomoda", "agendame", "ya agendame", "si agendame",
-        "sí agendame", "ya", "ok dale", "ok si", "ok sí",
-    }
-    # Use word-boundary matching to avoid substring false positives.
-    # e.g. "así que no" contains "sí" but is not a confirmation.
-    if text in _SIMPLE_YES:
-        return True
-    if len(text) <= 15:
-        # Bail out if the message starts with a negation or conditional phrase.
-        # e.g. "no sé si", "claro que no", "tal vez si", "si no me llaman"
-        _NEGATION_PREFIX = re.compile(
-            r"^(no|tal vez|quizás|quiz[aá]s|puede|si no|no s[eé]|a ver)\b", re.I
-        )
-        if _NEGATION_PREFIX.search(text):
-            return False
-        for kw in ("si", "sí", "ok", "dale", "agendame", "genial", "listo", "claro"):
-            if re.search(r"\b" + re.escape(kw) + r"\b", text):
-                return True
-    return False
-
-
 def _last_assistant_message(history: list) -> str | None:
     """Return the last assistant/bot message from the conversation history."""
     for msg in reversed(history or []):
@@ -265,32 +290,3 @@ def _last_assistant_message(history: list) -> str | None:
         if role in ("assistant", "model", "bot"):
             return msg.get("content", "")
     return None
-
-
-def _is_appointment_confirmed(user_message: str, agent_response: str) -> bool:
-    """
-    Heuristic: returns True when the exchange looks like a confirmed appointment.
-
-    Checks for confirmation keywords in the user message AND confirmation
-    language in the agent's response.
-    """
-    user_low = user_message.lower()
-    agent_low = agent_response.lower()
-
-    user_confirms = any(
-        kw in user_low
-        for kw in [
-            "perfecto", "confirmado", "de acuerdo", "sí", "si", "ok", "dale",
-            "ese horario me queda", "me acomoda", "me viene bien", "agendame",
-        ]
-    )
-
-    agent_confirms = any(
-        kw in agent_low
-        for kw in [
-            "confirmad", "te esperamos", "hasta el", "nos vemos", "cita agendada",
-            "agendad", "reunión creada", "appointment", "meet.google",
-        ]
-    )
-
-    return user_confirms and agent_confirms

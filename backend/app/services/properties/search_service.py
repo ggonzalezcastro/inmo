@@ -252,7 +252,6 @@ async def _semantic_search(
     prop_ids = [r[0] for r in rows]
     dist_map = {r[0]: r[1] for r in rows}
 
-    from sqlalchemy import in_
     props = (await db.execute(
         select(Property).where(Property.id.in_(prop_ids))
     )).scalars().all()

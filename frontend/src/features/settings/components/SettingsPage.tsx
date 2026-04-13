@@ -2,9 +2,11 @@ import { useState, useEffect, useRef } from 'react'
 import {
   Save, Loader2, TrendingUp, Database, ListOrdered,
   AlertTriangle, GripVertical, ChevronRight, Bot, Calendar,
-  Plus, Trash2, Clock,
+  Plus, Trash2, Clock, Users, Mic,
 } from 'lucide-react'
 import { CalendarSection } from './CalendarSection'
+import { AssignmentTab } from './AssignmentTab'
+import { VoiceSettingsTab } from './VoiceSettingsTab'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/shared/components/ui/dialog'
@@ -146,11 +148,13 @@ function SortableField({ id, index }: { id: string; index: number }) {
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 const TABS = [
-  { id: 'scoring',  label: 'Calificación', icon: TrendingUp  },
-  { id: 'weights',  label: 'Scoring',       icon: Database    },
-  { id: 'agent',    label: 'Agente IA',    icon: ListOrdered },
-  { id: 'prompt',   label: 'Prompt',        icon: Bot         },
-  { id: 'calendar', label: 'Calendario',       icon: Calendar  },
+  { id: 'scoring',    label: 'Calificación', icon: TrendingUp  },
+  { id: 'weights',    label: 'Scoring',       icon: Database    },
+  { id: 'agent',      label: 'Agente IA',    icon: ListOrdered },
+  { id: 'prompt',     label: 'Prompt',        icon: Bot         },
+  { id: 'calendar',   label: 'Calendario',    icon: Calendar    },
+  { id: 'assignment', label: 'Asignación',    icon: Users       },
+  { id: 'voice',      label: 'Voz',           icon: Mic         },
 ] as const
 type TabId = (typeof TABS)[number]['id']
 
@@ -1064,6 +1068,29 @@ export function SettingsPage() {
         </Dialog>
       </div>
     ),
+
+    // ── TAB 6: ASIGNACIÓN ────────────────────────────────────────────────────
+    assignment: (
+      <div className="space-y-6">
+        <div>
+          <SectionLabel>Asignación de leads</SectionLabel>
+          <p className="text-sm text-[#6B7280] mb-5">
+            Elige cómo se asignan los leads a los agentes: por prioridad manual o round-robin automático.
+          </p>
+        </div>
+        <AssignmentTab
+          priorityEnabled={cfg.priority_assignment_enabled ?? false}
+          onToggle={async (enabled) => {
+            await settingsService.updateAssignmentConfig(enabled)
+            setCfg(prev => prev ? { ...prev, priority_assignment_enabled: enabled } : prev)
+          }}
+        />
+      </div>
+    ),
+
+    voice: (
+      <VoiceSettingsTab isAdmin={isAdmin} />
+    ),
   }
 
   return (
@@ -1095,7 +1122,7 @@ export function SettingsPage() {
 
         {/* ── Custom tab bar ──────────────────────────────────────────────── */}
         <div className="relative flex gap-1 border-b overflow-x-auto" style={{ borderColor: border }}>
-          {TABS.filter(tab => (tab.id !== 'prompt' && tab.id !== 'calendar') || isAdmin).map((tab) => {
+          {TABS.filter(tab => (tab.id !== 'prompt' && tab.id !== 'calendar' && tab.id !== 'assignment') || isAdmin).map((tab) => {
             const Icon = tab.icon
             const active = activeTab === tab.id
             return (

@@ -81,6 +81,8 @@ export interface QualificationConfig {
   // Legacy field weights (used by 'weights' tab — kept for backward compat)
   field_weights?: Record<string, number>
   field_priority?: string[]
+  // Assignment mode
+  priority_assignment_enabled?: boolean
 }
 
 interface ApiLeadConfig {
@@ -99,6 +101,7 @@ interface ApiLeadConfig {
 interface ApiConfigResponse {
   lead_config: ApiLeadConfig
   prompt_config?: { timezone?: string; full_custom_prompt?: string }
+  broker?: { priority_assignment_enabled?: boolean }
 }
 
 export interface AgentPromptEntry {
@@ -131,6 +134,7 @@ export const settingsService = {
       full_custom_prompt: res.prompt_config?.full_custom_prompt ?? '',
       field_weights: (l as any).field_weights ?? { name: 5, phone: 10, monthly_income: 40, dicom_status: 20 },
       field_priority: (l as any).field_priority ?? ['name', 'phone', 'monthly_income', 'dicom_status'],
+      priority_assignment_enabled: res.broker?.priority_assignment_enabled ?? false,
     }
   },
 
@@ -203,6 +207,18 @@ export const settingsService = {
 
   async deleteBlock(id: number): Promise<void> {
     await apiClient.delete(`/api/broker/calendar/blocks/${id}`)
+  },
+
+  async getAgents(): Promise<Array<{ id: number; name: string; email: string; assignment_priority: number | null; calendar_connected: boolean }>> {
+    return apiClient.get('/api/v1/agents/')
+  },
+
+  async updateAgentPriority(agentIds: number[]): Promise<void> {
+    await apiClient.put('/api/v1/agents/priority', { agent_ids: agentIds })
+  },
+
+  async updateAssignmentConfig(enabled: boolean): Promise<void> {
+    await apiClient.put('/api/broker/config/assignment', { priority_assignment_enabled: enabled })
   },
 
   async saveConfig(cfg: QualificationConfig): Promise<void> {

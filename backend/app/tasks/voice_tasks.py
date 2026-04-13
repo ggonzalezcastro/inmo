@@ -148,6 +148,26 @@ def process_end_of_call_report(
                     stage_after_call=summary_data.get("stage_to_move"),
                 )
 
+                # Extract structured call_output per call_purpose.
+                # IMPORTANT: merge with existing call_output — live tool-call data
+                # (written by handle_tool_call during the call) takes priority over
+                # LLM-extracted fallback values. Never overwrite non-null fields.
+                if voice_call.call_purpose:
+                    extracted = _extract_call_output(
+                        voice_call.call_purpose, summary_data, effective_transcript
+                    )
+                    existing_output = dict(voice_call.call_output or {})
+                    # Strip internal tracking key before merging into result
+                    existing_output.pop("_processed_tool_calls", None)
+                    # Live tool-call values (non-null) override LLM-extracted fallbacks
+                    merged_output = {
+                        **extracted,
+                        **{k: v for k, v in existing_output.items() if v is not None},
+                    }
+                    voice_call.call_output = merged_output
+                    await db.commit()
+                    await db.refresh(voice_call)
+
                 if summary_data.get("budget"):
                     if not isinstance(lead.lead_metadata, dict):
                         lead.lead_metadata = {}
@@ -199,4 +219,59 @@ def process_end_of_call_report(
         asyncio.run(_process())
     except Exception as exc:
         raise self.retry(exc=exc, countdown=60 * (self.request.retries + 1))
+
+
+def _extract_call_output(call_purpose: str, summary: dict, transcript: str) -> dict:
+    """
+    Map LLM summary fields to a structured JSONB shape keyed by call_purpose.
+    The LLM summary (CallAgentService.generate_call_summary) already extracts
+    most data; this normalises it into a consistent schema per purpose.
+    """
+    base = {
+        "summary": summary.get("summary"),
+        "interest_level": summary.get("interest_level"),
+        "next_steps": summary.get("next_steps"),
+    }
+
+    if call_purpose == "calificacion_inicial":
+        return {
+            **base,
+            "presupuesto": summary.get("budget"),
+            "zona": None,
+            "tipo_propiedad": None,
+            "disponibilidad_visita": None,
+        }
+
+    if call_purpose == "calificacion_financiera":
+        return {
+            **base,
+            "ingresos": None,
+            "capacidad_pago": None,
+            "pre_aprobacion": None,
+        }
+
+    if call_purpose in ("confirmacion_visita", "confirmacion_reunion"):
+        return {
+            **base,
+            "confirmo_asistencia": None,
+            "nueva_fecha_propuesta": None,
+            "motivo_rechazo": None,
+        }
+
+    if call_purpose == "seguimiento_post_visita":
+        return {
+            **base,
+            "nivel_interes_actualizado": summary.get("interest_level"),
+            "objeciones": None,
+        }
+
+    if call_purpose == "reactivacion":
+        return {
+            **base,
+            "respondio_llamada": None,
+            "sigue_interesado": None,
+            "nuevo_contexto": None,
+        }
+
+    return base
 

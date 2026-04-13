@@ -8,10 +8,11 @@ Endpoints:
   GET  /api/v1/agents/workload      — workload stats per agent (admin)
 """
 import logging
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -30,6 +31,10 @@ router = APIRouter()
 class AgentCalendarUpdate(BaseModel):
     calendar_id: Optional[str] = None     # Gmail / Workspace email of the agent's calendar
     connected: bool = True                 # Include in round-robin
+
+
+class AgentPriorityUpdate(BaseModel):
+    agent_ids: List[int]  # ordered list — index 0 = priority 1 (highest)
 
 
 class AgentInfo(BaseModel):
@@ -73,7 +78,10 @@ async def list_agents(
             User.broker_id == broker_id,
             User.role == UserRole.AGENT,
             User.is_active == True,
-        ).order_by(User.name)
+        ).order_by(
+            func.coalesce(User.assignment_priority, 999999).asc(),
+            User.name.asc(),
+        )
     )
     agents = result.scalars().all()
 
@@ -85,9 +93,50 @@ async def list_agents(
             "is_active": a.is_active,
             "calendar_id": a.google_calendar_id,
             "calendar_connected": a.google_calendar_connected,
+            "assignment_priority": a.assignment_priority,
         }
         for a in agents
     ]
+
+
+@router.put("/priority")
+async def update_agent_priority(
+    body: AgentPriorityUpdate,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set the priority order for lead assignment. agent_ids is an ordered list: first = priority 1."""
+    _require_admin(current_user)
+    broker_id = current_user.get("broker_id")
+    if not broker_id:
+        raise HTTPException(status_code=400, detail="Usuario sin broker asignado")
+
+    result = await db.execute(
+        select(User).where(
+            User.broker_id == broker_id,
+            User.role == UserRole.AGENT,
+            User.is_active == True,
+        )
+    )
+    agents = {a.id: a for a in result.scalars().all()}
+
+    # Validate all submitted IDs belong to this broker
+    for aid in body.agent_ids:
+        if aid not in agents:
+            raise HTTPException(status_code=400, detail=f"Agente {aid} no encontrado en este broker")
+
+    # Assign priority (1-based) to submitted agents
+    for idx, aid in enumerate(body.agent_ids):
+        agents[aid].assignment_priority = idx + 1
+
+    # Null out agents not included in the priority list
+    submitted_ids = set(body.agent_ids)
+    for aid, agent in agents.items():
+        if aid not in submitted_ids:
+            agent.assignment_priority = None
+
+    await db.commit()
+    return {"message": "Prioridad actualizada", "count": len(body.agent_ids)}
 
 
 @router.get("/workload")

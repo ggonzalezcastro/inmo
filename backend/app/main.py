@@ -44,6 +44,7 @@ from app.features.properties.routes import router as properties_router
 from app.routes.observability.routes import router as observability_router
 from app.routes.observability.health import health_router as observability_health_router
 from app.routes.observability.live_tail import live_router as observability_live_router
+from app.routes.agent_model_configs import router as agent_model_configs_router
 from app.celery_app import celery_app
 
 
@@ -372,6 +373,7 @@ app.include_router(properties_router, prefix="/api/v1/properties", tags=["proper
 app.include_router(observability_router, prefix="/api/v1/admin", tags=["observability"])
 app.include_router(observability_health_router, prefix="/api/v1/admin", tags=["observability"])
 app.include_router(observability_live_router)  # WS route — no prefix needed
+app.include_router(agent_model_configs_router, prefix="/api/v1/admin/agent-models", tags=["agent-model-configs"])
 
 
 if __name__ == "__main__":

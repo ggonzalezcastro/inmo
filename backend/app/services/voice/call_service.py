@@ -29,13 +29,80 @@ class UpdateLeadStageArgs(BaseModel):
     stage: Optional[str] = None
 
 
-async def handle_tool_call(tool_name: str, tool_call_id: str, parameters: Dict[str, Any]) -> str:
+_CAPTURE_TOOLS = frozenset({
+    "capture_lead_info",
+    "capture_financial_info",
+    "capture_confirmation",
+    "capture_post_visit_feedback",
+    "capture_reactivation_outcome",
+})
+
+
+async def handle_tool_call(
+    tool_name: str,
+    tool_call_id: str,
+    parameters: Dict[str, Any],
+    db: Optional[AsyncSession] = None,
+    external_call_id: Optional[str] = None,
+) -> str:
     """
-    Handle a single VAPI tool call. Returns a string result for the tool.
+    Handle a single VAPI tool call. Returns a string result for VAPI.
+
+    Capture tools (capture_lead_info, capture_financial_info, etc.) merge
+    their parameters into VoiceCall.call_output when db + external_call_id
+    are provided.
     """
     if not tool_name:
         return "Acción registrada."
 
+    # ── Structured-extraction tools (AI Agent mode) ───────────────────────────
+    if tool_name in _CAPTURE_TOOLS:
+        if db and external_call_id:
+            try:
+                result = await db.execute(
+                    select(VoiceCall).where(
+                        VoiceCall.external_call_id == external_call_id
+                    )
+                )
+                voice_call = result.scalars().first()
+                if voice_call:
+                    existing = dict(voice_call.call_output or {})
+
+                    # Idempotency: skip if this tool_call_id was already processed.
+                    # Protects against VAPI webhook retries duplicating data.
+                    processed_ids: list = existing.get("_processed_tool_calls") or []
+                    if tool_call_id and tool_call_id in processed_ids:
+                        logger.info(
+                            "Skipping duplicate tool_call_id=%s for call %s",
+                            tool_call_id,
+                            external_call_id,
+                        )
+                        return "Información registrada correctamente."
+
+                    # Merge new params, skipping None values from LLM
+                    for k, v in parameters.items():
+                        if v is not None:
+                            existing[k] = v
+
+                    # Track processed IDs
+                    if tool_call_id:
+                        processed_ids.append(tool_call_id)
+                        existing["_processed_tool_calls"] = processed_ids
+
+                    voice_call.call_output = existing
+                    await db.commit()
+                    logger.info(
+                        "Persisted tool_call=%s output to call %s",
+                        tool_name,
+                        external_call_id,
+                    )
+            except Exception as e:
+                logger.error("Error persisting tool call output: %s", e)
+        else:
+            logger.info("Tool call %s params=%s (no db, not persisted)", tool_name, parameters)
+        return "Información registrada correctamente."
+
+    # ── Legacy tools ──────────────────────────────────────────────────────────
     if tool_name == "schedule_appointment":
         try:
             args = ScheduleAppointmentArgs.model_validate(parameters)
@@ -280,18 +347,33 @@ class VoiceCallService:
             event.assistant_type,
         )
         event_type_str, metadata = _webhook_event_to_legacy(event)
+        # Use call_id_from_metadata as fallback when external_call_id isn't linked yet
+        # (can happen in web SDK mode before the browser POSTs the external_call_id).
+        effective_external_id = event.external_call_id
+        if not effective_external_id and event.call_id_from_metadata:
+            # Look up VoiceCall by our internal ID (metadata.call_id injected at start)
+            result = await db.execute(
+                select(VoiceCall).where(VoiceCall.id == event.call_id_from_metadata)
+            )
+            vc = result.scalars().first()
+            if vc:
+                effective_external_id = vc.external_call_id or ""
+
         if event_type_str == "transcript":
             await VoiceCallService.handle_transcript_update(
                 db,
-                event.external_call_id,
+                effective_external_id,
                 metadata.get("message_data", {}),
             )
             return None
         if event_type_str in ("function-call", "tool-call"):
             return None
+        if not effective_external_id:
+            logger.warning("handle_normalized_event: no external_call_id, dropping event %s", event_type_str)
+            return None
         return await VoiceCallService.handle_call_webhook(
             db,
-            event.external_call_id,
+            effective_external_id,
             event_type_str,
             metadata,
         )

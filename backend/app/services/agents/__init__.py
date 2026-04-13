@@ -53,10 +53,8 @@ def get_priority_agents() -> list[BaseAgent]:
     """
     Return registered agents in routing-priority order.
 
-    FollowUp > Property > Scheduler > Qualifier
-    (More specific agents take priority over general ones.
-     Property agent is checked before Scheduler because a lead in
-     calificacion_financiera may want to see properties before scheduling.)
+    Deprecated — the supervisor now routes via the _STAGE_TO_AGENT stage table.
+    Kept for reference only.
     """
     return [
         follow_up_agent_instance,
@@ -64,6 +62,7 @@ def get_priority_agents() -> list[BaseAgent]:
         scheduler_agent_instance,
         qualifier_agent_instance,
     ]
+
 
 
 def _parse_conv_state(value) -> str:
@@ -126,6 +125,10 @@ def build_context(
             "broker_name": broker_name or metadata.get("broker_name", ""),
             "agent_name": agent_name or metadata.get("agent_name", "Sofía"),
             "hot_fast_track": metadata.get("hot_fast_track", False),
+            # Handoff context persisted from the previous turn (Phase 1.2 / 2.3)
+            "_handoff_reason": metadata.get("_handoff_reason"),
+            "_handoff_from": metadata.get("_handoff_from"),
+            "_handoff_at": metadata.get("_handoff_at"),
             # Broker-level custom prompt overrides (passed from orchestrator)
             "_custom_qualifier_prompt": (broker_overrides or {}).get("qualifier"),
             "_custom_scheduler_prompt": (broker_overrides or {}).get("scheduler"),

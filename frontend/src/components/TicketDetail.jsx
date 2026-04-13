@@ -35,6 +35,7 @@ export default function TicketDetail({ leadId, onClose }) {
     initiateCall,
     addNote,
     addTask,
+    toggleDoNotReply,
   } = useTicketStore();
   
   const { campaigns, fetchCampaigns } = useCampaignStore();
@@ -575,6 +576,34 @@ export default function TicketDetail({ leadId, onClose }) {
               >
                 Iniciar llamada IA
               </button>
+
+              {/* Do-not-reply toggle */}
+              {(() => {
+                const isDoNotReply = !!(lead.lead_metadata?.do_not_reply);
+                return (
+                  <button
+                    onClick={() => toggleDoNotReply(leadId, !isDoNotReply)}
+                    className={`w-full px-4 py-2 rounded-md text-sm font-medium flex items-center justify-center gap-2 ${
+                      isDoNotReply
+                        ? 'bg-orange-100 text-orange-700 border border-orange-300 hover:bg-orange-200'
+                        : 'bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200'
+                    }`}
+                    title={isDoNotReply ? 'La IA responde con mensaje fijo. Haz clic para reanudar respuestas normales.' : 'Activar modo "no responder": la IA enviará un mensaje fijo sin procesar nada.'}
+                  >
+                    {isDoNotReply ? (
+                      <>
+                        <span>🔕</span>
+                        <span>No responder activo</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>🔔</span>
+                        <span>No responder más</span>
+                      </>
+                    )}
+                  </button>
+                );
+              })()}
               
               <select
                 onChange={(e) => {

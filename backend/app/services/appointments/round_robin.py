@@ -27,6 +27,67 @@ REDIS_TTL = 7 * 24 * 3600  # 7 days
 class RoundRobinService:
 
     @staticmethod
+    async def assign_next_agent(
+        db: AsyncSession,
+        broker_id: int,
+    ):
+        """
+        Dispatcher: routes to priority-based or round-robin assignment depending
+        on the broker's configuration.
+        """
+        from app.models.broker import Broker
+
+        result = await db.execute(select(Broker).where(Broker.id == broker_id))
+        broker = result.scalars().first()
+
+        if broker and broker.priority_assignment_enabled:
+            return await RoundRobinService.get_next_agent_by_priority(db, broker_id)
+        return await RoundRobinService.get_next_agent(db, broker_id)
+
+    @staticmethod
+    async def get_next_agent_by_priority(
+        db: AsyncSession,
+        broker_id: int,
+    ):
+        """
+        Return the highest-priority active agent for the broker.
+        Agents with assignment_priority=NULL are excluded.
+        Two-pass: prefers calendar-connected agents; falls back to all agents.
+        Falls back to round-robin if no agents have a priority set.
+        """
+        from app.models.user import User, UserRole
+
+        for calendar_only in (True, False):
+            conditions = [
+                User.broker_id == broker_id,
+                User.is_active == True,
+                User.role == UserRole.AGENT,
+                User.assignment_priority.isnot(None),
+            ]
+            if calendar_only:
+                conditions.append(User.google_calendar_connected == True)
+
+            result = await db.execute(
+                select(User)
+                .where(and_(*conditions))
+                .order_by(User.assignment_priority.asc())
+                .limit(1)
+            )
+            agent = result.scalars().first()
+            if agent:
+                logger.info(
+                    "PriorityAssign: broker=%s selected agent=%s (priority=%s, calendar_only=%s)",
+                    broker_id, agent.id, agent.assignment_priority, calendar_only,
+                )
+                return agent
+
+        logger.warning(
+            "PriorityAssign: no prioritized agents for broker=%s, falling back to round-robin",
+            broker_id,
+        )
+        return await RoundRobinService.get_next_agent(db, broker_id)
+
+    @staticmethod
     async def get_next_agent(
         db: AsyncSession,
         broker_id: int,

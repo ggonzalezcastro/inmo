@@ -11,6 +11,8 @@ export type WSEventType =
   | 'human_mode_changed'
   | 'human_mode_incoming'
   | 'lead_frustrated'
+  | 'call_transcript'
+  | 'call_status'
 
 export interface WSEvent<T = unknown> {
   type: WSEventType

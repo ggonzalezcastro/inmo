@@ -23,11 +23,12 @@ Usage
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from datetime import datetime as _dt, timezone as _tz
+from typing import Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.agents.base import BaseAgent, get_all_agents
+from app.services.agents.base import BaseAgent, get_agent, get_all_agents
 from app.services.agents.types import (
     AgentContext,
     AgentResponse,
@@ -38,6 +39,21 @@ from app.services.agents.types import (
 logger = logging.getLogger(__name__)
 
 _MAX_HANDOFFS = 3  # safety guard against routing loops
+
+# Deterministic stage → agent mapping.
+# Agents exit their own stage via handoff tool calls; the supervisor uses this
+# table only for initial routing (first message) and when no current_agent is set.
+_STAGE_TO_AGENT: Dict[str, AgentType] = {
+    "entrada": AgentType.QUALIFIER,
+    "perfilamiento": AgentType.QUALIFIER,
+    "potencial": AgentType.PROPERTY,
+    "calificacion_financiera": AgentType.SCHEDULER,
+    "agendado": AgentType.FOLLOW_UP,
+    "seguimiento": AgentType.FOLLOW_UP,
+    "referidos": AgentType.FOLLOW_UP,
+    "ganado": AgentType.FOLLOW_UP,
+    "perdido": AgentType.FOLLOW_UP,
+}
 
 
 class AgentSupervisor:
@@ -63,6 +79,7 @@ class AgentSupervisor:
         the last response to avoid infinite loops.
         """
         from app.services.observability.event_logger import event_logger
+        from app.services.agents.model_config import load_all_agent_configs
 
         current_context = context
         last_response: Optional[AgentResponse] = None
@@ -72,6 +89,13 @@ class AgentSupervisor:
         # Inject the current message so agents can inspect it inside should_handle()
         import dataclasses
         current_context = dataclasses.replace(current_context, current_message=message)
+
+        # Warm up Redis cache with all agent model configs for this broker so
+        # subsequent per-agent provider lookups hit the cache, not the DB.
+        try:
+            await load_all_agent_configs(context.broker_id, db)
+        except Exception as _cache_exc:
+            logger.debug("[Supervisor] Agent model config warm-up failed: %s", _cache_exc)
 
         logger.info(
             "[Supervisor] START lead_id=%s broker_id=%s stage=%s state=%s",
@@ -180,7 +204,10 @@ class AgentSupervisor:
                 conversation_id=conversation_id,
             )
 
-            # Apply handoff context updates
+            # Apply handoff context updates — persist handoff metadata for the target agent
+            handoff.context_updates.setdefault("_handoff_reason", handoff.reason)
+            handoff.context_updates.setdefault("_handoff_from", agent.agent_type.value)
+            handoff.context_updates.setdefault("_handoff_at", _dt.now(_tz.utc).isoformat())
             handoff_data = {**updated_data, **handoff.context_updates}
             current_context = AgentContext(
                 lead_id=current_context.lead_id,
@@ -191,6 +218,7 @@ class AgentSupervisor:
                 message_history=current_context.message_history,
                 current_agent=handoff.target_agent,
                 handoff_count=hops + 1,
+                pre_analysis=current_context.pre_analysis,  # preserve so target agent has intent/fields
                 property_preferences=current_context.property_preferences,
                 human_release_note=current_context.human_release_note,
                 last_agent_note=current_context.last_agent_note,
@@ -199,18 +227,9 @@ class AgentSupervisor:
             )
             hops += 1
 
-            # After a handoff, update agent_type to the target so the orchestrator
-            # persists the correct current_agent for the next message routing.
-            last_response = AgentResponse(
-                message=last_response.message,
-                agent_type=handoff.target_agent,
-                context_updates=last_response.context_updates,
-                handoff=None,
-                function_calls=last_response.function_calls,
-            )
-            # Do NOT process the same user message with the new agent —
-            # the new agent starts on the next inbound message.
-            break
+            # Continue the loop so the target agent processes the same message
+            # immediately — the user gets the real response (e.g. property listings)
+            # instead of just a transition sentence.
 
         if last_response is None:
             # Should never happen, but be defensive
@@ -224,29 +243,42 @@ class AgentSupervisor:
     @classmethod
     async def _select_agent(cls, context: AgentContext) -> Optional[BaseAgent]:
         """
-        Select the most appropriate agent for the given context.
+        Select the appropriate agent for the given context.
 
-        Priority (always applied in order):
-          FollowUp > Property > Scheduler > Qualifier
+        Sticky: if a current_agent is already set (e.g. after a handoff),
+        keep it — agents exit their own stage via handoff tool calls.
 
-        Sticky routing: if the current_agent is still the highest-priority
-        agent that claims ownership, it keeps control. This means a higher-
-        priority agent (e.g. PropertyAgent detecting a property-search keyword)
-        can always override a lower-priority current_agent (e.g. QualifierAgent).
+        Deterministic stage lookup: map pipeline_stage → agent type via
+        _STAGE_TO_AGENT.  Falls back to QualifierAgent for unknown stages.
         """
-        from app.services.agents import get_priority_agents
-
-        agents = get_priority_agents()
-
-        # Always poll all agents in priority order.
-        # The first agent that claims ownership wins — this naturally implements
-        # sticky routing because the current_agent will be re-selected when
-        # it's still the highest-priority match.
-        for agent in agents:
-            if await agent.should_handle(context):
+        # Sticky: if already in an agent, keep it (agent exits via handoff tool)
+        if context.current_agent is not None:
+            agent = get_agent(context.current_agent)
+            if agent:
                 return agent
 
-        return None
+        # Use intent from pre_analysis (set by orchestrator) for direct routing —
+        # avoids an unnecessary hop when the lead's intent is clear.
+        intent = (context.pre_analysis or {}).get("intent", "general_chat")
+        logger.info(
+            "[Supervisor] Intent=%s stage=%s (lead=%s)",
+            intent, context.pipeline_stage, context.lead_id,
+        )
+        if intent == "property_search":
+            prop_agent = get_agent(AgentType.PROPERTY)
+            if prop_agent:
+                return prop_agent
+        elif intent == "schedule_visit":
+            sched_agent = get_agent(AgentType.SCHEDULER)
+            if sched_agent:
+                return sched_agent
+        elif intent == "financing_question":
+            # Financing questions go directly to Qualifier regardless of stage
+            return _get_qualifier()
+
+        # Deterministic stage lookup
+        target_type = _STAGE_TO_AGENT.get(context.pipeline_stage, AgentType.QUALIFIER)
+        return get_agent(target_type) or _get_qualifier()
 
 
 def _get_qualifier() -> BaseAgent:

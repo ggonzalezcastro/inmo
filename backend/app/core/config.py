@@ -113,6 +113,9 @@ class Settings(BaseSettings):
     VAPI_API_KEY: str = os.getenv("VAPI_API_KEY", "")
     VAPI_PHONE_NUMBER_ID: str = os.getenv("VAPI_PHONE_NUMBER_ID", "")
     VAPI_ASSISTANT_ID: str = os.getenv("VAPI_ASSISTANT_ID", "")
+    # Public key for @vapi-ai/web SDK (browser-safe, read-only — starts calls only).
+    # Found in VAPI dashboard → API Keys → Public Key.
+    VAPI_PUBLIC_KEY: str = os.getenv("VAPI_PUBLIC_KEY", "")
     # Secret for verifying Vapi webhook signatures (x-vapi-secret header).
     # Configure in Vapi dashboard → Assistant → Server URL → Secret.
     # If empty, verification is skipped (dev mode only — MUST be set in production).

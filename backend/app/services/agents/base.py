@@ -47,9 +47,14 @@ class BaseAgent(ABC):
         LLM facade separately.
         """
 
-    @abstractmethod
     async def should_handle(self, context: AgentContext) -> bool:
-        """Return True if this agent is appropriate for the current context."""
+        """Return True if this agent is appropriate for the current context.
+
+        Deprecated — routing is now handled by AgentSupervisor._select_agent()
+        via the _STAGE_TO_AGENT stage table.  Override only if custom logic is
+        needed; the default always returns False.
+        """
+        return False
 
     @abstractmethod
     async def process(
@@ -113,6 +118,38 @@ class BaseAgent(ABC):
                 "Confirma que el cliente entendió antes de continuar.\n"
             )
         return prompt
+
+    def _inject_handoff_context(self, prompt: str, context: AgentContext) -> str:
+        """
+        Inject handoff context into the prompt when this agent received a handoff
+        from another agent.  This ensures the LLM knows what the previous agent
+        discussed so it can continue naturally without re-introducing itself.
+        """
+        lead_data = context.lead_data
+        handoff_from = lead_data.get("_handoff_from")
+        handoff_reason = lead_data.get("_handoff_reason")
+        if not handoff_from or not handoff_reason:
+            return prompt
+
+        _agent_labels = {
+            "property": "agente de propiedades",
+            "qualifier": "agente de calificación",
+            "scheduler": "agente de agendamiento",
+            "follow_up": "agente de seguimiento",
+        }
+        from_label = _agent_labels.get(handoff_from, handoff_from)
+        return prompt + (
+            f"\n\n## CONTEXTO DE TRASPASO\n"
+            f"Recibes este lead desde el {from_label}.\n"
+            f"Resumen de lo que ocurrió: {handoff_reason}\n"
+            f"INSTRUCCIÓN CRÍTICA: Continúa la conversación de forma COMPLETAMENTE NATURAL, "
+            f"como si fueras la misma persona que habló antes.\n"
+            f"- NO te presentes ni digas '¡Hola!'.\n"
+            f"- Usa el historial de la conversación para mantener coherencia (propiedades vistas, preferencias, etc.).\n"
+            f"- Si el cliente preguntó algo que NO puedes responder (pie, financiamiento, montos), "
+            f"  redirige al agendamiento de reunión, sin dar ningún valor ni estimación.\n"
+            f"- TODAS las reglas de negocio siguen vigentes, incluso en traspaso.\n"
+        )
 
     def _inject_human_release_note(self, prompt: str, context: AgentContext) -> str:
         """Prepend the human agent's handoff note to the system prompt when the AI resumes.

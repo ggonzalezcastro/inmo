@@ -327,7 +327,93 @@ async def release_lead(
     return {"ok": True, "human_mode": False}
 
 
-@router.post("/leads/{lead_id}/human-message")
+@router.post("/leads/{lead_id}/do-not-reply")
+async def enable_do_not_reply(
+    lead_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Activate do-not-reply mode: AI sends a fixed fallback instead of processing messages."""
+    from sqlalchemy import text
+
+    result = await db.execute(
+        select(Lead).where(Lead.id == lead_id, Lead.broker_id == current_user.get("broker_id"))
+    )
+    lead = result.scalar_one_or_none()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    await db.execute(
+        text("""
+            UPDATE leads
+            SET metadata = jsonb_set(
+                COALESCE(metadata, '{}'),
+                '{do_not_reply}',
+                CAST('true' AS jsonb),
+                true
+            )
+            WHERE id = :lead_id
+        """),
+        {"lead_id": lead_id},
+    )
+    await db.commit()
+
+    try:
+        from app.core.websocket_manager import ws_manager
+        await ws_manager.broadcast(current_user.get("broker_id"), "do_not_reply_changed", {
+            "lead_id": lead_id,
+            "do_not_reply": True,
+        })
+    except Exception:
+        pass
+
+    return {"ok": True, "do_not_reply": True}
+
+
+@router.delete("/leads/{lead_id}/do-not-reply")
+async def disable_do_not_reply(
+    lead_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Deactivate do-not-reply mode: AI resumes normal processing."""
+    from sqlalchemy import text
+
+    result = await db.execute(
+        select(Lead).where(Lead.id == lead_id, Lead.broker_id == current_user.get("broker_id"))
+    )
+    lead = result.scalar_one_or_none()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    await db.execute(
+        text("""
+            UPDATE leads
+            SET metadata = jsonb_set(
+                COALESCE(metadata, '{}'),
+                '{do_not_reply}',
+                CAST('false' AS jsonb),
+                true
+            )
+            WHERE id = :lead_id
+        """),
+        {"lead_id": lead_id},
+    )
+    await db.commit()
+
+    try:
+        from app.core.websocket_manager import ws_manager
+        await ws_manager.broadcast(current_user.get("broker_id"), "do_not_reply_changed", {
+            "lead_id": lead_id,
+            "do_not_reply": False,
+        })
+    except Exception:
+        pass
+
+    return {"ok": True, "do_not_reply": False}
+
+
+
 async def send_human_message(
     lead_id: int,
     body: HumanMessageInput,

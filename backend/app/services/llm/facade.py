@@ -14,7 +14,7 @@ import time
 from typing import Dict, Any, List, Tuple, Callable, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.llm.factory import get_llm_provider
+from app.services.llm.factory import get_llm_provider, get_fast_llm_provider, resolve_provider_for_agent
 from app.services.llm.base_provider import LLMMessage, LLMToolDefinition, MessageRole
 from app.core.telemetry import trace_span
 
@@ -72,25 +72,31 @@ async def _fire_log(
     rag_chunks_used: Optional[list] = None,
     temperature: Optional[float] = None,
 ) -> None:
-    """Fire LLM call log with a hard timeout. Never raises — observability must never block the pipeline."""
+    """Fire LLM call log in background. Never raises — observability must never block the pipeline."""
     try:
         from app.services.llm.call_logger import log_llm_call
 
-        await asyncio.wait_for(
-            log_llm_call(
-                provider=provider_name,
-                model=model,
-                call_type=call_type,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                latency_ms=latency_ms,
-                broker_id=broker_id,
-                lead_id=lead_id,
-                used_fallback=used_fallback,
-                error=error,
-            ),
-            timeout=5.0,
-        )
+        async def _do_log() -> None:
+            try:
+                await asyncio.wait_for(
+                    log_llm_call(
+                        provider=provider_name,
+                        model=model,
+                        call_type=call_type,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        latency_ms=latency_ms,
+                        broker_id=broker_id,
+                        lead_id=lead_id,
+                        used_fallback=used_fallback,
+                        error=error,
+                    ),
+                    timeout=5.0,
+                )
+            except Exception as _log_exc:
+                logger.debug("[LLM-facade] _fire_log inner error: %s", _log_exc)
+
+        asyncio.ensure_future(_do_log())
     except Exception as _log_exc:  # noqa: BLE001
         logger.debug("[LLM-facade] _fire_log skipped: %s", _log_exc)  # observability must never crash the pipeline
 
@@ -153,14 +159,26 @@ class LLMServiceFacade:
         lead_context: Dict = None,
         broker_id: Optional[int] = None,
         lead_id: Optional[int] = None,
+        db: Optional[AsyncSession] = None,
     ) -> Dict[str, Any]:
         """
         Analyze message to qualify lead and extract data.
 
         This method uses the provider's generate_json capability
         to maintain the same analysis logic across providers.
+
+        Resolution order:
+        1. Per-broker qualifier config (if broker_id and db provided)
+        2. Fast/lightweight provider (GEMMA_MODEL) for lower latency
         """
-        provider = get_llm_provider()
+        if db and broker_id:
+            try:
+                provider = await resolve_provider_for_agent("qualifier", broker_id, db)
+            except Exception as _exc:
+                logger.debug("[LLM-facade] resolve_provider_for_agent failed for qualifier: %s", _exc)
+                provider = get_fast_llm_provider()
+        else:
+            provider = get_fast_llm_provider()
 
         if not provider.is_configured:
             logger.warning("[LLMService] Provider not configured, returning defaults")
@@ -245,7 +263,15 @@ Retorna JSON con:
     "dicom_status": "clean"|"has_debt"|null,
     "morosidad_amount": número o null,
     "key_points": ["punto1", "punto2"],
-    "score_delta": -20 a +20
+    "score_delta": -20 a +20,
+    "intent": "property_search"|"schedule_visit"|"financing_question"|"general_chat"
+}}
+
+Para "intent" (usa el que mejor describe la NECESIDAD PRINCIPAL del mensaje):
+- "financing_question": PRIORIDAD ALTA — pregunta sobre crédito, pie, DICOM, financiamiento, cuotas, renta, subsidio, hipoteca. Úsalo aunque el mensaje también mencione una propiedad específica.
+- "property_search": el lead pregunta qué propiedades/terrenos/departamentos/casas están disponibles, pide ver opciones o catálogo
+- "schedule_visit": quiere agendar, visitar, ver una propiedad específica en persona
+- "general_chat": saludo, consulta genérica, o no hay intención clara
 }}"""
 
         pname, model, used_fallback = _provider_meta(provider)
@@ -256,7 +282,7 @@ Retorna JSON con:
             with trace_span("llm.qualify", {"provider": pname, "model": model, "lead_id": str(lead_id or "")}):
                 result, _usage = await provider.generate_json(analysis_prompt)
             _latency = int((time.monotonic() - _t0) * 1000)
-            logger.info("[LLM-facade] analyze_lead_qualification DONE latency=%dms score_delta=%s", _latency, result.get("score_delta"))
+            logger.info("[LLM-facade] analyze_lead_qualification DONE latency=%dms score_delta=%s intent=%s interest=%s name=%s", _latency, result.get("score_delta"), result.get("intent"), result.get("interest_level"), result.get("name"))
             # Use real token counts from API; fall back to char-length estimate if unavailable
             _in_tok = (_usage.get("input_tokens") if _usage else None) or len(analysis_prompt) // 4
             _out_tok = (_usage.get("output_tokens") if _usage else None) or len(str(result)) // 4
@@ -288,7 +314,8 @@ Retorna JSON con:
                 "dicom_status": None,
                 "morosidad_amount": None,
                 "key_points": [],
-                "score_delta": 0
+                "score_delta": 0,
+                "intent": "general_chat",
             }
 
             for key, default in defaults.items():
@@ -335,14 +362,30 @@ Retorna JSON con:
         lead_id: Optional[int] = None,
         static_system_prompt: Optional[str] = None,
         agent_type: Optional[str] = None,
+        tool_mode_override: Optional[str] = None,
+        db: Optional[AsyncSession] = None,
     ) -> Tuple[str, List[Dict[str, Any]]]:
         """
         Generate response with function calling.
 
         Handles both native types (for backward compatibility)
         and unified LLMMessage/LLMToolDefinition types.
+
+        When agent_type and broker_id are provided along with a db session,
+        the provider is resolved per-agent from broker configuration, falling
+        back to the global provider if no override exists.
         """
-        provider = get_llm_provider()
+        if db and agent_type and broker_id:
+            try:
+                provider = await resolve_provider_for_agent(agent_type, broker_id, db)
+            except Exception as _exc:
+                logger.debug(
+                    "[LLM-facade] resolve_provider_for_agent failed agent=%s: %s",
+                    agent_type, _exc,
+                )
+                provider = get_llm_provider()
+        else:
+            provider = get_llm_provider()
 
         if not provider.is_configured:
             return LLMServiceFacade.FALLBACK_RESPONSE, []
@@ -420,6 +463,7 @@ Retorna JSON con:
                     system_prompt=system_prompt,
                     tool_executor=tool_executor,
                     cached_content=cached_content,
+                    tool_mode_override=tool_mode_override,
                 )
             # result is (text, tool_calls) or (text, tool_calls, usage)
             usage = result[2] if len(result) >= 3 else None

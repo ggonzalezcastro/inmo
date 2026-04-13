@@ -205,6 +205,31 @@ export const useTicketStore = create((set, get) => ({
     }
   },
   
+  // Toggle do-not-reply mode
+  toggleDoNotReply: async (leadId, enable) => {
+    try {
+      const method = enable ? 'post' : 'delete';
+      const { default: axios } = await import('axios');
+      await axios[method](`/api/conversations/leads/${leadId}/do-not-reply`);
+
+      set((state) => {
+        if (!state.currentTicket) return {};
+        const lead = state.currentTicket.lead || state.currentTicket;
+        const updatedMeta = { ...(lead.lead_metadata || {}), do_not_reply: enable };
+        const updatedLead = { ...lead, lead_metadata: updatedMeta };
+        const updatedTicket = state.currentTicket.lead
+          ? { ...state.currentTicket, lead: updatedLead }
+          : updatedLead;
+        return { currentTicket: updatedTicket };
+      });
+
+      return true;
+    } catch (error) {
+      set({ error: error.response?.data?.detail || error.message });
+      return false;
+    }
+  },
+
   // Clear current ticket
   clearTicket: () => {
     set({

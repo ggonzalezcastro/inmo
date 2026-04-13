@@ -24,6 +24,28 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _is_retriable_gemini_error(exc: Exception) -> bool:
+    """Devuelve True para errores transitorios de Gemini (503, 429, timeout).
+    Re-lanzar estos errores permite que el LLMRouter active el fallback.
+    """
+    exc_str = str(exc)
+    if any(code in exc_str for code in ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED")):
+        return True
+    try:
+        from google.api_core.exceptions import ServiceUnavailable, ResourceExhausted, DeadlineExceeded
+        if isinstance(exc, (ServiceUnavailable, ResourceExhausted, DeadlineExceeded)):
+            return True
+    except ImportError:
+        pass
+    try:
+        import httpx
+        if isinstance(exc, (httpx.TimeoutException, httpx.ConnectError)):
+            return True
+    except ImportError:
+        pass
+    return False
+
+
 class GeminiProvider(BaseLLMProvider):
     """
     Google Gemini LLM Provider implementation.
@@ -65,12 +87,12 @@ class GeminiProvider(BaseLLMProvider):
         
         try:
             start_time = time.time()
-            response = self._client.models.generate_content(
+            response = await self._client.aio.models.generate_content(
                 model=self.model,
                 contents=prompt
             )
             elapsed = time.time() - start_time
-            
+
             response_text = response.text.strip()
             logger.info(f"[Gemini] Response time: {elapsed:.2f}s, length: {len(response_text)}")
             
@@ -78,6 +100,8 @@ class GeminiProvider(BaseLLMProvider):
             
         except Exception as e:
             logger.error(f"[Gemini] Error: {e}", exc_info=True)
+            if _is_retriable_gemini_error(e):
+                raise
             return self._handle_error(e)
     
     async def generate_with_messages(
@@ -125,7 +149,7 @@ class GeminiProvider(BaseLLMProvider):
                 )
 
             start_time = time.time()
-            response = self._client.models.generate_content(
+            response = await self._client.aio.models.generate_content(
                 model=self.model,
                 contents=contents,
                 config=config,
@@ -139,6 +163,8 @@ class GeminiProvider(BaseLLMProvider):
 
         except Exception as e:
             logger.error(f"[Gemini] Error in generate_with_messages: {e}", exc_info=True)
+            if _is_retriable_gemini_error(e):
+                raise
             return LLMResponse(content=self._handle_error(e))
     
     async def generate_with_tools(
@@ -148,7 +174,8 @@ class GeminiProvider(BaseLLMProvider):
         system_prompt: Optional[str] = None,
         tool_executor: Optional[Callable] = None,
         cached_content: Optional[str] = None,
-    ) -> Tuple[str, List[Dict[str, Any]]]:
+        tool_mode_override: Optional[str] = None,
+    ) -> Tuple[str, List[Dict[str, Any]], Optional[Dict]]:
         """Generate response with function calling (or plain text when tools is empty).
 
         Args:
@@ -185,7 +212,7 @@ class GeminiProvider(BaseLLMProvider):
                     max_output_tokens=self.max_tokens,
                     temperature=self.temperature,
                 )
-                response = self._client.models.generate_content(
+                response = await self._client.aio.models.generate_content(
                     model=self.model,
                     contents=contents,
                     config=config,
@@ -204,13 +231,16 @@ class GeminiProvider(BaseLLMProvider):
             # Use tool_config to explicitly control function calling mode per iteration.
             # First iteration: ANY forces the model to use function calling instead of
             # generating <tool_code> text blocks (a Gemini 2.5 quirk when tools are present).
+            # tool_mode_override="AUTO" lets the LLM skip tool calling when unnecessary
+            # (used by agents that only carry optional handoff tools).
             # Subsequent iterations (after tool results are fed back): AUTO lets the model
             # decide whether to call another tool or produce a final text response.
+            first_mode = tool_mode_override if tool_mode_override in ("AUTO", "ANY", "NONE") else "ANY"
             config_first = types.GenerateContentConfig(
                 **base_config_kwargs,
                 tools=native_tools,
                 tool_config=types.ToolConfig(
-                    function_calling_config=types.FunctionCallingConfig(mode="ANY")
+                    function_calling_config=types.FunctionCallingConfig(mode=first_mode)
                 ),
                 automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
                 max_output_tokens=self.max_tokens,
@@ -237,7 +267,7 @@ class GeminiProvider(BaseLLMProvider):
                 # First iteration: force function calling to avoid <tool_code> text output
                 active_config = config_first if iteration == 0 else config_auto
                 start_time = time.time()
-                response = self._client.models.generate_content(
+                response = await self._client.aio.models.generate_content(
                     model=self.model,
                     contents=contents,
                     config=active_config
@@ -252,7 +282,29 @@ class GeminiProvider(BaseLLMProvider):
                 
                 # Check for function calls
                 function_calls = self._extract_function_calls(response)
-                
+
+                # Log what the LLM decided: tool calls, finish reason, and text snippet
+                _finish_reason = None
+                _thinking_snippet = None
+                if response.candidates:
+                    cand = response.candidates[0]
+                    _finish_reason = str(getattr(cand, "finish_reason", "unknown"))
+                    # Gemini 2.5 thinking models expose thought parts
+                    if cand.content and cand.content.parts:
+                        for part in cand.content.parts:
+                            if getattr(part, "thought", False) and part.text:
+                                _thinking_snippet = part.text[:200]
+                                break
+                _text_snippet = (response.text or "")[:120].replace("\n", " ")
+                logger.info(
+                    "[Gemini] iter=%d finish_reason=%s tools=%s text=%r thinking=%r",
+                    iteration + 1,
+                    _finish_reason,
+                    [fc["name"] for fc in function_calls] if function_calls else "none",
+                    _text_snippet,
+                    _thinking_snippet,
+                )
+
                 if not function_calls:
                     # No function calls, return text response
                     text = response.text.strip() if response.text else ""
@@ -262,9 +314,18 @@ class GeminiProvider(BaseLLMProvider):
                 # Execute function calls
                 if tool_executor:
                     function_results = []
+                    terminal_instruction: str | None = None
                     for fc in function_calls:
                         try:
+                            _tool_start = time.time()
                             result = await tool_executor(fc["name"], fc["args"])
+                            logger.info("[Gemini] tool=%s elapsed=%.3fs", fc["name"], time.time() - _tool_start)
+                            # If the tool returns an "instruction" key, it's a terminal
+                            # handoff — capture the instruction and stop the loop after this
+                            # iteration instead of feeding the result back to Gemini (which
+                            # produces empty text on Flash Lite models).
+                            if isinstance(result, dict) and "instruction" in result:
+                                terminal_instruction = result["instruction"]
                             function_results.append({
                                 "name": fc["name"],
                                 "response": {"result": str(result)}
@@ -280,6 +341,23 @@ class GeminiProvider(BaseLLMProvider):
                                 "name": fc["name"],
                                 "response": {"error": str(e)}
                             })
+
+                    # Terminal handoff detected: use inline text if the model generated
+                    # one alongside the tool call (Pro/Flash models often do), otherwise
+                    # return empty so the agent uses its hardcoded fallback text.
+                    # We never make a second LLM call here — the supervisor discards the
+                    # transition message anyway (it returns the target agent's response),
+                    # so the extra call would cost ~4s for no user-visible benefit.
+                    if terminal_instruction:
+                        inline_text = (response.text or "").strip() if response.text else ""
+                        if inline_text:
+                            logger.info("[Gemini] Terminal handoff — using inline text: %r", inline_text[:80])
+                            transition_text = inline_text
+                        else:
+                            logger.info("[Gemini] Terminal handoff — no inline text, returning empty (agent will use fallback)")
+                            transition_text = ""
+                        usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
+                        return self._clean_response(transition_text), function_calls_executed, usage
                     
                     # Add the full model response (including thought parts/signatures)
                     # back to contents — required when thinking mode is active.
@@ -317,6 +395,8 @@ class GeminiProvider(BaseLLMProvider):
             
         except Exception as e:
             logger.error(f"[Gemini] Error in generate_with_tools: {e}", exc_info=True)
+            if _is_retriable_gemini_error(e):
+                raise
             return self._handle_error(e), [], None
     
     async def generate_json(
@@ -333,7 +413,7 @@ class GeminiProvider(BaseLLMProvider):
         try:
             json_prompt = f"{prompt}\n\nResponde SOLO con JSON válido, sin texto adicional."
             
-            response = self._client.models.generate_content(
+            response = await self._client.aio.models.generate_content(
                 model=self.model,
                 contents=json_prompt,
                 config=types.GenerateContentConfig(
@@ -357,12 +437,14 @@ class GeminiProvider(BaseLLMProvider):
             logger.warning(f"[Gemini] JSON parse error with response_mime_type: {e}, retrying without it")
         except Exception as e:
             logger.warning(f"[Gemini] generate_json with response_mime_type failed: {e}, retrying without it")
+            if _is_retriable_gemini_error(e):
+                raise
 
         # Fallback: retry without response_mime_type and do manual cleanup
         try:
             json_prompt = f"{prompt}\n\nResponde SOLO con JSON válido, sin texto adicional ni comentarios."
             
-            response = self._client.models.generate_content(
+            response = await self._client.aio.models.generate_content(
                 model=self.model,
                 contents=json_prompt,
                 config=types.GenerateContentConfig(
@@ -387,6 +469,8 @@ class GeminiProvider(BaseLLMProvider):
             return {}, usage
         except Exception as e:
             logger.error(f"[Gemini] Error in generate_json fallback: {e}", exc_info=True)
+            if _is_retriable_gemini_error(e):
+                raise
             return {}, None
 
     @staticmethod
@@ -560,11 +644,10 @@ class GeminiProvider(BaseLLMProvider):
         except Exception as exc:
             logger.warning("[Gemini] Streaming failed (%s), yielding full response", exc)
             try:
-                full = await asyncio.to_thread(
-                    lambda: self._client.models.generate_content(
-                        model=self.model, contents=contents, config=config
-                    ).text
+                resp = await self._client.aio.models.generate_content(
+                    model=self.model, contents=contents, config=config
                 )
+                full = resp.text
                 yield full or self.FALLBACK_RESPONSE
             except Exception:
                 yield self.FALLBACK_RESPONSE

@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { RefreshCw, X, Loader2, MessageSquare, Plus, Tag } from 'lucide-react'
+import { RefreshCw, X, Loader2, MessageSquare, Plus, Tag, Phone } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Button } from '@/shared/components/ui/button'
@@ -16,6 +16,8 @@ import { leadsService } from '../services/leads.service'
 import { getErrorMessage } from '@/shared/types/api'
 import { usePermissions } from '@/shared/hooks/usePermissions'
 import type { Lead } from '../types'
+import { useVapiCall, StartCallDialog, ActiveCallOverlay } from '@/features/voice'
+import type { CallMode, CallPurpose } from '@/features/voice'
 
 interface LeadDetailProps {
   lead: Lead
@@ -52,11 +54,20 @@ export function LeadDetail({ lead, onClose, onUpdate }: LeadDetailProps) {
   const [tags, setTags] = useState<string[]>(lead.tags ?? [])
   const [tagInput, setTagInput] = useState('')
   const [isSavingTags, setIsSavingTags] = useState(false)
+  const [showStartCall, setShowStartCall] = useState(false)
   const tagInputRef = useRef<HTMLInputElement>(null)
   const { isAdmin } = usePermissions()
   const meta = lead.lead_metadata ?? {}
   const calificacion = meta.calificacion
   const dicomStatus = meta.dicom_status
+
+  const { callState, transcript, isMuted, startCall, endCall, toggleMute } =
+    useVapiCall({ leadId: lead.id })
+
+  const handleStartCall = async (mode: CallMode, purpose: CallPurpose) => {
+    setShowStartCall(false)
+    await startCall(mode, purpose)
+  }
 
   const handleRecalculate = async () => {
     setIsRecalculating(true)
@@ -255,6 +266,21 @@ export function LeadDetail({ lead, onClose, onUpdate }: LeadDetailProps) {
 
       {/* Footer actions */}
       <div className="p-4 border-t border-border space-y-2">
+        {lead.phone && (
+          <Button
+            size="sm"
+            className="w-full bg-green-600 hover:bg-green-700 text-white"
+            onClick={() => setShowStartCall(true)}
+            disabled={callState === 'starting' || callState === 'active' || callState === 'ending'}
+          >
+            {callState === 'starting' ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Phone className="mr-2 h-4 w-4" />
+            )}
+            {callState === 'active' ? 'En llamada' : callState === 'starting' ? 'Conectando…' : 'Llamar'}
+          </Button>
+        )}
         <Button
           variant="outline"
           size="sm"
@@ -281,6 +307,27 @@ export function LeadDetail({ lead, onClose, onUpdate }: LeadDetailProps) {
           </Button>
         )}
       </div>
+
+      {/* Start call dialog */}
+      <StartCallDialog
+        open={showStartCall}
+        leadName={lead.name}
+        leadPhone={lead.phone ?? ''}
+        loading={callState === 'starting'}
+        onCancel={() => setShowStartCall(false)}
+        onConfirm={handleStartCall}
+      />
+
+      {/* Active call overlay (floating) */}
+      <ActiveCallOverlay
+        callState={callState}
+        leadName={lead.name}
+        leadPhone={lead.phone ?? ''}
+        transcript={transcript}
+        isMuted={isMuted}
+        onMuteToggle={toggleMute}
+        onEndCall={endCall}
+      />
     </div>
   )
 }

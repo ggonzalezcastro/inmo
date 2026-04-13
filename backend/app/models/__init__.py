@@ -38,8 +38,11 @@ from app.models.voice_call import (
     VoiceCall,
     CallStatus,
     CallTranscript,
-    SpeakerType
+    SpeakerType,
+    CallPurpose,
 )
+from app.models.agent_voice_template import AgentVoiceTemplate
+from app.models.agent_voice_profile import AgentVoiceProfile
 from app.models.lead import (
     TreatmentType
 )
@@ -53,6 +56,7 @@ from app.models.property import Property
 from app.models.conversation import Conversation
 from app.models.escalation_brief import EscalationBrief
 from app.models.observability_alert import ObservabilityAlert
+from app.models.agent_model_config import AgentModelConfig
 
 __all__ = [
     "Base",
@@ -105,5 +109,9 @@ __all__ = [
     "Conversation",
     "EscalationBrief",
     "ObservabilityAlert",
+    "AgentModelConfig",
+    "AgentVoiceTemplate",
+    "AgentVoiceProfile",
+    "CallPurpose",
 ]
 

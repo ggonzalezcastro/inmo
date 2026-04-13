@@ -36,6 +36,7 @@ class QuickAnalysisResult:
     explicit_human_request: bool = False   # Lead asked to talk to a real person
     sensitive_topic: bool = False          # Legal threat, money complaint, SERNAC
     loop_detected: bool = False            # Same question repeated 3+ times recently
+    off_topic_detected: bool = False       # Prompt injection or clearly off-topic spam
 
 
 # ── Pattern definitions ────────────────────────────────────────────────────────
@@ -133,6 +134,22 @@ _SENSITIVE_TOPIC_PATTERNS: List[re.Pattern] = [
     re.compile(r"\b(me (deben|cobrar[oó]n|descont[oó]|robaron)|cobro incorrecto|cargo (incorrecto|extra|no autorizado))\b", re.I),
     re.compile(r"\b(devolu[cć]i[oó]n (del|de mi) (dinero|pago|dep[oó]sito)|quiero mi dinero de vuelta|me devuelven)\b", re.I),
     re.compile(r"\b(estafa|enga[ñn]o|fraude|robo|me robaron|timaron)\b", re.I),
+]
+
+
+# ── Off-topic / prompt injection patterns ────────────────────────────────────
+# Detected once → AI responds normally. Detected 3+ times → auto do_not_reply.
+
+_OFF_TOPIC_PATTERNS: List[re.Pattern] = [
+    # Prompt injection attempts
+    re.compile(r"\b(ignora|olvida|deja de lado|descarta)\b.{0,40}\b(instrucciones|prompt|rol|sistema|reglas|base|contexto)\b", re.I | re.S),
+    re.compile(r"\b(act[úu]a como|pretend|eres ahora|ahora eres|ser[eé]s)\b.{0,30}\b(otro|diferente|libre|sin l[ií]mites)\b", re.I),
+    re.compile(r"\b(jailbreak|modo dios|modo libre|sin restricciones|sin censura|DAN)\b", re.I),
+    re.compile(r"\b(ignora (tu|tus) (rol|instrucciones?|prompt|reglas?|sistema))\b", re.I),
+    re.compile(r"\b(olvida (tu|tus) (rol|instrucciones?|prompt|reglas?|sistema))\b", re.I),
+    re.compile(r"\b(cu[aá]l es (tu|el) (modelo|sistema|prompt base|instrucciones?))\b", re.I),
+    re.compile(r"\b(qu[eé] (modelo|llm|ia|inteligencia artificial|gpt|gemini|claude) (eres|usas|corres|est[aá]s usando))\b", re.I),
+    re.compile(r"\b(revela(me)?|mu[eé]stra(me)?|dame) (tu|el) (prompt|instrucciones?|sistema)\b", re.I),
 ]
 
 
@@ -270,7 +287,10 @@ def quick_analyze(
     # 3. Loop detection
     loop = _detect_loop(message, recent_inbound_messages or [])
 
-    # 4. Standard sentiment
+    # 4. Off-topic / prompt injection
+    off_topic = any(p.search(message) for p in _OFF_TOPIC_PATTERNS)
+
+    # 5. Standard sentiment
     sentiment = analyze_heuristics(message)
 
     return QuickAnalysisResult(
@@ -278,4 +298,5 @@ def quick_analyze(
         explicit_human_request=explicit_human,
         sensitive_topic=sensitive,
         loop_detected=loop,
+        off_topic_detected=off_topic,
     )

@@ -9,6 +9,16 @@ import { useAuthStore } from '@/features/auth'
 import type { WSEvent, WSEventType } from '@/shared/hooks/useWebSocket'
 export type { WSEvent, WSEventType }
 
+export interface CallTranscriptEvent {
+  call_id: number
+  transcript: string | null
+}
+
+export interface CallStatusEvent {
+  call_id: number
+  status: string
+}
+
 type Listener = (event: WSEvent) => void
 
 interface WSContextValue {

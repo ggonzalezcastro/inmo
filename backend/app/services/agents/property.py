@@ -1,21 +1,19 @@
 """
 PropertyAgent — hybrid property search + recommendations (TASK-X).
 
-Activated when:
-  - Pipeline stage is 'potencial' or 'calificacion_financiera'
-  - The lead is asking about available properties or wants to see options
+Activated when pipeline stage is 'potencial' or the lead is routed here
+via a handoff from QualifierAgent.
 
 Uses function calling (SEARCH_PROPERTIES_TOOL) so the LLM extracts
 structured search parameters from the lead's natural language, then
 this agent executes the hybrid SQL + vector search with RRF merge.
 
-Can hand off to SchedulerAgent when the lead wants to book a visit.
+Can hand off to SchedulerAgent when the lead wants to book a visit,
+or back to QualifierAgent for financial/DICOM questions.
 """
 from __future__ import annotations
 
-import json
 import logging
-import re
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +24,7 @@ from app.services.agents.types import (
     AgentResponse,
     AgentType,
     HandoffSignal,
+    make_handoff_tool,
 )
 from app.services.llm.facade import LLMServiceFacade
 from app.services.properties.search_service import (
@@ -35,31 +34,18 @@ from app.services.properties.search_service import (
 
 logger = logging.getLogger(__name__)
 
-# Pipeline stages where this agent is relevant
-_ACTIVE_STAGES = {"potencial", "calificacion_financiera", "agendado"}
-
-# Single-word keywords — matched with word boundaries to avoid false positives.
-# ("ver" was matching "verdad"/"conversar", "cerca" matching "acerca", etc.)
-_WORD_KEYWORDS = [
-    "propiedad", "propiedades", "departamento", "departamentos",
-    "casa", "casas", "terreno", "terrenos",
-    "opciones", "disponible", "disponibles", "mostrar", "buscar",
-    "precio", "dormitorios", "piscina", "estacionamiento",
-    "barrio", "comuna", "ubicacion", "ubicación",
+# Handoff tools — LLM calls these when it decides a transfer is warranted.
+_HANDOFF_TOOLS = [
+    make_handoff_tool(
+        "qualifier",
+        "Llama cuando el usuario pregunte sobre financiamiento, DICOM, renta o crédito. "
+        "El agente calificador maneja esas consultas.",
+    ),
+    make_handoff_tool(
+        "scheduler",
+        "Llama cuando el usuario quiere visitar o agendar cita para una propiedad concreta.",
+    ),
 ]
-
-# Multi-word phrases — safe as substring matches
-_PHRASE_KEYWORDS = [
-    "quiero ver", "qué tienen", "que tienen", "qué hay", "que hay",
-    "cuánto cuesta", "cuanto cuesta", "ver en persona", "mostrar opciones",
-    "cerca de", "con piscina", "con estacionamiento",
-]
-
-# Pre-compiled regex for word-boundary matching (handles accented chars via case-fold)
-_WORD_PATTERN = re.compile(
-    r"\b(" + "|".join(re.escape(kw) for kw in _WORD_KEYWORDS) + r")\b",
-    re.IGNORECASE,
-)
 
 
 class PropertyAgent(BaseAgent):
@@ -102,6 +88,8 @@ class PropertyAgent(BaseAgent):
 
         prompt = f"""Eres {agent_name}, asesora inmobiliaria experta de {broker_name}.
 
+IMPORTANTE: Ya estás en una conversación activa con {lead_name}. NO te presentes ni saludes con "Hola [nombre]" al inicio de tu respuesta — eso ya ocurrió. Continúa la conversación directamente.
+
 Estás ayudando a {lead_name} a encontrar la propiedad ideal.
 
 ## Contexto del cliente
@@ -115,11 +103,12 @@ Estado DICOM: {context.lead_data.get('dicom_status', 'No verificado')}
 ## Tu rol
 - Busca propiedades disponibles usando la herramienta `search_properties`
 - Presenta los resultados de forma clara, destacando lo más relevante para el cliente
-- Cuando el cliente muestre interés concreto en una propiedad, ofrece agendar una visita
-- Si el cliente quiere agendar una visita a una propiedad específica, usa esa información para facilitar el handoff al agente de scheduling
+- Si el cliente quiere refinar la búsqueda (otra zona, más m², distinto precio), hazlo con una nueva búsqueda
+- NO ofrezcas agendar visitas ni coordinar citas — eso lo maneja otro agente
+- NO preguntes sobre presupuesto, renta, DICOM ni datos de calificación — eso lo maneja otro agente
 
 ## Cómo usar la herramienta de búsqueda
-1. Extrae los parámetros del mensaje del cliente (dormitorios, precio, zona, preferencias)
+1. Extrae los parámetros del mensaje del cliente (dormitorios, precio, zona, m², preferencias)
 2. Usa strategy="hybrid" por defecto para mejores resultados
 3. Si el cliente menciona solo características cualitativas ("luminoso", "tranquilo"), usa strategy="semantic"
 4. Devuelve máximo 3-5 propiedades para no abrumar al cliente
@@ -131,37 +120,44 @@ Para cada propiedad encontrada, presenta:
 - Dormitorios, baños, m²
 - Highlights más relevantes
 - Amenidades clave
-- Invitación a agendar visita si muestra interés
 
 ## Tono
 Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedades.
 
 ## Datos del cliente pendientes de capturar
 {"- IMPORTANTE: No conoces el nombre del cliente. Al presentar las propiedades, termina tu mensaje con una pregunta natural pidiendo su nombre. Ejemplo: '¿Por cierto, cómo te llamas para atenderte mejor?'" if not name_known else ""}
-{"- No tienes el teléfono del cliente aún. Cuando el cliente muestre interés concreto, pide el teléfono y email." if not context.lead_data.get("phone") else ""}
 """
+
+        # When the lead is not yet qualified, guide them to provide their data
+        # after showing properties — the goal is to hook them and then collect info.
+        if context.pipeline_stage in ("entrada", "perfilamiento") and not context.is_qualified():
+            prompt += (
+                "\n\n[INSTRUCCIÓN ESPECIAL]\n"
+                "El lead aún no ha sido calificado. Tu prioridad al responder:\n"
+                "1. PRIMERO muestra las propiedades encontradas tal como son. "
+                "Si no hay resultados, sé honesto/a: 'No encontré propiedades con esas características en [zona]'.\n"
+                "2. LUEGO, al final del mensaje, pregunta UNA sola cosa natural para seguir ayudando. "
+                "Por ejemplo: '¿Tienes alguna preferencia de zona o quieres que busque en otro sector?'\n"
+                "3. NUNCA pidas datos de calificación (teléfono, presupuesto, renta, DICOM) — eso lo hace otro agente.\n"
+                "4. NUNCA pidas los datos ANTES de responder sobre las propiedades.\n"
+            )
+
+        prompt += (
+            "\n\n## HERRAMIENTAS DE TRASPASO\n"
+            "- Si el usuario pregunta sobre financiamiento, pie, DICOM, renta, cuotas, crédito o proceso de compra: llama handoff_to_qualifier INMEDIATAMENTE sin responder nada sobre el tema.\n"
+            "- Si quiere agendar o visitar una propiedad concreta: llama handoff_to_scheduler.\n"
+            "- Para todo lo demás: usa search_properties.\n\n"
+            "## PROHIBIDO ABSOLUTO\n"
+            "NUNCA menciones porcentajes de pie, rangos ('10% a 20%'), montos, cuotas ni ninguna orientación financiera. "
+            "Ante cualquier pregunta financiera: llama handoff_to_qualifier de inmediato."
+        )
+
+        prompt = self._inject_handoff_context(prompt, context)
         return self._inject_human_release_note(self._inject_tone_hint(prompt, context), context)
 
     async def should_handle(self, context: AgentContext) -> bool:
-        """
-        Handle when:
-        1. Already this agent's turn (sticky routing), OR
-        2. Lead is in an active property-search stage, OR
-        3. Lead's message contains property-search keywords (any stage)
-        """
-        # Already this agent's turn
-        if context.current_agent == AgentType.PROPERTY:
-            return True
-
-        # Active stage check
-        if context.pipeline_stage in _ACTIVE_STAGES:
-            return True
-
-        # Keyword intent check — trigger from any stage including 'entrada'
-        if context.current_message and _is_property_intent(context.current_message):
-            return True
-
-        return False
+        # Kept as a safe stub — supervisor now routes via stage table.
+        return context.current_agent == AgentType.PROPERTY
 
     async def process(
         self,
@@ -172,48 +168,50 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
         """
         Process a property search request.
 
-        1. Check if this message is actually about properties
-        2. Use LLM function calling to extract search parameters
-        3. Execute hybrid search
-        4. Format and return results
+        1. Use LLM function calling to extract search parameters
+        2. Execute hybrid search via search_properties tool
+        3. LLM decides handoffs via handoff_to_qualifier / handoff_to_scheduler tools
         """
         from app.services.observability.event_logger import event_logger
 
-        # First check if we should really handle this message
-        if not _is_property_intent(message):
-            # Not a property search — generate a brief conversational response
-            # and hand off to Qualifier so the lead isn't left with a blank reply.
-            try:
-                passthrough_prompt = self.get_system_prompt(context)
-                response_text, _ = await LLMServiceFacade.generate_response_with_function_calling(
-                    system_prompt=passthrough_prompt,
-                    contents=_build_history(context),
-                    tools=[],
-                    broker_id=context.broker_id,
-                    lead_id=context.lead_id,
-                    agent_type=self.agent_type.value,
-                )
-            except Exception as exc:
-                logger.warning("PropertyAgent passthrough LLM failed: %s", exc)
-                response_text = "Entendido. ¿Hay algo más en lo que pueda ayudarte?"
-            return AgentResponse(
-                message=response_text,
-                agent_type=AgentType.PROPERTY,
-                handoff=HandoffSignal(
-                    target_agent=AgentType.QUALIFIER,
-                    reason="Message not related to property search",
-                ),
-            )
-
+        self._log(
+            "START",
+            lead_id=context.lead_id,
+            broker_id=context.broker_id,
+            stage=context.pipeline_stage,
+        )
         system_prompt = self.get_system_prompt(context)
-
-        # Build message history for LLM
-        history = _build_history(context)
-
+        messages = _build_messages(context.message_history, message)
         tool_results: List[Dict[str, Any]] = []
+        _handoff_intent: dict = {}
 
         async def tool_executor(tool_name: str, tool_args: Dict) -> Any:
-            """Execute the search_properties tool and log the result."""
+            # Handle handoff tools first
+            if tool_name == "handoff_to_qualifier":
+                self._log(
+                    "handoff requested → QualifierAgent",
+                    lead_id=context.lead_id,
+                    reason=tool_args.get("reason"),
+                )
+                _handoff_intent["target"] = AgentType.QUALIFIER
+                _handoff_intent["reason"] = tool_args.get("reason", "Pregunta financiera o de calificación")
+                return {
+                    "status": "ok",
+                    "instruction": "Traspaso iniciado. Genera AHORA un mensaje cálido (1-2 oraciones, en español) diciéndole al usuario que lo conectas con la asesora para resolver su consulta.",
+                }
+            if tool_name == "handoff_to_scheduler":
+                self._log(
+                    "handoff requested → SchedulerAgent",
+                    lead_id=context.lead_id,
+                    reason=tool_args.get("reason"),
+                )
+                _handoff_intent["target"] = AgentType.SCHEDULER
+                _handoff_intent["reason"] = tool_args.get("reason", "Lead quiere agendar visita")
+                return {
+                    "status": "ok",
+                    "instruction": "Traspaso iniciado. Genera AHORA un mensaje cálido (1-2 oraciones, en español) confirmando el interés del lead y diciéndole que lo pasas con la asesora para coordinar la visita.",
+                }
+
             if tool_name != "search_properties":
                 return {"error": f"Unknown tool: {tool_name}"}
 
@@ -227,7 +225,6 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
                     "strategy": tool_args.get("strategy", "hybrid"),
                     "results": results,
                 })
-                # Log property search event
                 await event_logger.log_property_search(
                     lead_id=context.lead_id,
                     broker_id=context.broker_id,
@@ -262,32 +259,50 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
                 )
                 return {"error": str(exc), "properties": []}
 
+        tools = [SEARCH_PROPERTIES_TOOL] + _HANDOFF_TOOLS
         try:
             response_text, function_calls = await LLMServiceFacade.generate_response_with_function_calling(
                 system_prompt=system_prompt,
-                contents=history,
-                tools=[SEARCH_PROPERTIES_TOOL],
+                contents=messages,
+                tools=tools,
                 tool_executor=tool_executor,
                 broker_id=context.broker_id,
                 lead_id=context.lead_id,
                 agent_type=self.agent_type.value,
+                db=db,
             )
         except Exception as exc:
-            logger.error("PropertyAgent LLM call failed: %s", exc)
+            self._log(f"LLM call failed: {exc}", level="error", lead_id=context.lead_id)
             response_text = (
                 "Disculpa, tuve un problema buscando propiedades. "
                 "¿Puedes decirme qué tipo de propiedad estás buscando y en qué zona?"
             )
             function_calls = []
 
-        # Check if lead wants to schedule a visit
+        self._log(
+            "DONE",
+            lead_id=context.lead_id,
+            handoff_target=_handoff_intent.get("target"),
+            property_searches=len(tool_results),
+        )
+
         handoff = None
-        if _wants_to_schedule(message, response_text):
-            property_interest = _extract_property_interest(tool_results)
+        if _handoff_intent.get("target"):
+            # If LLM returned empty text after calling the handoff tool, use a natural transition
+            if not response_text or response_text == LLMServiceFacade.FALLBACK_RESPONSE:
+                target = _handoff_intent["target"]
+                if target == AgentType.QUALIFIER:
+                    response_text = "Claro, déjame conectarte con nuestra asesora para resolver esa consulta 😊"
+                elif target == AgentType.SCHEDULER:
+                    response_text = "¡Excelente elección! Te paso con nuestra asesora para coordinar la visita 📅"
+                else:
+                    response_text = "Un momento, te conecto con el área correspondiente."
+
+            property_interest = _extract_property_interest(tool_results) if _handoff_intent["target"] == AgentType.SCHEDULER else {}
             handoff = HandoffSignal(
-                target_agent=AgentType.SCHEDULER,
-                reason="Lead wants to visit a specific property",
-                context_updates={"property_interest": property_interest},
+                target_agent=_handoff_intent["target"],
+                reason=_handoff_intent["reason"],
+                context_updates={"property_interest": property_interest} if property_interest else {},
             )
 
         return AgentResponse(
@@ -306,24 +321,6 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _is_property_intent(message: str) -> bool:
-    """Check if message relates to property search using word-boundary matching."""
-    if _WORD_PATTERN.search(message):
-        return True
-    msg_lower = message.lower()
-    return any(phrase in msg_lower for phrase in _PHRASE_KEYWORDS)
-
-
-def _wants_to_schedule(message: str, response: str) -> bool:
-    """Detect if lead wants to schedule a visit after seeing property results."""
-    schedule_keywords = [
-        "agendar", "visita", "ver en persona", "quiero ir",
-        "me interesa", "cuándo puedo", "coordinar", "visitar",
-    ]
-    msg_lower = message.lower()
-    return any(kw in msg_lower for kw in schedule_keywords)
-
-
 def _extract_property_interest(tool_results: List[Dict]) -> Dict[str, Any]:
     """Extract property interest context from search results."""
     if not tool_results or not tool_results[0].get("results"):
@@ -338,9 +335,15 @@ def _extract_property_interest(tool_results: List[Dict]) -> Dict[str, Any]:
     }
 
 
-def _build_history(context: AgentContext) -> List[Dict]:
-    """Build LLM message history from recent messages (max 10)."""
-    return context.message_history[-10:] if context.message_history else []
+def _build_messages(history: list, new_message: str) -> list:
+    """Convert message history + new message to LLMMessage format."""
+    from app.services.llm.base_provider import LLMMessage
+    messages = [
+        LLMMessage(role=m.get("role", "user"), content=m.get("content", ""))
+        for m in (history[-10:] if history else [])
+    ]
+    messages.append(LLMMessage(role="user", content=new_message))
+    return messages
 
 
 def _now_ms() -> int:

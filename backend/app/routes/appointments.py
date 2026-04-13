@@ -48,6 +48,23 @@ async def create_appointment(
         role = current_user.get("role") if isinstance(current_user, dict) else getattr(current_user, "role", None)
         if role != "SUPERADMIN" and lead.broker_id != broker_id:
             raise HTTPException(status_code=404, detail="Lead not found")
+
+        # Enforce qualification gate: lead must have minimum required fields
+        _PLACEHOLDER_PHONES = {"web_chat_pending", "whatsapp_pending"}
+        missing = []
+        if not lead.name or not lead.name.strip():
+            missing.append("nombre")
+        phone_val = str(lead.phone or "")
+        if not phone_val or phone_val in _PLACEHOLDER_PHONES or phone_val.startswith(("web_chat_", "whatsapp_", "+569999")):
+            missing.append("teléfono")
+        if not lead.email or not lead.email.strip():
+            missing.append("email")
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"El lead no está calificado. Faltan datos obligatorios: {', '.join(missing)}. "
+                       f"El lead debe pasar primero por el proceso de calificación."
+            )
         
         # Validate agent_id is provided (required for multi-agent support)
         if not appointment_data.agent_id:
