@@ -1,7 +1,7 @@
 """add plan_id to brokers
 
-Revision ID: a1b2c3d4e5f6
-Revises: 18bc8eda7670
+Revision ID: b3c4d5e6f7g8
+Revises: y1a2b3c4d5e6
 Create Date: 2026-04-03
 
 """
@@ -9,8 +9,8 @@ from typing import Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = 'a1b2c3d4e5f6'
-down_revision: Union[str, None] = '18bc8eda7670'
+revision: str = 'b3c4d5e6f7g8'
+down_revision: Union[str, None] = 'y1a2b3c4d5e6'
 branch_labels = None
 depends_on = None
 
