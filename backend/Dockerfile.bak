@@ -17,6 +17,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application
 COPY backend/ .
 
-# Default command (override in docker-compose)
-CMD ["sh", "-c", "alembic stamp a6f3f625b64a 2>/dev/null || true; alembic upgrade heads && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
-
+# Default command
+RUN chmod +x ./start.sh ./migrate.sh
+CMD ["./start.sh"]
