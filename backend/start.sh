@@ -1,6 +1,19 @@
 #!/bin/sh
 set -e
 
+# Dispatch based on Railway service name so all services can share this Dockerfile.
+# celery worker and celery-beat must NOT reset the database.
+case "${RAILWAY_SERVICE_NAME}" in
+  "celery worker")
+    echo "=== Starting Celery worker ===" >&2
+    exec celery -A app.celery_app worker --loglevel=info
+    ;;
+  "celery-beat")
+    echo "=== Starting Celery beat ===" >&2
+    exec celery -A app.celery_app beat --loglevel=info
+    ;;
+esac
+
 echo "=== Resetting database ===" >&2
 python3 -c "
 import os, sys
