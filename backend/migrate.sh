@@ -5,7 +5,8 @@ echo "=== Resetting database ==="
 python3 -c "
 import os
 from sqlalchemy import create_engine, text
-url = os.environ['DATABASE_URL'].replace('postgresql+asyncpg://', 'postgresql+psycopg2://')
+raw_url = os.environ['DATABASE_URL']
+url = raw_url.replace('postgresql+asyncpg://', 'postgresql://').replace('postgres://', 'postgresql://')
 engine = create_engine(url)
 with engine.begin() as conn:
     conn.execute(text('DROP SCHEMA public CASCADE'))
@@ -23,7 +24,8 @@ import os, sys
 sys.path.insert(0, '/app')
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-url = os.environ['DATABASE_URL'].replace('postgresql+asyncpg://', 'postgresql+psycopg2://')
+raw_url = os.environ['DATABASE_URL']
+url = raw_url.replace('postgresql+asyncpg://', 'postgresql://').replace('postgres://', 'postgresql://')
 engine = create_engine(url)
 Session = sessionmaker(bind=engine)
 session = Session()

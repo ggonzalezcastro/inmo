@@ -1,29 +1,59 @@
 #!/bin/sh
 set -e
 
-echo "=== Resetting database ==="
+echo "=== Resetting database ===" >&2
 python3 -c "
-import os
+import os, sys
+
+raw_url = os.environ['DATABASE_URL']
+print(f'DB URL prefix: {raw_url[:30]}...', flush=True, file=sys.stderr)
+
+# Normalize URL for psycopg2
+url = raw_url \
+    .replace('postgresql+asyncpg://', 'postgresql://') \
+    .replace('postgres://', 'postgresql://')
+
 from sqlalchemy import create_engine, text
-url = os.environ['DATABASE_URL'].replace('postgresql+asyncpg://', 'postgresql+psycopg2://')
 engine = create_engine(url)
-with engine.begin() as conn:
-    conn.execute(text('DROP SCHEMA public CASCADE'))
-    conn.execute(text('CREATE SCHEMA public'))
-    conn.execute(text('CREATE EXTENSION IF NOT EXISTS vector'))
-print('Schema reset OK')
+
+try:
+    with engine.begin() as conn:
+        # Kill other connections so DROP SCHEMA doesn't hang
+        conn.execute(text('''
+            SELECT pg_terminate_backend(pid)
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND pid <> pg_backend_pid()
+        '''))
+        conn.execute(text('DROP SCHEMA public CASCADE'))
+        conn.execute(text('CREATE SCHEMA public'))
+        # vector extension: skip if not available
+        try:
+            conn.execute(text('CREATE EXTENSION IF NOT EXISTS vector'))
+            print('vector extension OK', flush=True, file=sys.stderr)
+        except Exception as e:
+            print(f'WARNING: vector extension skipped: {e}', flush=True, file=sys.stderr)
+    print('Schema reset OK', flush=True, file=sys.stderr)
+except Exception as e:
+    print(f'ERROR resetting schema: {e}', flush=True, file=sys.stderr)
+    sys.exit(1)
 "
 
-echo "=== Running migrations ==="
+echo "=== Running migrations ===" >&2
 alembic upgrade heads
 
-echo "=== Seeding data ==="
+echo "=== Seeding data ===" >&2
 python3 -c "
 import os, sys
 sys.path.insert(0, '/app')
+
+raw_url = os.environ['DATABASE_URL']
+url = raw_url \
+    .replace('postgresql+asyncpg://', 'postgresql://') \
+    .replace('postgres://', 'postgresql://')
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-url = os.environ['DATABASE_URL'].replace('postgresql+asyncpg://', 'postgresql+psycopg2://')
 engine = create_engine(url)
 Session = sessionmaker(bind=engine)
 session = Session()
@@ -32,12 +62,10 @@ from app.models.broker import Broker
 from app.models.user import User
 from app.middleware.auth import hash_password
 
-# Seed broker
 broker = Broker(name='Demo Inmobiliaria')
 session.add(broker)
 session.flush()
 
-# Seed admin user
 admin = User(
     email='admin@demo.cl',
     hashed_password=hash_password('Admin1234!'),
@@ -48,7 +76,6 @@ admin = User(
 )
 session.add(admin)
 
-# Seed agent user
 agent = User(
     email='agente@demo.cl',
     hashed_password=hash_password('Agente1234!'),
@@ -59,9 +86,9 @@ agent = User(
 )
 session.add(agent)
 session.commit()
-print(f'Seeded: broker={broker.id}, admin=admin@demo.cl, agent=agente@demo.cl')
+print(f'Seeded: broker={broker.id}, admin=admin@demo.cl, agent=agente@demo.cl', flush=True, file=sys.stderr)
 session.close()
 "
 
-echo "=== Starting server ==="
+echo "=== Starting server ===" >&2
 exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
