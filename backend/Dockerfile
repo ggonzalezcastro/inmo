@@ -18,6 +18,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ .
 
 # Default command
-RUN chmod +x ./start.sh
+RUN chmod +x ./start.sh ./migrate.sh
 CMD ["./start.sh"]
 

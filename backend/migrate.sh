@@ -32,12 +32,10 @@ from app.models.broker import Broker
 from app.models.user import User
 from app.middleware.auth import hash_password
 
-# Seed broker
 broker = Broker(name='Demo Inmobiliaria')
 session.add(broker)
 session.flush()
 
-# Seed admin user
 admin = User(
     email='admin@demo.cl',
     hashed_password=hash_password('Admin1234!'),
@@ -48,7 +46,6 @@ admin = User(
 )
 session.add(admin)
 
-# Seed agent user
 agent = User(
     email='agente@demo.cl',
     hashed_password=hash_password('Agente1234!'),
@@ -63,5 +60,4 @@ print(f'Seeded: broker={broker.id}, admin=admin@demo.cl, agent=agente@demo.cl')
 session.close()
 "
 
-echo "=== Starting server ==="
-exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
+echo "=== Done ==="

@@ -34,8 +34,8 @@ services:
   # All LLM providers call tools by making HTTP requests to this service.
   mcp-server:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     command: python -m app.mcp.server
     ports:
       - "8001:8001"
@@ -66,13 +66,14 @@ services:
 
   migrate:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
-    command: alembic upgrade heads
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["sh", "./migrate.sh"]
     volumes:
       - ./backend:/app
     environment:
       - DATABASE_URL=postgresql+asyncpg://lead_user:lead_pass_123@db:5432/lead_agent
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key}
     depends_on:
       db:
         condition: service_healthy
@@ -80,8 +81,8 @@ services:
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app
     ports:
       - "8000:8000"
@@ -142,8 +143,8 @@ services:
 
   celery:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     command: celery -A app.celery_app worker --loglevel=info
     volumes:
       - ./backend:/app
@@ -183,8 +184,8 @@ services:
 
   celery-beat:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     command: celery -A app.celery_app beat --loglevel=info
     volumes:
       - ./backend:/app
