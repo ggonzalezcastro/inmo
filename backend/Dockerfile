@@ -9,16 +9,15 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements
-COPY backend/requirements.txt .
+COPY requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application
-COPY backend/ .
+COPY . .
 
-# Default command (override in docker-compose)
-COPY backend/start.sh ./start.sh
+# Default command
 RUN chmod +x ./start.sh
 CMD ["./start.sh"]
 
