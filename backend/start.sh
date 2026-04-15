@@ -72,7 +72,7 @@ from app.models import *
 from app.models.base import Base
 
 engine = create_engine(url)
-Base.metadata.create_all(engine)
+Base.metadata.create_all(engine, checkfirst=True)
 print('Tables created OK', flush=True, file=sys.stderr)
 "
 

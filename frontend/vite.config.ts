@@ -22,6 +22,7 @@ export default defineConfig({
       'react-is',
       'es-toolkit',
       'es-toolkit/compat',
+      '@vapi-ai/web',
     ],
   },
 

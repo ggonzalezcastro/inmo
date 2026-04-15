@@ -409,7 +409,7 @@ async def get_call_details(
 
 # ── CRM-initiated calls (Phase 1 — Transcriptor) ─────────────────────────────
 
-@router.post("/calls/start", response_model=CallStartResponse, status_code=201)
+@router.post("/start", response_model=CallStartResponse, status_code=201)
 async def start_call(
     request: CallStartRequest,
     current_user: dict = Depends(get_current_user),
@@ -448,7 +448,7 @@ async def start_call(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.patch("/calls/{voice_call_id}/external-id")
+@router.patch("/{voice_call_id}/external-id")
 async def link_external_call_id(
     voice_call_id: int,
     body: dict,
@@ -492,7 +492,7 @@ async def link_external_call_id(
     return {"ok": True, "external_call_id": external_id}
 
 
-@router.post("/calls/{voice_call_id}/end")
+@router.post("/{voice_call_id}/end")
 async def end_call(
     voice_call_id: int,
     current_user: dict = Depends(get_current_user),
@@ -524,7 +524,7 @@ async def end_call(
     return {"ok": True}
 
 
-@router.get("/calls/{voice_call_id}/status", response_model=VoiceCallResponse)
+@router.get("/{voice_call_id}/status", response_model=VoiceCallResponse)
 async def get_call_status(
     voice_call_id: int,
     current_user: dict = Depends(get_current_user),
@@ -544,7 +544,7 @@ async def get_call_status(
     return VoiceCallResponse.model_validate(voice_call)
 
 
-@router.get("/calls/metrics", response_model=CallMetricsResponse)
+@router.get("/metrics", response_model=CallMetricsResponse)
 async def get_call_metrics(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
