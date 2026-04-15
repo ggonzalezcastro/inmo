@@ -92,6 +92,32 @@ function ChatBubble({ msg }: { msg: ChatMessage }) {
   )
 }
 
+// ── Thinking block component ──────────────────────────────────────────────────
+
+function ThinkingBlock({ content }: { content: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const isTruncated = content.length >= 2000
+  return (
+    <div className="rounded border border-amber-200 bg-amber-50">
+      <button
+        className="w-full flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold text-amber-700 hover:bg-amber-100 transition-colors rounded"
+        onClick={(e) => { e.stopPropagation(); setExpanded(v => !v) }}
+      >
+        {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+        <span>🧠 Pensamiento del modelo</span>
+        {!expanded && <span className="ml-auto font-normal text-amber-500">{content.length} chars</span>}
+        {isTruncated && !expanded && <span className="ml-1 font-normal text-amber-400">(truncado)</span>}
+      </button>
+      {expanded && (
+        <pre className="text-[10px] text-amber-900 font-mono whitespace-pre-wrap max-h-48 overflow-auto px-2 pb-2 leading-relaxed">
+          {content}
+          {isTruncated && <span className="text-amber-400 not-italic"> …[truncado a 2000 chars]</span>}
+        </pre>
+      )}
+    </div>
+  )
+}
+
 // ── Timeline event row ────────────────────────────────────────────────────────
 
 function TimelineRow({ ev }: { ev: TimelineEvent }) {
@@ -228,6 +254,9 @@ function TimelineRow({ ev }: { ev: TimelineEvent }) {
           <div className="space-y-2 mt-2 pl-4 border-l-2 border-purple-200">
             {ev.prompt_hash && <p className="text-[10px] text-slate-400">prompt hash: <code className="font-mono">{ev.prompt_hash.slice(0, 16)}…</code></p>}
             {temp != null && <p className="text-[10px] text-slate-400">temperature: {temp}</p>}
+            {ev.thinking_content && (
+              <ThinkingBlock content={ev.thinking_content} />
+            )}
             {userMsgs && userMsgs.length > 0 && (
               <div>
                 <p className="text-[10px] font-semibold text-slate-500 mb-1">Mensajes enviados al LLM:</p>

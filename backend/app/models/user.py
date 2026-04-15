@@ -21,7 +21,11 @@ class User(Base, IdMixin, TimestampMixin):
     name = Column(String(100), nullable=False)  # Renombrado de broker_name a name
     
     # Rol del usuario
-    role = Column(SQLEnum(UserRole), default=UserRole.AGENT, nullable=False)
+    role = Column(
+        SQLEnum(UserRole, name="userrole", create_type=False,
+                values_callable=lambda obj: [e.value for e in obj]),
+        default=UserRole.AGENT, nullable=False
+    )
     
     # Broker al que pertenece (NULL para superadmin)
     broker_id = Column(Integer, ForeignKey("brokers.id", ondelete="CASCADE"), nullable=True, index=True)

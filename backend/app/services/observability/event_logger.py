@@ -99,6 +99,7 @@ class AgentEventLogger:
         user_messages: Optional[List[Dict]] = None,  # messages sent to LLM (stored in metadata)
         rag_chunks_used: Optional[List] = None,       # KB chunk IDs used (stored in metadata)
         temperature: Optional[float] = None,
+        thinking_content: Optional[str] = None,       # model's internal reasoning text
     ) -> None:
         prompt_hash = None
         if system_prompt:
@@ -114,6 +115,9 @@ class AgentEventLogger:
             extra_meta["rag_chunks_used"] = rag_chunks_used[:10]
         if temperature is not None:
             extra_meta["temperature"] = temperature
+        if thinking_content:
+            # Store up to 2000 chars to avoid DB bloat; models can think extensively
+            extra_meta["thinking_content"] = thinking_content[:2000]
 
         await self._log(
             event_type="llm_call",

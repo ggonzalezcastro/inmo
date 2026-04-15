@@ -71,6 +71,7 @@ async def _fire_log(
     user_messages: Optional[list] = None,
     rag_chunks_used: Optional[list] = None,
     temperature: Optional[float] = None,
+    thinking_content: Optional[str] = None,
 ) -> None:
     """Fire LLM call log in background. Never raises — observability must never block the pipeline."""
     try:
@@ -123,6 +124,7 @@ async def _fire_log(
                         user_messages=user_messages,
                         rag_chunks_used=rag_chunks_used,
                         temperature=temperature,
+                        thinking_content=thinking_content,
                     )
                 except Exception as _inner_exc:
                     logger.debug("[LLM-facade] event_logger task error: %s", _inner_exc)
@@ -465,8 +467,9 @@ Para "intent" (usa el que mejor describe la NECESIDAD PRINCIPAL del mensaje):
                     cached_content=cached_content,
                     tool_mode_override=tool_mode_override,
                 )
-            # result is (text, tool_calls) or (text, tool_calls, usage)
+            # result is (text, tool_calls) or (text, tool_calls, usage) or (text, tool_calls, usage, thinking)
             usage = result[2] if len(result) >= 3 else None
+            thinking_content = result[3] if len(result) >= 4 else None
             input_tokens = None
             output_tokens = None
             if usage:
@@ -488,6 +491,7 @@ Para "intent" (usa el que mejor describe la NECESIDAD PRINCIPAL del mensaje):
                 raw_response_snippet=_response_text[:500],
                 system_prompt=system_prompt,
                 user_messages=[{"role": m.role.value if hasattr(m.role, "value") else str(m.role), "content": m.content} for m in messages],
+                thinking_content=thinking_content,
             )
             logger.info("[LLM-facade] generate_response_with_function_calling DONE latency=%dms", int((time.monotonic() - _t0) * 1000))
             return result[0], result[1]

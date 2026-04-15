@@ -211,6 +211,17 @@ class QualifierAgent(BaseAgent):
             "NUNCA digas que el lead 'cumple el perfil', 'califica', 'está aprobado' ni ninguna variante.\n"
         )
 
+        # When routed from PropertyAgent (no properties found), tell LLM to pivot
+        # to qualification instead of trying to show properties.
+        if lead_data.get("_handoff_from") == "property":
+            base_prompt += (
+                "\n\n## CONTEXTO DEL TRASPASO\n"
+                "Vienes del agente de propiedades — no había propiedades disponibles para los criterios del lead. "
+                "Tu objetivo ahora es recopilar sus datos de calificación (nombre, teléfono, email, ubicación, renta). "
+                "NO intentes buscar propiedades ni uses handoff_to_property. "
+                "Continúa con una pregunta natural para avanzar en la calificación.\n"
+            )
+
         base_prompt = self._inject_handoff_context(base_prompt, context)
         return self._inject_human_release_note(self._inject_tone_hint(base_prompt, context), context)
 
@@ -385,7 +396,6 @@ class QualifierAgent(BaseAgent):
                 }
             if tool_name == "handoff_to_property":
                 # Prevent loop: if we already came FROM PropertyAgent, don't hand back
-                came_from_property = context.lead_data.get("_handoff_from") == "property"
                 if came_from_property:
                     self._log("Blocking handoff_to_property — loop prevention (came from property)", lead_id=context.lead_id)
                     return {"status": "blocked", "reason": "Already processed by PropertyAgent this turn. Handle the question directly."}
@@ -397,12 +407,17 @@ class QualifierAgent(BaseAgent):
                 }
             return {"error": f"Unknown tool: {tool_name}"}
 
+        # When we just came from PropertyAgent (no properties found), exclude
+        # handoff_to_property to prevent the LLM from looping back there.
+        came_from_property = context.lead_data.get("_handoff_from") == "property"
+        active_tools = [t for t in _HANDOFF_TOOLS if not (came_from_property and t.name == "handoff_to_property")]
+
         try:
             response_text, function_calls = (
                 await LLMServiceFacade.generate_response_with_function_calling(
                     system_prompt=system_prompt,
                     contents=_build_messages(context.message_history, message),
-                    tools=_HANDOFF_TOOLS,
+                    tools=active_tools,
                     tool_executor=tool_executor,
                     tool_mode_override="AUTO",
                     broker_id=context.broker_id,

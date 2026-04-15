@@ -91,6 +91,7 @@ export interface TimelineEvent {
   cost_usd?: number
   prompt_hash?: string
   completion_snippet?: string
+  thinking_content?: string
   // handoff
   from_agent?: string
   to_agent?: string

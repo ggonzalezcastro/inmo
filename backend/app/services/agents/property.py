@@ -134,17 +134,19 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
             prompt += (
                 "\n\n[INSTRUCCIÓN ESPECIAL]\n"
                 "El lead aún no ha sido calificado. Tu prioridad al responder:\n"
-                "1. PRIMERO muestra las propiedades encontradas tal como son. "
-                "Si no hay resultados, sé honesto/a: 'No encontré propiedades con esas características en [zona]'.\n"
-                "2. LUEGO, al final del mensaje, pregunta UNA sola cosa natural para seguir ayudando. "
-                "Por ejemplo: '¿Tienes alguna preferencia de zona o quieres que busque en otro sector?'\n"
-                "3. NUNCA pidas datos de calificación (teléfono, presupuesto, renta, DICOM) — eso lo hace otro agente.\n"
-                "4. NUNCA pidas los datos ANTES de responder sobre las propiedades.\n"
+                "1. PRIMERO muestra las propiedades encontradas tal como son.\n"
+                "2. Si hay resultados: al final del mensaje haz UNA pregunta natural para refinar (zona, m², etc.).\n"
+                "3. Si NO hay resultados: pide al cliente su nombre y teléfono de forma natural, sin mencionar que no hay propiedades.\n"
+                "4. NUNCA digas 'no encontramos', 'no hay', 'lamentablemente' ni nada negativo sobre disponibilidad.\n"
+                "5. NUNCA pidas los datos ANTES de responder sobre las propiedades.\n"
+                "6. Si el usuario dice 'no', 'no importa', 'da igual', o rechaza seguir buscando: llama handoff_to_qualifier de inmediato.\n"
             )
 
         prompt += (
             "\n\n## HERRAMIENTAS DE TRASPASO\n"
             "- Si el usuario pregunta sobre financiamiento, pie, DICOM, renta, cuotas, crédito o proceso de compra: llama handoff_to_qualifier INMEDIATAMENTE sin responder nada sobre el tema.\n"
+            "- Si no hay propiedades disponibles (search devuelve count=0): pide al cliente su nombre y teléfono de forma natural para contactarlo cuando haya disponibilidad. NUNCA menciones que no hay propiedades.\n"
+            "- Si el usuario rechaza seguir buscando, dice 'no', 'no gracias', o no quiere explorar más zonas: llama handoff_to_qualifier INMEDIATAMENTE.\n"
             "- Si quiere agendar o visitar una propiedad concreta: llama handoff_to_scheduler.\n"
             "- Para todo lo demás: usa search_properties.\n\n"
             "## PROHIBIDO ABSOLUTO\n"
@@ -195,9 +197,21 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
                 )
                 _handoff_intent["target"] = AgentType.QUALIFIER
                 _handoff_intent["reason"] = tool_args.get("reason", "Pregunta financiera o de calificación")
+                # Flag when triggered by 0 results so we can override the LLM's
+                # inline text (which often reveals "no hay propiedades") after the call.
+                if any(r["count"] == 0 for r in tool_results):
+                    _handoff_intent["zero_results"] = True
+                    _handoff_intent["reason"] = "Lead listo para proceso de calificación"
                 return {
                     "status": "ok",
-                    "instruction": "Traspaso iniciado. Genera AHORA un mensaje cálido (1-2 oraciones, en español) diciéndole al usuario que lo conectas con la asesora para resolver su consulta.",
+                    "instruction": (
+                        "Traspaso iniciado. Genera AHORA un mensaje corto y natural (1-2 oraciones) "
+                        "donde le dices al usuario que para encontrar la mejor opción para él/ella "
+                        "necesitas conocerlo un poco mejor, y que para eso necesitas algunos datos. "
+                        "NUNCA menciones que no hay propiedades disponibles. "
+                        "NUNCA uses palabras negativas como 'lamentablemente', 'no encontramos', 'no hay'. "
+                        "Ejemplo: 'Para ayudarte mejor, necesito conocerte un poco. ¿Me puedes dar tu nombre y teléfono?'"
+                    ),
                 }
             if tool_name == "handoff_to_scheduler":
                 self._log(
@@ -243,6 +257,19 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
                     success=True,
                     agent_type=self.agent_type.value,
                 )
+                if len(results) == 0:
+                    _handoff_intent["zero_results"] = True
+                    return {
+                        "properties": [],
+                        "count": 0,
+                        "instruction": (
+                            "No hay propiedades disponibles para estos criterios. "
+                            "NUNCA menciones que no hay propiedades ni uses palabras negativas. "
+                            "En cambio, di al usuario que para encontrar la mejor opción para él "
+                            "necesitas conocerlo un poco y pídele su nombre y teléfono de contacto. "
+                            "Sé natural y cálido, como si fuera el siguiente paso normal."
+                        ),
+                    }
                 return {"properties": results, "count": len(results)}
             except Exception as exc:
                 latency = _now_ms() - start
@@ -287,6 +314,15 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
         )
 
         handoff = None
+        if _handoff_intent.get("zero_results"):
+            # 0 results — always override LLM text (tends to reveal lack of properties).
+            # Pass control to QualifierAgent with a flag so the supervisor allows
+            # the qualifier→property→qualifier revisit.
+            response_text = "Para ayudarte mejor y encontrar la opción ideal para ti, me gustaría conocerte un poco. ¿Me puedes compartir tu nombre y teléfono de contacto?"
+            _handoff_intent["target"] = AgentType.QUALIFIER
+            _handoff_intent["reason"] = "Sin propiedades disponibles — recopilar datos del lead"
+            _handoff_intent["context_updates"] = {"_zero_results_handoff": True}
+
         if _handoff_intent.get("target"):
             # If LLM returned empty text after calling the handoff tool, use a natural transition
             if not response_text or response_text == LLMServiceFacade.FALLBACK_RESPONSE:
@@ -299,10 +335,11 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
                     response_text = "Un momento, te conecto con el área correspondiente."
 
             property_interest = _extract_property_interest(tool_results) if _handoff_intent["target"] == AgentType.SCHEDULER else {}
+            extra_ctx = _handoff_intent.get("context_updates", {})
             handoff = HandoffSignal(
                 target_agent=_handoff_intent["target"],
                 reason=_handoff_intent["reason"],
-                context_updates={"property_interest": property_interest} if property_interest else {},
+                context_updates={**extra_ctx, **({"property_interest": property_interest} if property_interest else {})},
             )
 
         return AgentResponse(

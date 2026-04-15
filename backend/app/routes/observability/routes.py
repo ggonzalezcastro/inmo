@@ -323,6 +323,7 @@ def _build_timeline(events, include_prompts: bool = False) -> List[Dict]:
             items.append({**base, "type": "agent_selected", "agent": ev.agent_type})
 
         elif ev.event_type == "llm_call":
+            meta = ev.event_metadata or {}
             item: Dict[str, Any] = {
                 **base,
                 "type": "llm_call",
@@ -338,6 +339,8 @@ def _build_timeline(events, include_prompts: bool = False) -> List[Dict]:
                 "completion_snippet": ev.raw_response_snippet,
                 "event_metadata": ev.event_metadata,  # user_messages, rag_chunks, temperature
             }
+            if meta.get("thinking_content"):
+                item["thinking_content"] = meta["thinking_content"]
             items.append(item)
 
         elif ev.event_type == "agent_handoff":

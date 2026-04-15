@@ -31,7 +31,7 @@ Session = sessionmaker(bind=engine)
 session = Session()
 
 from app.models.broker import Broker
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.middleware.auth import hash_password
 
 broker = Broker(name='Demo Inmobiliaria')
@@ -42,7 +42,7 @@ admin = User(
     email='admin@demo.cl',
     hashed_password=hash_password('Admin1234!'),
     name='Admin Demo',
-    role='ADMIN',
+    role=UserRole.ADMIN,
     broker_id=broker.id,
     is_active=True,
 )
@@ -52,7 +52,7 @@ agent = User(
     email='agente@demo.cl',
     hashed_password=hash_password('Agente1234!'),
     name='Agente Demo',
-    role='AGENT',
+    role=UserRole.AGENT,
     broker_id=broker.id,
     is_active=True,
 )

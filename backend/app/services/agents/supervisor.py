@@ -117,24 +117,33 @@ class AgentSupervisor:
 
             # ── Loop detection ──────────────────────────────────────────────
             if agent.agent_type.value in visited_agents:
-                await event_logger.log_error(
-                    lead_id=context.lead_id,
-                    broker_id=context.broker_id,
-                    error_type="handoff_loop",
-                    error_message=(
-                        f"Handoff loop detected: "
-                        f"{' → '.join(visited_agents)} → {agent.agent_type.value}"
-                    ),
-                    agent_type="supervisor",
-                    message_id=message_id,
-                    conversation_id=conversation_id,
-                )
-                logger.warning(
-                    "[Supervisor] Handoff loop detected: %s → %s (stopping)",
-                    " → ".join(visited_agents),
-                    agent.agent_type.value,
-                )
-                break
+                # Allow property→qualifier revisit when PropertyAgent found 0 results.
+                # Intentional pattern: search first, qualify when nothing found.
+                zero_results = current_context.lead_data.get("_zero_results_handoff")
+                if zero_results and agent.agent_type == AgentType.QUALIFIER:
+                    logger.info(
+                        "[Supervisor] Allowing qualifier revisit after zero-results search (lead=%s)",
+                        context.lead_id,
+                    )
+                else:
+                    await event_logger.log_error(
+                        lead_id=context.lead_id,
+                        broker_id=context.broker_id,
+                        error_type="handoff_loop",
+                        error_message=(
+                            f"Handoff loop detected: "
+                            f"{' → '.join(visited_agents)} → {agent.agent_type.value}"
+                        ),
+                        agent_type="supervisor",
+                        message_id=message_id,
+                        conversation_id=conversation_id,
+                    )
+                    logger.warning(
+                        "[Supervisor] Handoff loop detected: %s → %s (stopping)",
+                        " → ".join(visited_agents),
+                        agent.agent_type.value,
+                    )
+                    break
 
             logger.info(
                 "[Supervisor] Routing to %s (hop=%d, lead=%d)",

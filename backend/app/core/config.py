@@ -40,7 +40,12 @@ class Settings(BaseSettings):
     GEMINI_MAX_TOKENS: int = int(os.getenv("GEMINI_MAX_TOKENS", "1500"))
     GEMINI_TEMPERATURE: float = float(os.getenv("GEMINI_TEMPERATURE", "0.7"))
 
-    # Anthropic Claude
+    GEMINI_THINKING_BUDGET: int = int(os.getenv("GEMINI_THINKING_BUDGET", "1024"))
+    # -1 = dynamic (model decides when to think)
+    #  0 = disabled (no thinking, compatible with all models)
+    # >0 = fixed token budget for thinking (1024 = default, enough for most reasoning)
+
+
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
     ANTHROPIC_BASE_URL: str = os.getenv("ANTHROPIC_BASE_URL", "")  # override for compatible APIs (MiniMax, etc.)
     CLAUDE_MODEL: str = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")

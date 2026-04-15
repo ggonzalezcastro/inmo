@@ -136,11 +136,13 @@ class OpenAIProvider(BaseLLMProvider):
         messages: List[LLMMessage],
         tools: List[LLMToolDefinition],
         system_prompt: Optional[str] = None,
-        tool_executor: Optional[Callable] = None
+        tool_executor: Optional[Callable] = None,
+        cached_content: Optional[str] = None,     # ignored — Gemini-only feature
+        tool_mode_override: Optional[str] = None, # ignored — Gemini-only feature
     ) -> Tuple[str, List[Dict[str, Any]]]:
         """Generate response with function calling"""
         if not self.is_configured:
-            return self.FALLBACK_RESPONSE, []
+            return self.FALLBACK_RESPONSE, [], None, None
         
         try:
             native_messages = self._convert_messages_to_native(messages)
@@ -179,7 +181,7 @@ class OpenAIProvider(BaseLLMProvider):
                 if not message.tool_calls:
                     # No tool calls, return text
                     usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
-                    return self._clean_response(message.content or ""), function_calls_executed, usage
+                    return self._clean_response(message.content or ""), function_calls_executed, usage, None
                 
                 # Add assistant message with tool calls
                 native_messages.append({
@@ -228,15 +230,15 @@ class OpenAIProvider(BaseLLMProvider):
                     return message.content or self.FALLBACK_RESPONSE, [
                         {"name": tc.function.name, "args": json.loads(tc.function.arguments)}
                         for tc in message.tool_calls
-                    ], usage
+                    ], usage, None
             
             logger.warning("[OpenAI] Max iterations reached")
             usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
-            return self.FALLBACK_RESPONSE, function_calls_executed, usage
+            return self.FALLBACK_RESPONSE, function_calls_executed, usage, None
             
         except Exception as e:
             logger.error(f"[OpenAI] Error in generate_with_tools: {e}", exc_info=True)
-            return self._handle_error(e), [], None
+            return self._handle_error(e), [], None, None
     
     async def generate_json(
         self,

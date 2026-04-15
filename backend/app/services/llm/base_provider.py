@@ -150,8 +150,9 @@ class BaseLLMProvider(ABC):
             tool_executor: Async function to execute tools: (name, args) -> result
             
         Returns:
-            Tuple of (final_response_text, list_of_executed_tool_calls, optional_usage).
+            Tuple of (final_response_text, list_of_executed_tool_calls, optional_usage, optional_thinking).
             usage may be {"input_tokens": int, "output_tokens": int} for cost logging.
+            thinking is the raw model reasoning text (if supported by the model), or None.
         """
         pass
     

@@ -67,6 +67,21 @@ class GeminiProvider(BaseLLMProvider):
         
         self.max_tokens = max_tokens or settings.GEMINI_MAX_TOKENS
         self.temperature = temperature or settings.GEMINI_TEMPERATURE
+
+        # Build ThinkingConfig for Gemini 2.5+ models when enabled.
+        # budget=-1 → dynamic (model decides), 0 → disabled, >0 → fixed token cap.
+        # Only injected for 2.5 models; older models don't support the parameter.
+        self._thinking_config: Optional[types.ThinkingConfig] = None
+        _budget = settings.GEMINI_THINKING_BUDGET
+        if _budget != 0 and "2.5" in self.model:
+            self._thinking_config = types.ThinkingConfig(
+                thinking_budget=_budget,
+                include_thoughts=True,
+            )
+            logger.info(
+                "GeminiProvider: thinking enabled (model=%s, budget=%s)",
+                self.model, "dynamic" if _budget == -1 else _budget,
+            )
         
         # Initialize client
         if self.api_key:
@@ -140,12 +155,14 @@ class GeminiProvider(BaseLLMProvider):
                     cached_content=cached_content,
                     max_output_tokens=self.max_tokens,
                     temperature=effective_temp,
+                    **({"thinking_config": self._thinking_config} if self._thinking_config else {}),
                 )
             else:
                 config = types.GenerateContentConfig(
                     system_instruction=system_prompt if system_prompt else None,
                     max_output_tokens=self.max_tokens,
                     temperature=effective_temp,
+                    **({"thinking_config": self._thinking_config} if self._thinking_config else {}),
                 )
 
             start_time = time.time()
@@ -184,7 +201,7 @@ class GeminiProvider(BaseLLMProvider):
                 ``system_prompt`` contains only the dynamic lead context.
         """
         if not self.is_configured:
-            return self.FALLBACK_RESPONSE, []
+            return self.FALLBACK_RESPONSE, [], None, None
 
         try:
             contents = self._convert_messages_to_native(messages)
@@ -204,6 +221,10 @@ class GeminiProvider(BaseLLMProvider):
                 base_config_kwargs = {
                     "system_instruction": system_prompt if system_prompt else None
                 }
+
+            # Enable model thinking when configured (Gemini 2.5+ only).
+            if self._thinking_config:
+                base_config_kwargs["thinking_config"] = self._thinking_config
 
             if not tools:
                 # No tools: plain text generation
@@ -225,7 +246,15 @@ class GeminiProvider(BaseLLMProvider):
                     out = getattr(um, "candidates_token_count", 0) or 0
                     if inp or out:
                         usage = {"input_tokens": inp, "output_tokens": out}
-                return self._clean_response(text), [], usage
+                # Extract thinking content from no-tools response
+                thinking_content = None
+                if response.candidates:
+                    cand = response.candidates[0]
+                    if cand.content and cand.content.parts:
+                        thought_parts = [p.text for p in cand.content.parts if getattr(p, "thought", False) and p.text]
+                        if thought_parts:
+                            thinking_content = "\n\n---\n\n".join(thought_parts)
+                return self._clean_response(text), [], usage, thinking_content
 
             native_tools = self._convert_tools_to_native(tools)
             # Use tool_config to explicitly control function calling mode per iteration.
@@ -261,6 +290,7 @@ class GeminiProvider(BaseLLMProvider):
             max_iterations = 5
             total_input_tokens = 0
             total_output_tokens = 0
+            thinking_parts: list[str] = []  # accumulate thinking content across iterations
 
             for iteration in range(max_iterations):
                 logger.info(f"[Gemini] Tool calling iteration {iteration + 1}/{max_iterations}")
@@ -283,17 +313,17 @@ class GeminiProvider(BaseLLMProvider):
                 # Check for function calls
                 function_calls = self._extract_function_calls(response)
 
-                # Log what the LLM decided: tool calls, finish reason, and text snippet
+                # Extract and accumulate thinking content from Gemini 2.5 thought parts
                 _finish_reason = None
                 _thinking_snippet = None
                 if response.candidates:
                     cand = response.candidates[0]
                     _finish_reason = str(getattr(cand, "finish_reason", "unknown"))
-                    # Gemini 2.5 thinking models expose thought parts
                     if cand.content and cand.content.parts:
                         for part in cand.content.parts:
                             if getattr(part, "thought", False) and part.text:
-                                _thinking_snippet = part.text[:200]
+                                thinking_parts.append(part.text)
+                                _thinking_snippet = part.text[:120]
                                 break
                 _text_snippet = (response.text or "")[:120].replace("\n", " ")
                 logger.info(
@@ -309,7 +339,8 @@ class GeminiProvider(BaseLLMProvider):
                     # No function calls, return text response
                     text = response.text.strip() if response.text else ""
                     usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
-                    return self._clean_response(text), function_calls_executed, usage
+                    thinking_content = "\n\n---\n\n".join(thinking_parts) if thinking_parts else None
+                    return self._clean_response(text), function_calls_executed, usage, thinking_content
                 
                 # Execute function calls
                 if tool_executor:
@@ -320,11 +351,14 @@ class GeminiProvider(BaseLLMProvider):
                             _tool_start = time.time()
                             result = await tool_executor(fc["name"], fc["args"])
                             logger.info("[Gemini] tool=%s elapsed=%.3fs", fc["name"], time.time() - _tool_start)
-                            # If the tool returns an "instruction" key, it's a terminal
+                            # If a *handoff* tool returns an "instruction" key, it's a terminal
                             # handoff — capture the instruction and stop the loop after this
                             # iteration instead of feeding the result back to Gemini (which
                             # produces empty text on Flash Lite models).
-                            if isinstance(result, dict) and "instruction" in result:
+                            # Non-handoff tools (e.g. search_properties) may also return
+                            # an "instruction" key to guide the LLM in the next iteration;
+                            # those must NOT be treated as terminal — feed them back normally.
+                            if isinstance(result, dict) and "instruction" in result and fc["name"].startswith("handoff_"):
                                 terminal_instruction = result["instruction"]
                             function_results.append({
                                 "name": fc["name"],
@@ -357,7 +391,8 @@ class GeminiProvider(BaseLLMProvider):
                             logger.info("[Gemini] Terminal handoff — no inline text, returning empty (agent will use fallback)")
                             transition_text = ""
                         usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
-                        return self._clean_response(transition_text), function_calls_executed, usage
+                        thinking_content = "\n\n---\n\n".join(thinking_parts) if thinking_parts else None
+                        return self._clean_response(transition_text), function_calls_executed, usage, thinking_content
                     
                     # Add the full model response (including thought parts/signatures)
                     # back to contents — required when thinking mode is active.
@@ -384,20 +419,22 @@ class GeminiProvider(BaseLLMProvider):
                     # No executor, return what we have
                     text = response.text.strip() if response.text else ""
                     usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
+                    thinking_content = "\n\n---\n\n".join(thinking_parts) if thinking_parts else None
                     return self._clean_response(text), [
                         {"name": fc["name"], "args": fc["args"]} for fc in function_calls
-                    ], usage
+                    ], usage, thinking_content
             
             # Max iterations reached
             logger.warning("[Gemini] Max iterations reached in tool calling")
             usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
-            return self.FALLBACK_RESPONSE, function_calls_executed, usage
+            thinking_content = "\n\n---\n\n".join(thinking_parts) if thinking_parts else None
+            return self.FALLBACK_RESPONSE, function_calls_executed, usage, thinking_content
             
         except Exception as e:
             logger.error(f"[Gemini] Error in generate_with_tools: {e}", exc_info=True)
             if _is_retriable_gemini_error(e):
                 raise
-            return self._handle_error(e), [], None
+            return self._handle_error(e), [], None, None
     
     async def generate_json(
         self,
