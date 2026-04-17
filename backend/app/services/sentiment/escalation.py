@@ -139,7 +139,7 @@ async def _escalate(
             UPDATE leads
             SET
                 metadata = jsonb_set(
-                    COALESCE(metadata, '{}'),
+                    COALESCE(metadata, '{}') - 'human_mode_notified',
                     '{sentiment}',
                     CAST(:sentiment_value AS jsonb),
                     true

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.agents.base import BaseAgent
 from app.services.agents.prompts.follow_up_prompt import FOLLOW_UP_SYSTEM_PROMPT
+from app.services.agents.prompts.skills import FOLLOW_UP_SKILL
 from app.services.agents.types import (
     AgentContext,
     AgentResponse,
@@ -28,10 +29,10 @@ class _SafeFormatMap(dict):
     def __missing__(self, key: str) -> str:
         return "{" + key + "}"
 
-# "potencial" removed — PropertyAgent now owns that stage for browsing.
-# "agendado" is only claimed here when conversation is in COMPLETED state
-# (post-visit follow-up). PropertyAgent handles "agendado" for leads still browsing.
-_OWN_STAGES: set = set()
+# G13: Declare all stages owned by FollowUpAgent so the supervisor's
+# _STAGE_TO_AGENT lookup routes correctly without relying solely on
+# the current_agent sticky field.
+_OWN_STAGES: set = {"agendado", "seguimiento", "referidos", "ganado", "perdido"}
 _OWN_CONV_STATES = {"COMPLETED"}
 
 # Handoff tool — LLM calls this when the lead wants to reschedule or book a new visit.
@@ -105,6 +106,11 @@ class FollowUpAgent(BaseAgent):
             "- handoff_to_scheduler: Úsala si el lead quiere reagendar o agendar una nueva cita."
         )
 
+        skill_ext = context.lead_data.get("_skill_follow_up_extension")
+        has_custom = bool(context.lead_data.get("_custom_follow_up_prompt"))
+        base_prompt = self._inject_skill(
+            base_prompt, "" if has_custom else FOLLOW_UP_SKILL, skill_ext
+        )
         base_prompt = self._inject_handoff_context(base_prompt, context)
         return self._inject_human_release_note(self._inject_tone_hint(base_prompt, context), context)
 
@@ -145,10 +151,7 @@ class FollowUpAgent(BaseAgent):
                 )
                 _handoff_intent["target"] = AgentType.SCHEDULER
                 _handoff_intent["reason"] = args.get("reason", "Lead quiere reagendar")
-                return {
-                    "status": "ok",
-                    "instruction": "Traspaso iniciado. Genera AHORA un mensaje cálido (1-2 oraciones, en español) diciéndole al usuario que lo conectas con la asesora para coordinar la nueva visita.",
-                }
+                return {"status": "ok"}
             return {"error": f"Unknown tool: {tool_name}"}
 
         try:

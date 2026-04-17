@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.agents.base import BaseAgent
+from app.services.agents.prompts.skills import PROPERTY_SKILL
 from app.services.agents.types import (
     AgentContext,
     AgentResponse,
@@ -86,11 +87,26 @@ class PropertyAgent(BaseAgent):
             pref_parts.append(f"Presupuesto: hasta {prefs['max_uf']} UF")
         prefs_ctx = "\n".join(pref_parts) if pref_parts else "Sin preferencias registradas aún"
 
-        prompt = f"""Eres {agent_name}, asesora inmobiliaria experta de {broker_name}.
+        # Broker may supply a custom persona/intro via _agent_property in situation_handlers.
+        # The custom prompt replaces the default header only — dynamic context is always appended.
+        _custom_intro = context.lead_data.get("_custom_property_prompt")
+        if _custom_intro:
+            try:
+                header = _custom_intro.format(
+                    agent_name=agent_name, broker_name=broker_name, lead_name=lead_name
+                )
+            except (KeyError, ValueError):
+                header = _custom_intro  # use as-is if format fails
+        else:
+            header = (
+                f"Eres {agent_name}, asesora inmobiliaria experta de {broker_name}.\n\n"
+                f"IMPORTANTE: Ya estás en una conversación activa con {lead_name}. "
+                f"NO te presentes ni saludes con \"Hola [nombre]\" al inicio de tu respuesta — "
+                f"eso ya ocurrió. Continúa la conversación directamente.\n\n"
+                f"Estás ayudando a {lead_name} a encontrar la propiedad ideal."
+            )
 
-IMPORTANTE: Ya estás en una conversación activa con {lead_name}. NO te presentes ni saludes con "Hola [nombre]" al inicio de tu respuesta — eso ya ocurrió. Continúa la conversación directamente.
-
-Estás ayudando a {lead_name} a encontrar la propiedad ideal.
+        prompt = f"""{header}
 
 ## Contexto del cliente
 {budget_ctx}
@@ -136,16 +152,14 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
                 "El lead aún no ha sido calificado. Tu prioridad al responder:\n"
                 "1. PRIMERO muestra las propiedades encontradas tal como son.\n"
                 "2. Si hay resultados: al final del mensaje haz UNA pregunta natural para refinar (zona, m², etc.).\n"
-                "3. Si NO hay resultados: pide al cliente su nombre y teléfono de forma natural, sin mencionar que no hay propiedades.\n"
-                "4. NUNCA digas 'no encontramos', 'no hay', 'lamentablemente' ni nada negativo sobre disponibilidad.\n"
-                "5. NUNCA pidas los datos ANTES de responder sobre las propiedades.\n"
-                "6. Si el usuario dice 'no', 'no importa', 'da igual', o rechaza seguir buscando: llama handoff_to_qualifier de inmediato.\n"
+                "3. NUNCA digas 'no encontramos', 'no hay', 'lamentablemente' ni nada negativo sobre disponibilidad.\n"
+                "4. NUNCA pidas los datos ANTES de responder sobre las propiedades.\n"
+                "5. Si el usuario dice 'no', 'no importa', 'da igual', o rechaza seguir buscando: llama handoff_to_qualifier de inmediato.\n"
             )
 
         prompt += (
             "\n\n## HERRAMIENTAS DE TRASPASO\n"
             "- Si el usuario pregunta sobre financiamiento, pie, DICOM, renta, cuotas, crédito o proceso de compra: llama handoff_to_qualifier INMEDIATAMENTE sin responder nada sobre el tema.\n"
-            "- Si no hay propiedades disponibles (search devuelve count=0): pide al cliente su nombre y teléfono de forma natural para contactarlo cuando haya disponibilidad. NUNCA menciones que no hay propiedades.\n"
             "- Si el usuario rechaza seguir buscando, dice 'no', 'no gracias', o no quiere explorar más zonas: llama handoff_to_qualifier INMEDIATAMENTE.\n"
             "- Si quiere agendar o visitar una propiedad concreta: llama handoff_to_scheduler.\n"
             "- Para todo lo demás: usa search_properties.\n\n"
@@ -154,6 +168,11 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
             "Ante cualquier pregunta financiera: llama handoff_to_qualifier de inmediato."
         )
 
+        skill_ext = context.lead_data.get("_skill_property_extension")
+        has_custom = bool(context.lead_data.get("_custom_property_prompt"))
+        prompt = self._inject_skill(
+            prompt, "" if has_custom else PROPERTY_SKILL, skill_ext
+        )
         prompt = self._inject_handoff_context(prompt, context)
         return self._inject_human_release_note(self._inject_tone_hint(prompt, context), context)
 
@@ -202,17 +221,18 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
                 if any(r["count"] == 0 for r in tool_results):
                     _handoff_intent["zero_results"] = True
                     _handoff_intent["reason"] = "Lead listo para proceso de calificación"
-                return {
-                    "status": "ok",
-                    "instruction": (
-                        "Traspaso iniciado. Genera AHORA un mensaje corto y natural (1-2 oraciones) "
-                        "donde le dices al usuario que para encontrar la mejor opción para él/ella "
-                        "necesitas conocerlo un poco mejor, y que para eso necesitas algunos datos. "
-                        "NUNCA menciones que no hay propiedades disponibles. "
-                        "NUNCA uses palabras negativas como 'lamentablemente', 'no encontramos', 'no hay'. "
-                        "Ejemplo: 'Para ayudarte mejor, necesito conocerte un poco. ¿Me puedes dar tu nombre y teléfono?'"
-                    ),
-                }
+                _raw_name = context.lead_data.get("name", "")
+                _PLACEHOLDER_PHONES = {"web_chat_pending", "whatsapp_pending"}
+                _lp = context.lead_data.get("phone", "")
+                _already_has_data = (
+                    bool(_raw_name and _raw_name.strip().lower() not in ("user", "usuario", ""))
+                    and bool(_lp and str(_lp) not in _PLACEHOLDER_PHONES and not str(_lp).startswith(("web_chat_", "whatsapp_")))
+                )
+                if _already_has_data:
+                    instruction = "Transición natural (1-2 oraciones). Informa que buscarás las mejores opciones. Nunca menciones disponibilidad."
+                else:
+                    instruction = "Transición natural (1-2 oraciones). Indica que para encontrar la mejor opción necesitas conocerlo. Nunca menciones disponibilidad."
+                return {"status": "ok", "instruction": instruction}
             if tool_name == "handoff_to_scheduler":
                 self._log(
                     "handoff requested → SchedulerAgent",
@@ -221,10 +241,7 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
                 )
                 _handoff_intent["target"] = AgentType.SCHEDULER
                 _handoff_intent["reason"] = tool_args.get("reason", "Lead quiere agendar visita")
-                return {
-                    "status": "ok",
-                    "instruction": "Traspaso iniciado. Genera AHORA un mensaje cálido (1-2 oraciones, en español) confirmando el interés del lead y diciéndole que lo pasas con la asesora para coordinar la visita.",
-                }
+                return {"status": "ok", "instruction": "Transición natural (1-2 oraciones) confirmando interés y pasando al agente de agenda."}
 
             if tool_name != "search_properties":
                 return {"error": f"Unknown tool: {tool_name}"}
@@ -259,15 +276,15 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
                 )
                 if len(results) == 0:
                     _handoff_intent["zero_results"] = True
+                    # Do NOT mention zero results to the LLM — it might leak it to the user.
+                    # Just signal that we need to qualify the lead.
                     return {
                         "properties": [],
                         "count": 0,
                         "instruction": (
-                            "No hay propiedades disponibles para estos criterios. "
-                            "NUNCA menciones que no hay propiedades ni uses palabras negativas. "
-                            "En cambio, di al usuario que para encontrar la mejor opción para él "
-                            "necesitas conocerlo un poco y pídele su nombre y teléfono de contacto. "
-                            "Sé natural y cálido, como si fuera el siguiente paso normal."
+                            "Necesitamos conocer mejor al cliente para encontrar su propiedad ideal. "
+                            "Di al usuario de forma natural que para encontrar la opción perfecta para él "
+                            "necesitas conocerlo un poco más. NO menciones nada sobre disponibilidad."
                         ),
                     }
                 return {"properties": results, "count": len(results)}
@@ -315,13 +332,39 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
 
         handoff = None
         if _handoff_intent.get("zero_results"):
-            # 0 results — always override LLM text (tends to reveal lack of properties).
-            # Pass control to QualifierAgent with a flag so the supervisor allows
-            # the qualifier→property→qualifier revisit.
-            response_text = "Para ayudarte mejor y encontrar la opción ideal para ti, me gustaría conocerte un poco. ¿Me puedes compartir tu nombre y teléfono de contacto?"
-            _handoff_intent["target"] = AgentType.QUALIFIER
-            _handoff_intent["reason"] = "Sin propiedades disponibles — recopilar datos del lead"
-            _handoff_intent["context_updates"] = {"_zero_results_handoff": True}
+            _PLACEHOLDER_PHONES = {"web_chat_pending", "whatsapp_pending"}
+            _lead_phone = context.lead_data.get("phone", "")
+            _has_name = bool(context.lead_data.get("name"))
+            _has_phone = bool(
+                _lead_phone
+                and str(_lead_phone) not in _PLACEHOLDER_PHONES
+                and not str(_lead_phone).startswith(("web_chat_", "whatsapp_"))
+            )
+            handoff_reason = (
+                "El lead quiere encontrar su propiedad ideal. "
+                "Hay que calificarlo para poder ofrecerle las mejores opciones"
+            )
+            if _has_name and _has_phone:
+                handoff_reason += " (ya tiene nombre y teléfono — pide renta, DICOM, etc.)."
+            else:
+                handoff_reason += " — pídele su nombre y teléfono de contacto."
+
+            return AgentResponse(
+                message="",  # Qualifier generates the response
+                agent_type=AgentType.PROPERTY,
+                handoff=HandoffSignal(
+                    target_agent=AgentType.QUALIFIER,
+                    reason=handoff_reason,
+                    context_updates={
+                        "_zero_results_handoff": True,
+                        "last_property_search": {
+                            "results_count": 0,
+                            "strategy": tool_results[0]["strategy"] if tool_results else "unknown",
+                        },
+                    },
+                ),
+                function_calls=function_calls,
+            )
 
         if _handoff_intent.get("target"):
             # If LLM returned empty text after calling the handoff tool, use a natural transition

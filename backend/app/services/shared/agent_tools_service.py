@@ -338,6 +338,7 @@ class AgentToolsService:
                     "end_time": appointment.end_time.isoformat(),
                     "meet_url": appointment.meet_url,
                     "status": appointment.status.value,
+                    "agent_name": agent.name if agent else None,
                     "message": f"Cita creada exitosamente para {appointment.start_time.strftime('%d/%m/%Y a las %H:%M')}"
                 }
             }

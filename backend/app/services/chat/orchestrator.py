@@ -91,6 +91,48 @@ class ChatOrchestratorService:
         current_lead_id = lead.id
         logger.info("[Orchestrator] Step 1 done — lead_id=%s stage=%s", lead.id, lead.pipeline_stage)
 
+        # G7: Acquire a session-level PostgreSQL advisory lock to serialize concurrent
+        # message processing for the same lead.  Use pg_try_advisory_lock to avoid
+        # indefinite blocking when a prior request leaked the lock (e.g. connection
+        # returned to pool before explicit unlock).  If the lock can't be acquired
+        # after a few retries we proceed without it — better to risk a race than to
+        # hang the request forever.
+        _lock_state = [False]  # [0] = currently locked
+        try:
+            from sqlalchemy import text as _adv_sql
+            import asyncio as _aio
+            _MAX_LOCK_ATTEMPTS = 3
+            for _attempt in range(_MAX_LOCK_ATTEMPTS):
+                _got_lock = await db.execute(
+                    _adv_sql("SELECT pg_try_advisory_lock(:lid)"), {"lid": current_lead_id}
+                )
+                if _got_lock.scalar():
+                    _lock_state[0] = True
+                    logger.debug("[Orchestrator] Advisory lock acquired for lead_id=%s (attempt=%s)", current_lead_id, _attempt)
+                    break
+                logger.info("[Orchestrator] Advisory lock busy for lead_id=%s (attempt=%s/%s), retrying…", current_lead_id, _attempt + 1, _MAX_LOCK_ATTEMPTS)
+                await _aio.sleep(1.5)
+            if not _lock_state[0]:
+                logger.warning("[Orchestrator] Could not acquire advisory lock for lead_id=%s after %s attempts — proceeding without lock", current_lead_id, _MAX_LOCK_ATTEMPTS)
+        except Exception as _adv_exc:
+            logger.warning(
+                "[Orchestrator] pg_advisory_lock unavailable for lead_id=%s (continuing): %s",
+                current_lead_id, _adv_exc,
+            )
+
+        async def _release_lock() -> None:
+            """Release the session-level advisory lock (G7). Idempotent."""
+            if _lock_state[0]:
+                _lock_state[0] = False
+                try:
+                    from sqlalchemy import text as _adv_u
+                    await db.execute(_adv_u("SELECT pg_advisory_unlock(:lid)"), {"lid": current_lead_id})
+                except Exception as _ul_exc:
+                    logger.warning(
+                        "[Orchestrator] pg_advisory_unlock failed lead_id=%s: %s",
+                        current_lead_id, _ul_exc,
+                    )
+
         # 1b. Get or create Conversation record (tracks this chat session)
         _conversation = None
         if broker_id:
@@ -306,6 +348,38 @@ class ChatOrchestratorService:
                             "[Orchestrator] auto do_not_reply set for lead_id=%s (off_topic_count=%d)",
                             lead.id, _off_count,
                         )
+
+                # G14: Pre-escalation for leads with accumulated high frustration.
+                # The async Celery sentiment task (Step 11) can only escalate AFTER
+                # the AI has already responded, leaving a one-turn gap.  Instead of
+                # a static heuristic, project the real sliding-window score with the
+                # current message and escalate if the projected action is ESCALATE.
+                if not lead.human_mode and _h_result.score > 0:
+                    from app.services.sentiment.scorer import (
+                        update_sentiment_window as _update_window,
+                        compute_action_level as _compute_g14,
+                    )
+                    _projected = _update_window(
+                        _current_meta_sent, _h_result.score, list(_h_result.emotions)
+                    )
+                    _projected_action = _compute_g14(_projected)
+                    if _projected_action == _AL.ESCALATE:
+                        logger.info(
+                            "[Orchestrator] G14 pre-escalation: projected_frust=%.2f "
+                            "→ escalating lead_id=%s before AI response",
+                            _projected.get("frustration_score", 0), lead.id,
+                        )
+                        await _apply_action(
+                            db=db,
+                            lead_id=lead.id,
+                            broker_id=broker_id,
+                            action=_AL.ESCALATE,
+                            sentiment=_projected,
+                            last_message=message,
+                            channel=provider_name or "webchat",
+                            reason="accumulated_frustration",
+                        )
+                        await db.refresh(lead)
         except Exception as _sync_sent_exc:
             logger.debug("[Sentiment] Sync heuristic gate error: %s", _sync_sent_exc)
         logger.info("[Orchestrator] Step 2b done — sentiment gate passed, human_mode=%s", lead.human_mode)
@@ -375,6 +449,7 @@ class ChatOrchestratorService:
                 )
                 await db.commit()
                 logger.info("[Orchestrator] human_mode handoff notice sent lead_id=%s", lead.id)
+                await _release_lock()
                 return ChatResult(
                     response=handoff_message,
                     lead_id=lead.id,
@@ -382,6 +457,7 @@ class ChatOrchestratorService:
                     lead_status=str(lead.status) if lead.status else "cold",
                 )
 
+            await _release_lock()
             return ChatResult(
                 response="[human_mode]",
                 lead_id=lead.id,
@@ -406,6 +482,7 @@ class ChatOrchestratorService:
             _templates_dnr = (_prompt_cfg_dnr.message_templates or {}) if _prompt_cfg_dnr else {}
             _default_dnr = "Gracias por tu mensaje. Solo puedo ayudarte con consultas sobre propiedades e inmuebles. 🏠"
             fallback_dnr = _templates_dnr.get("do_not_reply_fallback", _default_dnr)
+            await _release_lock()
             return ChatResult(
                 response=fallback_dnr,
                 lead_id=lead.id,
@@ -441,16 +518,25 @@ class ChatOrchestratorService:
             logger.info("[Orchestrator] Step 3a — context fetched, history_len=%s", len(context.get("message_history") or []))
         except Exception as _ctx_exc:
             logger.error("[Orchestrator] Step 3a FAILED — get_lead_context error: %s", _ctx_exc, exc_info=True)
+            await _release_lock()
             raise
 
-        logger.info("[Orchestrator] Step 3b — calling analyze_lead_qualification")
-        try:
-            analysis = await LLMServiceFacade.analyze_lead_qualification(
-                message, context, broker_id=broker_id, lead_id=lead.id
-            )
-        except Exception as _anlz_exc:
-            logger.error("[Orchestrator] Step 3b FAILED — analyze_lead_qualification error: %s", _anlz_exc, exc_info=True)
-            raise
+        # G5: Skip the expensive LLM qualification analysis for leads that are
+        # already past the qualification stages — saves ~4-5 s and tokens per message.
+        _QUALIFICATION_STAGES = {"entrada", "perfilamiento", "calificacion_financiera", "potencial"}
+        if lead.pipeline_stage in _QUALIFICATION_STAGES:
+            logger.info("[Orchestrator] Step 3b — calling analyze_lead_qualification")
+            try:
+                analysis = await LLMServiceFacade.analyze_lead_qualification(
+                    message, context, broker_id=broker_id, lead_id=lead.id
+                )
+            except Exception as _anlz_exc:
+                logger.error("[Orchestrator] Step 3b FAILED — analyze_lead_qualification error: %s", _anlz_exc, exc_info=True)
+                await _release_lock()
+                raise
+        else:
+            logger.info("[Orchestrator] Step 3b — skipping analyze_lead_qualification (stage=%s)", lead.pipeline_stage)
+            analysis = {}
         logger.info("[Orchestrator] Step 3 done — analysis score_delta=%s qualified=%s", analysis.get("score_delta"), analysis.get("qualified"))
 
         # 3b. Advance state machine based on LLM analysis output
@@ -481,6 +567,7 @@ class ChatOrchestratorService:
             logger.info("[Orchestrator] Step 4 done — score old=%s new=%s delta=%s", old_score, new_score, score_delta)
         except Exception as _score_exc:
             logger.error("[Orchestrator] Step 4 FAILED — score update error: %s", _score_exc, exc_info=True)
+            await _release_lock()
             raise
 
         logger.info("[Orchestrator] Step 5 — updating lead metadata, status")
@@ -551,6 +638,7 @@ class ChatOrchestratorService:
             await db.refresh(lead)
         except Exception as _commit_exc:
             logger.error("[Orchestrator] Step 5 FAILED — metadata commit error: %s", _commit_exc, exc_info=True)
+            await _release_lock()
             raise
         logger.info("[Orchestrator] Step 5 done — metadata updated, status=%s", lead.status)
 
@@ -612,6 +700,9 @@ class ChatOrchestratorService:
                     for _k, _v in _broker_cfg.situation_handlers.items():
                         if _k.startswith("_agent_") and _v:
                             _broker_overrides[_k[len("_agent_"):]] = _v
+                        elif _k.startswith("_skill_") and _v:
+                            # strip leading _ only: _skill_qualifier → skill_qualifier
+                            _broker_overrides[_k[1:]] = _v
                 _agent_name = _broker_cfg.agent_name or "Sofía"
             # Load broker name from Broker table
             _br_res = await db.execute(
@@ -641,6 +732,7 @@ class ChatOrchestratorService:
             agent_result = await AgentSupervisor.process(message, agent_context, db)
         except Exception as _agent_exc:
             logger.error("[Orchestrator] Step 7 FAILED — AgentSupervisor error: %s", _agent_exc, exc_info=True)
+            await _release_lock()
             raise
         ai_response = agent_result.message
         function_calls = agent_result.function_calls or []
@@ -649,26 +741,67 @@ class ChatOrchestratorService:
             agent_result.agent_type, len(ai_response or ""), (ai_response or "")[:80],
         )
 
-        # Always persist current_agent + any context_updates from the agent
-        refreshed_metadata = dict(lead.lead_metadata or {})
-        for k, v in (agent_result.context_updates or {}).items():
-            refreshed_metadata[k] = v
-        refreshed_metadata["current_agent"] = agent_result.agent_type.value
+        # Always persist current_agent + any context_updates from the agent.
+        # G3: Use atomic jsonb_set operations to avoid overwriting concurrent
+        # Celery writes (e.g. sentiment).  Each sub-field is set independently
+        # so a concurrent jsonb_set on '{sentiment}' won't be clobbered.
+        import json as _json_g3
+        from sqlalchemy import text as _sa_text_g3
 
-        # Append to agent_history for auditability (keep last 20 entries)
-        agent_history = refreshed_metadata.get("agent_history", [])
-        agent_history.append({
-            "agent": agent_result.agent_type.value,
-            "at": datetime.now(timezone.utc).isoformat(),
-            "stage": lead.pipeline_stage,
-        })
-        refreshed_metadata["agent_history"] = agent_history[-20:]
+        # Build the merged metadata dict in Python (for agent_history computation)
+        # but persist via individual jsonb_set calls instead of full-object replacement.
+        await db.refresh(lead)
+        _step8_meta = dict(lead.lead_metadata or {})
 
-        lead.lead_metadata = encrypt_metadata_fields(refreshed_metadata)
+        # H5: accumulated context_updates from all hops
+        _ctx_updates = dict(agent_result.context_updates or {})
+        # Respect explicit current_agent override from agents (e.g. PropertyAgent
+        # zero-results sets current_agent → qualifier so next turn qualifies the lead).
+        if "current_agent" not in _ctx_updates:
+            _ctx_updates["current_agent"] = agent_result.agent_type.value
+
+        # H6: build full agent_history array
+        agents_chain = (agent_result.metadata or {}).get("agents_chain", [agent_result.agent_type.value])
+        agent_history = list(_step8_meta.get("agent_history") or [])
+        for _agent_name_chain in agents_chain:
+            agent_history.append({
+                "agent": _agent_name_chain,
+                "at": datetime.now(timezone.utc).isoformat(),
+                "stage": lead.pipeline_stage,
+            })
+        _ctx_updates["agent_history"] = agent_history[-20:]
+
+        # G8: mark handoff context as consumed so it won't be re-injected next turn
+        _handoff_at = _ctx_updates.get("_handoff_at") or _step8_meta.get("_handoff_at")
+        if _handoff_at:
+            _ctx_updates["_last_consumed_handoff_at"] = _handoff_at
+
+        # Encrypt sensitive fields before persisting (salary, dicom_status, etc.)
+        # so jsonb_set does not bypass the encryption layer.
+        from app.core.encryption import SENSITIVE_FIELDS as _SENS, encrypt_value as _enc_val
+        for _skey in _SENS:
+            if _skey in _ctx_updates and _ctx_updates[_skey] is not None:
+                _ctx_updates[_skey] = _enc_val(_ctx_updates[_skey])
+
+        # Atomic jsonb_set: chain all updates into a single UPDATE statement.
+        # Each key is set via nested jsonb_set so the write is atomic.
+        _set_expr = "COALESCE(metadata, '{}'::jsonb)"
+        _params: dict = {"lid": lead.id}
+        for _idx, (_key, _val) in enumerate(_ctx_updates.items()):
+            _pkey = f"k{_idx}"
+            _pval = f"v{_idx}"
+            _set_expr = f"jsonb_set({_set_expr}, ARRAY[:{_pkey}], CAST(:{_pval} AS jsonb), true)"
+            _params[_pkey] = _key
+            _params[_pval] = _json_g3.dumps(_val)
+
         try:
+            await db.execute(
+                _sa_text_g3(f"UPDATE leads SET metadata = {_set_expr} WHERE id = :lid"),
+                _params,
+            )
             await db.commit()
             await db.refresh(lead)
-            logger.info("[Orchestrator] Step 8 done — agent metadata persisted")
+            logger.info("[Orchestrator] Step 8 done — agent metadata persisted (atomic jsonb_set)")
         except Exception as _meta_commit_exc:
             logger.error(
                 "[Orchestrator] Step 8 commit failed — agent_history/context_updates NOT persisted: %s",
@@ -690,7 +823,7 @@ class ChatOrchestratorService:
                     db,
                     _conversation.id,
                     current_agent=agent_result.agent_type.value,
-                    conversation_state=refreshed_metadata.get("conversation_state"),
+                    conversation_state=(lead.lead_metadata or {}).get("conversation_state"),
                 )
                 await db.commit()
             except Exception as _conv_upd_exc:
@@ -780,6 +913,7 @@ class ChatOrchestratorService:
             "[Orchestrator] COMPLETE lead_id=%s score=%s state=%s",
             current_lead_id, new_score, conv_machine.state,
         )
+        await _release_lock()
         return ChatResult(
             response=ai_response,
             lead_id=current_lead_id,

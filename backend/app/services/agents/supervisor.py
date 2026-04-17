@@ -22,9 +22,10 @@ Usage
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 from datetime import datetime as _dt, timezone as _tz
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -85,9 +86,11 @@ class AgentSupervisor:
         last_response: Optional[AgentResponse] = None
         hops = 0
         visited_agents: List[str] = []
+        # H5: accumulate context_updates from every hop so the orchestrator
+        # persists data from ALL agents in the chain, not just the last one.
+        all_context_updates: Dict[str, Any] = {}
 
         # Inject the current message so agents can inspect it inside should_handle()
-        import dataclasses
         current_context = dataclasses.replace(current_context, current_message=message)
 
         # Warm up Redis cache with all agent model configs for this broker so
@@ -165,15 +168,38 @@ class AgentSupervisor:
             )
 
             logger.info("[Supervisor] Calling agent.process: %s", agent.name)
-            response = await agent.process(message, current_context, db)
+            # G2: catch exceptions from agent.process() so a single agent failure
+            # doesn't crash the entire request — return a graceful error response.
+            try:
+                response = await agent.process(message, current_context, db)
+            except Exception as _agent_exc:
+                logger.error(
+                    "[Supervisor] Agent %s raised an unhandled exception: %s",
+                    agent.name, _agent_exc, exc_info=True,
+                )
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                return AgentResponse(
+                    message=(
+                        "Disculpa, tuve un problema procesando tu mensaje. "
+                        "Por favor intenta de nuevo."
+                    ),
+                    agent_type=agent.agent_type,
+                    metadata={"agents_chain": visited_agents},
+                )
             last_response = response
             logger.info(
                 "[Supervisor] agent.process done: %s — response=%r",
                 agent.name, (response.message or "")[:80],
             )
 
+            # H5: accumulate context_updates from every hop
+            all_context_updates.update(response.context_updates or {})
+
             # Apply context updates
-            updated_data = {**current_context.lead_data, **response.context_updates}
+            updated_data = {**current_context.lead_data, **(response.context_updates or {})}
             current_context = AgentContext(
                 lead_id=current_context.lead_id,
                 broker_id=current_context.broker_id,
@@ -213,18 +239,27 @@ class AgentSupervisor:
                 conversation_id=conversation_id,
             )
 
+            # H5: accumulate handoff context_updates (includes _handoff_from/reason/at)
+            all_context_updates.update(handoff.context_updates or {})
+
             # Apply handoff context updates — persist handoff metadata for the target agent
             handoff.context_updates.setdefault("_handoff_reason", handoff.reason)
             handoff.context_updates.setdefault("_handoff_from", agent.agent_type.value)
             handoff.context_updates.setdefault("_handoff_at", _dt.now(_tz.utc).isoformat())
             handoff_data = {**updated_data, **handoff.context_updates}
+
+            # H3: append Agent A's response to message_history so Agent B has
+            # full conversational context without re-processing the same raw message.
+            updated_history = list(current_context.message_history) + [
+                {"role": "assistant", "content": response.message}
+            ]
             current_context = AgentContext(
                 lead_id=current_context.lead_id,
                 broker_id=current_context.broker_id,
                 pipeline_stage=current_context.pipeline_stage,
                 conversation_state=current_context.conversation_state,
                 lead_data=handoff_data,
-                message_history=current_context.message_history,
+                message_history=updated_history,
                 current_agent=handoff.target_agent,
                 handoff_count=hops + 1,
                 pre_analysis=current_context.pre_analysis,  # preserve so target agent has intent/fields
@@ -246,6 +281,21 @@ class AgentSupervisor:
                 message="Disculpa, no pude procesar tu mensaje. Por favor intenta nuevamente.",
                 agent_type=AgentType.SUPERVISOR,
             )
+
+        # G8: mark the current handoff context as consumed so the next turn's
+        # _inject_handoff_context() does not re-inject it into the system prompt.
+        _active_handoff_at = current_context.lead_data.get("_handoff_at")
+        if _active_handoff_at:
+            all_context_updates["_last_consumed_handoff_at"] = _active_handoff_at
+
+        # H5/H6: enrich the final response with accumulated data from all hops.
+        meta = dict(last_response.metadata or {})
+        meta["agents_chain"] = visited_agents  # H6: full audit trail of this turn
+        last_response = dataclasses.replace(
+            last_response,
+            context_updates=all_context_updates,
+            metadata=meta,
+        )
 
         return last_response
 

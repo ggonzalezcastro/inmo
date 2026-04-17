@@ -236,6 +236,10 @@ class WhatsAppProvider(BaseChatProvider):
         """
         Verify WhatsApp webhook signature using app_secret.
         Signature is in X-Hub-Signature-256 header, format: sha256=<signature>
+
+        G10: Must use the raw request body bytes — re-serializing the parsed JSON
+        dict produces a different byte sequence than what Meta signed (key order,
+        whitespace), causing false HMAC mismatches.
         """
         if not self.app_secret:
             logger.warning("WhatsApp app_secret not configured, skipping signature verification")
@@ -243,10 +247,15 @@ class WhatsAppProvider(BaseChatProvider):
 
         try:
             signature = signature.replace("sha256=", "").strip()
-            payload_str = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+            # Pop __raw_body__ (injected by webhooks.py) immediately so it does not
+            # leak into downstream code that might serialize the dict.
+            raw_bytes: bytes = payload.pop("__raw_body__", b"") if isinstance(payload, dict) else b""
+            if not raw_bytes:
+                # Fallback for direct calls (e.g. tests) that don't inject __raw_body__.
+                raw_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
             expected = hmac.new(
                 self.app_secret.encode("utf-8"),
-                payload_str.encode("utf-8"),
+                raw_bytes,
                 hashlib.sha256,
             ).hexdigest()
             return hmac.compare_digest(signature, expected)

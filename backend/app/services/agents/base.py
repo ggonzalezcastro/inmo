@@ -128,7 +128,12 @@ class BaseAgent(ABC):
         lead_data = context.lead_data
         handoff_from = lead_data.get("_handoff_from")
         handoff_reason = lead_data.get("_handoff_reason")
+        handoff_at = lead_data.get("_handoff_at")
         if not handoff_from or not handoff_reason:
+            return prompt
+
+        # G8: skip if this handoff was already consumed in a previous turn.
+        if handoff_at and lead_data.get("_last_consumed_handoff_at") == handoff_at:
             return prompt
 
         _agent_labels = {
@@ -150,6 +155,32 @@ class BaseAgent(ABC):
             f"  redirige al agendamiento de reunión, sin dar ningún valor ni estimación.\n"
             f"- TODAS las reglas de negocio siguen vigentes, incluso en traspaso.\n"
         )
+
+    def _inject_skill(self, prompt: str, skill: str, extension: str | None = None) -> str:
+        """Append the agent's specialised skill document to the system prompt.
+
+        The skill provides decision trees, conversation examples, edge cases and
+        success criteria that are not in the base prompt.  An optional broker
+        extension (from BrokerPromptConfig.situation_handlers) is appended after
+        the base skill so brokers can customise behaviour without replacing it.
+
+        When ``skill`` is empty (broker supplied a full custom prompt), only the
+        ``extension`` is injected — avoids silently overriding the broker's prompt
+        with the base skill document.  If both are empty, the prompt is returned
+        unchanged.
+        """
+        base = skill or ""
+        ext = (extension or "").strip()
+        if ext:
+            if base:
+                combined = base + f"\n\n### Instrucciones adicionales del broker\n{ext}"
+            else:
+                combined = ext
+        else:
+            combined = base
+        if not combined.strip():
+            return prompt
+        return prompt + f"\n\n---\n{combined}"
 
     def _inject_human_release_note(self, prompt: str, context: AgentContext) -> str:
         """Prepend the human agent's handoff note to the system prompt when the AI resumes.

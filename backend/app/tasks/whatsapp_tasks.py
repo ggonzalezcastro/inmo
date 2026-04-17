@@ -113,6 +113,25 @@ def process_whatsapp_message(
                 )
             logger.info("WhatsApp task: using lead_id=%s", lead.id)
 
+            # G6: Idempotency check — if this wamid was already processed (e.g.
+            # Meta retried after a timeout), skip re-processing to prevent duplicate
+            # AI responses and state corruption.
+            # Guard: only check when wamid is non-empty; `== None` generates IS NULL
+            # which would match unrelated rows with no channel_message_id.
+            if wamid:
+                from app.models.chat_message import ChatMessage as _CMCheck
+                from sqlalchemy.future import select as _sel_dup
+                _dup_res = await db.execute(
+                    _sel_dup(_CMCheck.id)
+                    .where(_CMCheck.channel_message_id == wamid)
+                    .limit(1)
+                )
+                if _dup_res.scalars().first():
+                    logger.info(
+                        "WhatsApp task: wamid=%s already processed — skipping (idempotent)", wamid
+                    )
+                    return
+
             # 3. Log inbound message
             await ChatService.log_message(
                 db=db,

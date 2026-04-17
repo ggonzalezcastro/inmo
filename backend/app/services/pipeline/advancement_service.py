@@ -26,6 +26,9 @@ async def move_lead_to_stage(
 ) -> Lead:
     """
     Move a lead to a new pipeline stage.
+
+    G9: Rejects backward moves — a lead can never regress to an earlier stage
+    via automatic advancement.
     """
     if new_stage not in PIPELINE_STAGES:
         raise ValueError(
@@ -38,6 +41,22 @@ async def move_lead_to_stage(
         raise ValueError(f"Lead {lead_id} not found")
 
     old_stage = lead.pipeline_stage
+
+    # G9: Prevent backward stage regression. Stage order defined by PIPELINE_STAGES dict
+    # insertion order (Python 3.7+).
+    _stages_list = list(PIPELINE_STAGES.keys())
+    if (
+        old_stage
+        and old_stage in _stages_list
+        and new_stage in _stages_list
+        and _stages_list.index(new_stage) < _stages_list.index(old_stage)
+    ):
+        logger.warning(
+            "move_lead_to_stage: blocked backward move lead_id=%s %s → %s (reason=%r)",
+            lead_id, old_stage, new_stage, reason,
+        )
+        return lead  # No-op — do not regress the stage
+
     lead.pipeline_stage = new_stage
     lead.stage_entered_at = datetime.now().replace(tzinfo=lead.created_at.tzinfo)
     await db.commit()

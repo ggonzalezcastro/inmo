@@ -177,26 +177,44 @@ class ChatService:
         provider_name: str,
         payload: Dict[str, Any],
         signature: Optional[str] = None,
+        dedup_fn=None,
+        rate_limit_fn=None,
     ) -> Optional[ChatMessage]:
         """
         Handle incoming webhook from provider.
         Verifies signature if provided, parses message, finds/creates lead, logs message.
+        G6/G12: dedup_fn and rate_limit_fn are called AFTER signature verification
+        but BEFORE processing, so forged requests can't poison Redis.
         """
         provider = await ChatService.get_provider_for_broker(db, broker_id, provider_name)
         if not provider:
             logger.error("Provider %s not available for broker %s", provider_name, broker_id)
             return None
 
-        if signature:
-            is_valid = await provider.verify_webhook_signature(payload, signature)
-            if not is_valid:
-                logger.error("Invalid webhook signature for %s", provider_name)
-                return None
+        # Always verify — providers with no secret configured return True;
+        # providers with a secret correctly reject empty/missing signatures.
+        is_valid = await provider.verify_webhook_signature(payload, signature)
+        if not is_valid:
+            logger.error("Invalid webhook signature for %s", provider_name)
+            return None
 
         message_data = await provider.parse_webhook_message(payload)
         if not message_data:
             logger.debug("No message data extracted from webhook")
             return None
+
+        # G6: Deduplicate AFTER signature verification using the same message id
+        # that parse_webhook_message extracted — ensures consistency.
+        if dedup_fn and message_data.channel_message_id:
+            _dedup_key = f"chat_{provider_name}_{broker_id}"
+            if await dedup_fn(_dedup_key, message_data.channel_message_id):
+                logger.info("Chat webhook: duplicate %s msg_id=%s ignored", provider_name, message_data.channel_message_id)
+                return None
+
+        # G12: Per-sender rate limiting AFTER signature verification.
+        if rate_limit_fn and message_data.channel_user_id:
+            if await rate_limit_fn(f"chat_{provider_name}_{broker_id}", message_data.channel_user_id):
+                return None
 
         lead = await ChatService.find_lead_by_channel(
             db, broker_id, provider_name, message_data.channel_user_id

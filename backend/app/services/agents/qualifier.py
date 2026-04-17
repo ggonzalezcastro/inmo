@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.agents.base import BaseAgent
 from app.services.agents.prompts.qualifier_prompt import QUALIFIER_SYSTEM_PROMPT
+from app.services.agents.prompts.skills import QUALIFIER_SKILL
 from app.services.agents.types import (
     AgentContext,
     AgentResponse,
@@ -222,6 +223,11 @@ class QualifierAgent(BaseAgent):
                 "Continúa con una pregunta natural para avanzar en la calificación.\n"
             )
 
+        skill_ext = context.lead_data.get("_skill_qualifier_extension")
+        has_custom = bool(context.lead_data.get("_custom_qualifier_prompt"))
+        base_prompt = self._inject_skill(
+            base_prompt, "" if has_custom else QUALIFIER_SKILL, skill_ext
+        )
         base_prompt = self._inject_handoff_context(base_prompt, context)
         return self._inject_human_release_note(self._inject_tone_hint(base_prompt, context), context)
 
@@ -318,7 +324,8 @@ class QualifierAgent(BaseAgent):
 
         # DICOM dirty enforcement — code-level guard BEFORE the LLM call.
         # This is a non-negotiable business rule, not LLM-decided.
-        dirty_dicom = merged_data.get("dicom_status") == "dirty"
+        # LLM prompt returns "has_debt"; legacy data may contain "dirty".
+        dirty_dicom = merged_data.get("dicom_status") in ("has_debt", "dirty")
 
         if dirty_dicom:
             morosidad = merged_data.get("morosidad_amount", 0) or 0
@@ -386,25 +393,17 @@ class QualifierAgent(BaseAgent):
                     return {
                         "status": "blocked",
                         "reason": "Falta el teléfono del lead. Debes pedirlo antes de agendar.",
-                        "instruction": "Aún falta el número de teléfono del lead. Pídelo AHORA en este mensaje antes de continuar.",
                     }
                 _handoff_intent["target"] = AgentType.SCHEDULER
                 _handoff_intent["reason"] = args.get("reason", "Lead calificado")
-                return {
-                    "status": "ok",
-                    "instruction": "Traspaso iniciado. Genera AHORA un mensaje cálido de transición al usuario (1-2 oraciones, en español), despidiéndote y diciéndole que lo pasas con la asesora de visitas.",
-                }
+                return {"status": "ok"}
             if tool_name == "handoff_to_property":
-                # Prevent loop: if we already came FROM PropertyAgent, don't hand back
                 if came_from_property:
                     self._log("Blocking handoff_to_property — loop prevention (came from property)", lead_id=context.lead_id)
                     return {"status": "blocked", "reason": "Already processed by PropertyAgent this turn. Handle the question directly."}
                 _handoff_intent["target"] = AgentType.PROPERTY
                 _handoff_intent["reason"] = args.get("reason", "Lead quiere ver propiedades")
-                return {
-                    "status": "ok",
-                    "instruction": "Traspaso iniciado. Genera AHORA un mensaje cálido de transición al usuario (1-2 oraciones, en español), diciéndole que le vas a mostrar las propiedades disponibles.",
-                }
+                return {"status": "ok"}
             return {"error": f"Unknown tool: {tool_name}"}
 
         # When we just came from PropertyAgent (no properties found), exclude

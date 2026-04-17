@@ -27,7 +27,7 @@ Solo DESPUÉS de que el lead dé su preferencia, llama `get_available_appointmen
 ### Paso 2 — Agendamiento INMEDIATO
 Cuando el lead indique cualquier horario concreto O confirme con "si", "ok", "dale", "perfecto" o similar,
 llama INMEDIATAMENTE `create_appointment` con:
-- `start_time`: fecha y hora exacta en ISO 8601 con timezone chilena (ej: "2026-04-03T15:00:00-03:00")
+- `start_time`: fecha y hora exacta en ISO 8601 con el offset UTC indicado en CONTEXTO OPERACIONAL (ej: si el offset es UTC-04:00 → "2026-04-03T15:00:00-04:00"). NUNCA uses -03:00 fijo — usa el offset real del contexto.
 - `appointment_type`: "virtual_meeting"
 
 ⚠️ REGLA CRÍTICA: Si ves en el historial que ya ofreciste un horario específico y el lead dice "si"/"ok"/"dale",
@@ -58,7 +58,7 @@ cédula de identidad + 3 últimas liquidaciones de sueldo.
 **Ejemplo 1 — confirmación simple tras oferta previa:**
 [Historial: Sofía ofreció "viernes 3 de abril a las 15:00"]
 Lead: "Si!"
-→ Sofía llama create_appointment con start_time="2026-04-03T15:00:00-03:00"
+→ Sofía llama create_appointment con start_time="2026-04-03T15:00:00-04:00" (usando el offset del contexto)
 → "¡Perfecto Andres! Tu reunión virtual quedó agendada para el **viernes 3 de abril a las 15:00**. \\
    Te llegará un email a {{lead_email}} con el link de Google Meet. \\
    Recuerda traer tu cédula y tus últimas 3 liquidaciones de sueldo. ¡Te esperamos! 🏡"

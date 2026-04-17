@@ -41,7 +41,7 @@ class WebhookEvent:
     ended_reason: Optional[str] = None
     artifact_messages: Optional[List[Any]] = None
     tool_calls_data: Optional[List[Any]] = None
-    call_id_from_metadata: Optional[str] = None
+    call_id_from_metadata: Optional[int] = None
     broker_id: Optional[int] = None
     assistant_type: Optional[str] = None
 

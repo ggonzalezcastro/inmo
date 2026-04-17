@@ -108,14 +108,24 @@ def build_context(
     _stage = lead.pipeline_stage if isinstance(lead.pipeline_stage, str) and lead.pipeline_stage else None
     # Prefer explicitly passed message_history (from DB records); fall back to metadata
     _history = message_history if message_history is not None else metadata.get("message_history", [])
+    # Strip web/whatsapp placeholder names so agents ask for the real name
+    _PLACEHOLDER_NAMES = frozenset({"User", "Test User", "user", "test user"})
+    _lead_name = lead.name if lead.name and lead.name not in _PLACEHOLDER_NAMES else None
+    _PLACEHOLDER_PHONES = frozenset({"web_chat_pending", "whatsapp_pending"})
+    _lead_phone = (
+        lead.phone
+        if lead.phone and str(lead.phone) not in _PLACEHOLDER_PHONES
+        and not str(lead.phone).startswith(("web_chat_", "whatsapp_"))
+        else None
+    )
     return AgentContext(
         lead_id=lead.id,
         broker_id=broker_id,
         pipeline_stage=_stage or metadata.get("pipeline_stage", "entrada"),
         conversation_state=_parse_conv_state(metadata.get("conversation_state")),
         lead_data={
-            "name": lead.name,
-            "phone": lead.phone,
+            "name": _lead_name,
+            "phone": _lead_phone,
             "email": lead.email,
             "salary": metadata.get("salary"),
             "budget": metadata.get("budget"),
@@ -129,10 +139,19 @@ def build_context(
             "_handoff_reason": metadata.get("_handoff_reason"),
             "_handoff_from": metadata.get("_handoff_from"),
             "_handoff_at": metadata.get("_handoff_at"),
+            # G8: tracks which handoff was already consumed so _inject_handoff_context
+            # does not re-inject stale context in subsequent turns.
+            "_last_consumed_handoff_at": metadata.get("_last_consumed_handoff_at"),
             # Broker-level custom prompt overrides (passed from orchestrator)
             "_custom_qualifier_prompt": (broker_overrides or {}).get("qualifier"),
             "_custom_scheduler_prompt": (broker_overrides or {}).get("scheduler"),
             "_custom_follow_up_prompt": (broker_overrides or {}).get("follow_up"),
+            "_custom_property_prompt": (broker_overrides or {}).get("property"),
+            # Broker-level skill extensions — appended after the base skill document
+            "_skill_qualifier_extension": (broker_overrides or {}).get("skill_qualifier"),
+            "_skill_scheduler_extension": (broker_overrides or {}).get("skill_scheduler"),
+            "_skill_follow_up_extension": (broker_overrides or {}).get("skill_follow_up"),
+            "_skill_property_extension": (broker_overrides or {}).get("skill_property"),
         },
         message_history=_history,
         current_agent=_parse_agent_type(metadata.get("current_agent")),

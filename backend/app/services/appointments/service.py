@@ -103,7 +103,13 @@ class AppointmentService:
             select(Lead).where(Lead.id == lead_id)
         )
         lead = lead_result.scalars().first()
-        lead_name = lead.name if lead and lead.name else f"Lead #{lead_id}"
+        lead_name = None
+        if lead:
+            lead_name = lead.name if lead.name and lead.name not in ("User", "Test User") else None
+            if not lead_name:
+                lead_name = (lead.lead_metadata or {}).get("name")
+        if not lead_name:
+            lead_name = f"Lead #{lead_id}"
 
         # Get agent email if assigned (use pre-loaded agent object if available)
         agent_email = None

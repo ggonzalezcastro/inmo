@@ -230,6 +230,7 @@ class VoiceCallService:
             phone_number=lead.phone,
             status=CallStatus.INITIATED,
             broker_id=broker_user_id,
+            call_mode="outbound",
         )
         db.add(voice_call)
         await db.flush()          # assign ID without committing

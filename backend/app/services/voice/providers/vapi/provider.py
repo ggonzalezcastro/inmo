@@ -183,7 +183,11 @@ class VapiProvider(BaseVoiceProvider):
         ended_reason = None
         artifact_messages = None
         tool_calls_data = None
-        call_id_from_metadata = (call.get("metadata") or {}).get("call_id")
+        _raw_call_id = (call.get("metadata") or {}).get("call_id")
+        try:
+            call_id_from_metadata = int(_raw_call_id) if _raw_call_id is not None else None
+        except (ValueError, TypeError):
+            call_id_from_metadata = None
         vapi_metadata = call.get("metadata") or {}
         if not vapi_metadata:
             vapi_metadata = message.get("metadata") or {}

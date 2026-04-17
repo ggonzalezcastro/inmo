@@ -536,6 +536,12 @@ async def save_agent_prompts(
     qualifier_custom = (body.get("qualifier") or "").strip()
     scheduler_custom = (body.get("scheduler") or "").strip()
     follow_up_custom = (body.get("follow_up") or "").strip()
+    property_custom = (body.get("property") or "").strip()
+    # Skill extensions — appended after the base skill document for each agent
+    skill_qualifier = (body.get("skill_qualifier") or "").strip()
+    skill_scheduler = (body.get("skill_scheduler") or "").strip()
+    skill_follow_up = (body.get("skill_follow_up") or "").strip()
+    skill_property = (body.get("skill_property") or "").strip()
 
     try:
         result = await db.execute(
@@ -546,11 +552,16 @@ async def save_agent_prompts(
             raise HTTPException(status_code=404, detail="No prompt config found for this broker")
 
         handlers = dict(cfg.situation_handlers or {})
-        # Store / clear overrides
+        # Store / clear prompt overrides and skill extensions
         for key, val in [
             ("_agent_qualifier", qualifier_custom),
             ("_agent_scheduler", scheduler_custom),
             ("_agent_follow_up", follow_up_custom),
+            ("_agent_property", property_custom),
+            ("_skill_qualifier", skill_qualifier),
+            ("_skill_scheduler", skill_scheduler),
+            ("_skill_follow_up", skill_follow_up),
+            ("_skill_property", skill_property),
         ]:
             if val:
                 handlers[key] = val

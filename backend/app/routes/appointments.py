@@ -137,33 +137,44 @@ async def list_appointments(
     """List appointments with filters"""
     
     try:
-        query = select(Appointment)
-        
-        # Apply filters
+        # Base filter conditions
+        broker_id = current_user.get("broker_id") if isinstance(current_user, dict) else getattr(current_user, "broker_id", None)
+        role = current_user.get("role") if isinstance(current_user, dict) else getattr(current_user, "role", None)
+
+        base_filter = []
+        if role != "SUPERADMIN" and broker_id:
+            base_filter.append(Lead.broker_id == broker_id)
+
+        query = select(Appointment, Lead, User).outerjoin(Lead, Appointment.lead_id == Lead.id).outerjoin(User, Appointment.agent_id == User.id)
+
         if lead_id:
             query = query.where(Appointment.lead_id == lead_id)
-        
+            if broker_id and role != "SUPERADMIN":
+                base_filter.append(Lead.broker_id == broker_id)
+
         if agent_id:
             query = query.where(Appointment.agent_id == agent_id)
-        
+
         if status:
             try:
                 status_enum = AppointmentStatus(status)
                 query = query.where(Appointment.status == status_enum)
             except ValueError:
                 raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
-        
+
         if start_date:
             start_datetime = datetime.combine(start_date, datetime.min.time())
             query = query.where(Appointment.start_time >= start_datetime)
-        
+
         if end_date:
             end_datetime = datetime.combine(end_date, datetime.max.time())
             query = query.where(Appointment.start_time <= end_datetime)
-        
-        # Get total count (before pagination) - apply same filters
-        count_query = select(func.count(Appointment.id))
-        
+
+        if base_filter:
+            query = query.where(and_(*base_filter))
+
+        # Get total count (before pagination)
+        count_query = select(func.count(Appointment.id)).outerjoin(Lead, Appointment.lead_id == Lead.id)
         if lead_id:
             count_query = count_query.where(Appointment.lead_id == lead_id)
         if agent_id:
@@ -180,18 +191,38 @@ async def list_appointments(
         if end_date:
             end_datetime = datetime.combine(end_date, datetime.max.time())
             count_query = count_query.where(Appointment.start_time <= end_datetime)
-        
+        if base_filter:
+            count_query = count_query.where(and_(*base_filter))
+
         total_result = await db.execute(count_query)
         total = total_result.scalar() or 0
-        
+
         # Apply pagination and ordering
         query = query.order_by(desc(Appointment.start_time)).offset(skip).limit(limit)
-        
+
         result = await db.execute(query)
-        appointments = result.scalars().all()
-        
+        rows = result.all()
+
+        appointments_data = []
+        for row in rows:
+            apt = row[0]
+            lead = row[1] if len(row) > 1 else None
+            agent = row[2] if len(row) > 2 else None
+
+            lead_name = None
+            if lead:
+                lead_name = lead.name if lead.name and lead.name not in ("User", "Test User") else None
+                if not lead_name:
+                    lead_name = (lead.lead_metadata or {}).get("name")
+
+            apt_dict = AppointmentResponse.model_validate(apt).model_dump()
+            apt_dict["lead_name"] = lead_name
+            apt_dict["lead_phone"] = lead.phone if lead else None
+            apt_dict["agent_name"] = agent.name if agent else None
+            appointments_data.append(AppointmentResponse(**apt_dict))
+
         return AppointmentListResponse(
-            data=[AppointmentResponse.model_validate(apt) for apt in appointments],
+            data=appointments_data,
             total=total,
             skip=skip,
             limit=limit

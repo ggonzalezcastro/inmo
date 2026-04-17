@@ -50,6 +50,9 @@ class AppointmentUpdate(BaseModel):
 class AppointmentResponse(AppointmentBase):
     id: int
     lead_id: int
+    lead_name: Optional[str] = None
+    lead_phone: Optional[str] = None
+    agent_name: Optional[str] = None
     status: AppointmentStatusEnum
     end_time: datetime
     meet_url: Optional[str] = None  # Google Meet URL

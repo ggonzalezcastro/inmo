@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.agents.base import BaseAgent
 from app.services.agents.prompts.scheduler_prompt import SCHEDULER_SYSTEM_PROMPT
+from app.services.agents.prompts.skills import SCHEDULER_SKILL
 from app.services.agents.types import (
     AgentContext,
     AgentResponse,
@@ -78,7 +79,14 @@ class SchedulerAgent(BaseAgent):
         except Exception:
             tz = pytz.timezone("America/Santiago")
         now_local = datetime.now(tz)
-        current_datetime_str = now_local.strftime("%A %d de %B de %Y, %H:%M") + f" ({broker_timezone})"
+        # Include the UTC offset explicitly so the LLM uses the correct one in ISO timestamps
+        # (e.g. Chile is UTC-3 in summer but UTC-4 in winter — LLM must not hardcode -03:00)
+        utc_offset_str = now_local.strftime("%z")  # e.g. "-0400"
+        utc_offset_formatted = f"{utc_offset_str[:3]}:{utc_offset_str[3:]}"  # "-04:00"
+        current_datetime_str = (
+            now_local.strftime("%A %d de %B de %Y, %H:%M")
+            + f" ({broker_timezone}, UTC{utc_offset_formatted})"
+        )
 
         template = lead_data.get("_custom_scheduler_prompt") or SCHEDULER_SYSTEM_PROMPT
         base_prompt = template.format(
@@ -102,6 +110,11 @@ class SchedulerAgent(BaseAgent):
             "NO llames handoff_to_follow_up si create_appointment devolvió error."
         )
 
+        skill_ext = context.lead_data.get("_skill_scheduler_extension")
+        has_custom = bool(context.lead_data.get("_custom_scheduler_prompt"))
+        base_prompt = self._inject_skill(
+            base_prompt, "" if has_custom else SCHEDULER_SKILL, skill_ext
+        )
         base_prompt = self._inject_handoff_context(base_prompt, context)
         return self._inject_human_release_note(self._inject_tone_hint(base_prompt, context), context)
 
@@ -136,6 +149,28 @@ class SchedulerAgent(BaseAgent):
             stage=context.pipeline_stage,
         )
 
+        # G1: Pre-check — SchedulerAgent requires financial data before proceeding.
+        # Skip when handed off from QualifierAgent: Qualifier already enforced all
+        # requirements (DICOM, salary, name, phone) before calling handoff_to_scheduler.
+        _came_from_qualifier = context.lead_data.get("_handoff_from") == "qualifier"
+        _pre = context.pre_analysis or {}
+        _has_financial_data = (
+            _came_from_qualifier
+            or context.lead_data.get("dicom_status") or _pre.get("dicom_status")
+            or context.lead_data.get("salary") or _pre.get("salary")
+            or context.lead_data.get("budget") or _pre.get("budget")
+        )
+        if not _has_financial_data:
+            self._log("PRE-CHECK: missing financial data — handing back to QualifierAgent", lead_id=context.lead_id)
+            return AgentResponse(
+                message="Antes de agendar tu visita, necesito conocer un poco más sobre tu situación financiera.",
+                agent_type=self.agent_type,
+                handoff=HandoffSignal(
+                    target_agent=AgentType.QUALIFIER,
+                    reason="Faltan datos financieros para completar la calificación",
+                ),
+            )
+
         # Fetch broker timezone from config
         broker_timezone = "America/Santiago"
         try:
@@ -151,9 +186,9 @@ class SchedulerAgent(BaseAgent):
         system_prompt = self.get_system_prompt(context, broker_timezone=broker_timezone)
 
         _handoff_intent: dict = {}
+        _last_appointment_result: dict | None = None
+        _confirmation_text: list[str] = []  # [0] = formatted confirmation to override LLM inline text
 
-        # Always set up the handoff tool executor first — it works independently
-        # of whether AgentToolsService is available.
         async def _handoff_only_executor(tool_name: str, arguments: dict):
             if tool_name == "handoff_to_follow_up":
                 self._log(
@@ -165,11 +200,10 @@ class SchedulerAgent(BaseAgent):
                 _handoff_intent["reason"] = arguments.get("reason", "Cita agendada")
                 return {
                     "status": "ok",
-                    "instruction": "Traspaso iniciado. Genera AHORA un mensaje cálido (1-2 oraciones, en español) confirmando que la cita quedó agendada y despidiéndote hasta el día de la visita.",
+                    "instruction": "Traspaso iniciado.",
                 }
             return {"error": f"Unknown tool: {tool_name}"}
 
-        # Try to load AgentToolsService appointment tools alongside handoff tool.
         tools: list = list(_HANDOFF_TOOLS)
         tool_executor = _handoff_only_executor
         try:
@@ -188,7 +222,15 @@ class SchedulerAgent(BaseAgent):
             tools = appointment_tools + _HANDOFF_TOOLS
 
             async def _full_executor(tool_name: str, arguments: dict):
+                nonlocal _last_appointment_result
                 if tool_name == "handoff_to_follow_up":
+                    # Guard: block premature handoff if no appointment has been created yet
+                    if not _last_appointment_result:
+                        self._log("Blocking handoff_to_follow_up — no appointment created yet", lead_id=context.lead_id)
+                        return {
+                            "status": "blocked",
+                            "reason": "Debes llamar create_appointment primero y confirmar que fue exitoso. No puedes hacer handoff sin cita creada.",
+                        }
                     self._log(
                         "handoff requested → FollowUpAgent",
                         lead_id=context.lead_id,
@@ -196,18 +238,35 @@ class SchedulerAgent(BaseAgent):
                     )
                     _handoff_intent["target"] = AgentType.FOLLOW_UP
                     _handoff_intent["reason"] = arguments.get("reason", "Cita agendada")
-                    return {
-                        "status": "ok",
-                        "instruction": "Traspaso iniciado. Genera AHORA un mensaje cálido (1-2 oraciones, en español) confirmando que la cita quedó agendada y despidiéndote hasta el día de la visita.",
-                    }
+                    apt = _last_appointment_result or {}
+                    lead_name = context.lead_data.get("name") or "!"
+                    name_part = f" {lead_name.capitalize()}" if lead_name and lead_name != "!" else ""
+                    start = apt.get("start_time", "próximamente")
+                    meet = apt.get("meet_url") or ""
+                    agent_name_val = apt.get("agent_name") or "tu ejecutiva"
+                    lead_email = context.lead_data.get("email") or ""
+                    # Build the formatted confirmation directly — don't rely on the LLM
+                    # to follow format instructions (it ignores them when generating inline text)
+                    lines = [f"✅ Reunión agendada{name_part}:", f"📅 {start}"]
+                    if meet:
+                        lines.append(f"📹 Link Meet: {meet}")
+                    lines.append(f"👤 Ejecutivo/a: {agent_name_val}")
+                    if lead_email:
+                        lines.append(f"📩 Te llegará invitación a {lead_email}")
+                    lines.append("\nRecuerda traer tu cédula de identidad y tus últimas 3 liquidaciones de sueldo. ¡Te esperamos! 🏡")
+                    _confirmation_text.append("\n".join(lines))
+                    return {"status": "ok"}
                 try:
-                    return await AgentToolsService.execute_tool(
+                    result = await AgentToolsService.execute_tool(
                         db=db,
                         tool_name=tool_name,
                         arguments=arguments,
                         lead_id=context.lead_id,
                         agent_id=None,
                     )
+                    if tool_name == "create_appointment" and isinstance(result, dict) and result.get("success"):
+                        _last_appointment_result = result.get("result")
+                    return result
                 except Exception as _te:
                     logger.error("SchedulerAgent tool %s error: %s", tool_name, _te)
                     return {"error": str(_te), "success": False}
@@ -256,6 +315,11 @@ class SchedulerAgent(BaseAgent):
                 self._log(f"LLM retry also failed: {exc2}", level="error")
                 response_text = "Disculpa, estoy teniendo dificultades para mostrarte los horarios. Por favor contáctame directamente."
                 function_calls = []
+
+        # Override LLM inline text with the deterministic formatted confirmation
+        # (LLM ignores format instructions when it generates text alongside the tool call)
+        if _confirmation_text:
+            response_text = _confirmation_text[0]
 
         updates: dict = {}
         handoff: HandoffSignal | None = None

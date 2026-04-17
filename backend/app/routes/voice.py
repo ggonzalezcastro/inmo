@@ -226,6 +226,25 @@ async def _handle_vapi_webhook(
                 "VAPI hang event for call_id=%s",
                 raw_event.external_call_id,
             )
+            if raw_event.external_call_id:
+                try:
+                    hang_result = await db.execute(
+                        select(VoiceCall).where(
+                            VoiceCall.external_call_id == raw_event.external_call_id
+                        )
+                    )
+                    hang_vc = hang_result.scalars().first()
+                    if hang_vc and hang_vc.status not in (
+                        CallStatus.COMPLETED,
+                        CallStatus.FAILED,
+                        CallStatus.CANCELLED,
+                    ):
+                        hang_vc.status = CallStatus.CANCELLED
+                        if not hang_vc.completed_at:
+                            hang_vc.completed_at = datetime.now(timezone.utc)
+                        await db.commit()
+                except Exception as hang_err:
+                    logger.warning("HANG cleanup failed for %s: %s", raw_event.external_call_id, hang_err)
             return {"ok": True}
 
         logger.info("Unrecognized VAPI webhook event type: %s", raw_event.event_type)

@@ -10,6 +10,7 @@ the configured provider (Gemini, Claude, or OpenAI).
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import Dict, Any, List, Tuple, Callable, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +20,81 @@ from app.services.llm.base_provider import LLMMessage, LLMToolDefinition, Messag
 from app.core.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
+
+
+# ── Regex fallback for data extraction when LLM analysis fails ───────────────
+
+_PHONE_RE = re.compile(
+    r'(?:(?:\+?56)?[\s-]?9[\s-]?\d{4}[\s-]?\d{4})'   # Chilean mobile: +56 9 XXXX XXXX
+    r'|(?:\b9\d{8}\b)',                                  # 9XXXXXXXX
+    re.IGNORECASE,
+)
+
+_NAME_PATTERNS = [
+    re.compile(r'(?:me llamo|soy|mi nombre es)\s+([A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+){0,3})', re.IGNORECASE),
+    re.compile(r'(?:nombre[:\s]+)\s*([A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+){0,3})', re.IGNORECASE),
+]
+
+_EMAIL_RE = re.compile(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}')
+
+_GREETING_WORDS = frozenset({
+    "hola", "buenos", "buenas", "dias", "tardes", "noches", "gracias",
+    "si", "no", "ok", "bien", "claro", "dale", "ya",
+})
+
+
+def _regex_extract_fields(message: str) -> Dict[str, Any]:
+    """Best-effort regex extraction of name, phone, and email from a message.
+
+    Returns a dict with only the fields that were successfully extracted.
+    Used as a fallback when the LLM analysis model fails or returns empty.
+    """
+    extracted: Dict[str, Any] = {}
+
+    # Phone — inline normalization to avoid heavy import chain
+    phone_match = _PHONE_RE.search(message)
+    if phone_match:
+        digits = re.sub(r'\D', '', phone_match.group())
+        if digits.startswith('56'):
+            extracted["phone"] = f"+{digits}"
+        elif len(digits) == 9 and digits.startswith('9'):
+            extracted["phone"] = f"+56{digits}"
+        else:
+            extracted["phone"] = f"+{digits}"
+
+    # Email
+    email_match = _EMAIL_RE.search(message)
+    if email_match:
+        extracted["email"] = email_match.group().lower()
+
+    # Name — try explicit patterns first
+    for pattern in _NAME_PATTERNS:
+        m = pattern.search(message)
+        if m:
+            candidate = m.group(1).strip()
+            words = candidate.split()
+            # Filter out trailing noise words that got captured
+            clean_words = []
+            for w in words:
+                if w.lower() in ("y", "mi", "numero", "telefono", "es", "el", "la", "de"):
+                    break
+                clean_words.append(w)
+            if clean_words and clean_words[0].lower() not in _GREETING_WORDS:
+                extracted["name"] = " ".join(clean_words)
+                break
+
+    # Fallback: "Name Surname, rest of message" pattern (leading name before comma)
+    if "name" not in extracted:
+        comma_match = re.match(
+            r'^([A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+){1,3})\s*[,.]',
+            message.strip(),
+        )
+        if comma_match:
+            candidate = comma_match.group(1).strip()
+            if candidate.lower().split()[0] not in _GREETING_WORDS:
+                extracted["name"] = candidate
+
+    return extracted
 
 
 def _provider_meta(provider) -> tuple[str, str, bool]:
@@ -324,6 +400,20 @@ Para "intent" (usa el que mejor describe la NECESIDAD PRINCIPAL del mensaje):
                 if key not in result:
                     result[key] = default
 
+            # Regex fallback: fill missing fields per-field when LLM returned empty/null
+            _llm_empty = not result.get("name") and not result.get("phone") and not result.get("email")
+            if _llm_empty:
+                logger.warning(
+                    "[LLM-facade] analyze_lead_qualification returned no contact fields "
+                    "(provider=%s model=%s lead_id=%s) — trying regex fallback",
+                    pname, model, lead_id,
+                )
+            _fallback = _regex_extract_fields(message)
+            for _fk, _fv in _fallback.items():
+                if not result.get(_fk):
+                    result[_fk] = _fv
+                    logger.info("[LLM-facade] regex fallback filled %s=%r", _fk, _fv)
+
             return result
 
         except Exception as e:
@@ -338,14 +428,18 @@ Para "intent" (usa el que mejor describe la NECESIDAD PRINCIPAL del mensaje):
                 lead_id=lead_id,
                 error=str(e)[:500],
             )
+            # Even on full failure, try regex extraction from the raw message
+            _fallback = _regex_extract_fields(message)
+            if _fallback:
+                logger.info("[LLM-facade] analysis failed but regex extracted: %s", list(_fallback.keys()))
             return {
                 "qualified": "maybe",
                 "interest_level": 5,
                 "budget": None,
                 "timeline": "unknown",
-                "name": None,
-                "phone": None,
-                "email": None,
+                "name": _fallback.get("name"),
+                "phone": _fallback.get("phone"),
+                "email": _fallback.get("email"),
                 "salary": None,
                 "location": None,
                 "dicom_status": None,

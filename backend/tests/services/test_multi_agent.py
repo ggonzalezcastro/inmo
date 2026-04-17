@@ -65,7 +65,7 @@ def _qualified_context() -> AgentContext:
 def _dirty_dicom_context() -> AgentContext:
     """Context where lead has dirty DICOM — no handoff should happen."""
     ctx = _qualified_context()
-    ctx.lead_data = {**ctx.lead_data, "dicom_status": "dirty"}
+    ctx.lead_data = {**ctx.lead_data, "dicom_status": "has_debt"}
     return ctx
 
 
@@ -185,7 +185,7 @@ class TestQualifierAgent:
         agent = QualifierAgent()
         ctx = _dirty_dicom_context()
 
-        mock_analysis = {"dicom_status": "dirty"}
+        mock_analysis = {"dicom_status": "has_debt"}
         mock_response = ("Entiendo. Para acceder al crédito necesitas DICOM limpio.", [])
 
         with (
