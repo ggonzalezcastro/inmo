@@ -9,8 +9,14 @@ Run with:
 """
 from __future__ import annotations
 
+import sys
+from unittest.mock import MagicMock
+
+# msal is an optional Outlook dependency not installed in the test env
+sys.modules.setdefault("msal", MagicMock())
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -114,8 +120,11 @@ class TestGetNextAgentByPriority:
         agent3 = _make_agent(id=3, priority=3, calendar=True)
 
         db = AsyncMock()
-        # First pass (calendar only) returns agent1
-        db.execute.return_value.scalars.return_value.first.return_value = agent1
+        # db.execute.return_value must be a MagicMock (not AsyncMock) so that
+        # result.scalars() returns a plain value, not a coroutine.
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = agent1
+        db.execute.return_value = mock_result
 
         result = await RoundRobinService.get_next_agent_by_priority(db, broker_id=1)
         assert result is agent1
@@ -128,8 +137,9 @@ class TestGetNextAgentByPriority:
         agent_with_calendar = _make_agent(id=2, priority=2, calendar=True)
 
         db = AsyncMock()
-        # First pass returns the calendar-connected agent (priority=2)
-        db.execute.return_value.scalars.return_value.first.return_value = agent_with_calendar
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = agent_with_calendar
+        db.execute.return_value = mock_result
 
         result = await RoundRobinService.get_next_agent_by_priority(db, broker_id=1)
         assert result is agent_with_calendar
@@ -167,8 +177,9 @@ class TestGetNextAgentByPriority:
         fallback_agent = _make_agent(id=10)
 
         db = AsyncMock()
-        # Both passes return None (no agents with assignment_priority set)
-        db.execute.return_value.scalars.return_value.first.return_value = None
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = None
+        db.execute.return_value = mock_result
 
         with patch.object(RoundRobinService, 'get_next_agent', new=AsyncMock(return_value=fallback_agent)) as mock_rr:
             result = await RoundRobinService.get_next_agent_by_priority(db, broker_id=1)

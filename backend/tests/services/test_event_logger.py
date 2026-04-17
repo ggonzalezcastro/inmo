@@ -8,6 +8,7 @@ Run without DB:
 from __future__ import annotations
 
 import asyncio
+import sys
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -131,9 +132,16 @@ class TestEventLoggerRedisPublish:
         mock_db_instance.__aenter__ = AsyncMock(return_value=mock_db_instance)
         mock_db_instance.__aexit__ = AsyncMock(return_value=False)
 
-        # Patch the module-level name used inside _write via lazy import
-        with patch("app.core.database.AsyncSessionLocal", return_value=mock_db_instance), \
-             patch("app.services.observability.event_logger.AgentEvent", return_value=mock_event), \
+        mock_db_module = MagicMock()
+        mock_db_module.AsyncSessionLocal = MagicMock(return_value=mock_db_instance)
+        mock_agent_event_cls = MagicMock(return_value=mock_event)
+        mock_event_module = MagicMock(AgentEvent=mock_agent_event_cls)
+
+        # Patch sys.modules for both lazy imports inside _write()
+        with patch.dict("sys.modules", {
+                "app.core.database": mock_db_module,
+                "app.models.agent_event": mock_event_module,
+             }), \
              patch("app.core.redis_client._get_async_redis", return_value=mock_redis):
             await logger._write(event_type="llm_call", lead_id=1, broker_id=5)
 
@@ -158,8 +166,14 @@ class TestEventLoggerRedisPublish:
         mock_db_instance.__aenter__ = AsyncMock(return_value=mock_db_instance)
         mock_db_instance.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("app.core.database.AsyncSessionLocal", return_value=mock_db_instance), \
-             patch("app.services.observability.event_logger.AgentEvent", return_value=mock_event), \
+        mock_db_module2 = MagicMock()
+        mock_db_module2.AsyncSessionLocal = MagicMock(return_value=mock_db_instance)
+        mock_event_module2 = MagicMock(AgentEvent=MagicMock(return_value=mock_event))
+
+        with patch.dict("sys.modules", {
+                "app.core.database": mock_db_module2,
+                "app.models.agent_event": mock_event_module2,
+             }), \
              patch("app.core.redis_client._get_async_redis", return_value=mock_redis):
             # Should not raise
             await logger._write(event_type="error", lead_id=1, broker_id=5)

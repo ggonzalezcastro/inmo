@@ -108,8 +108,9 @@ class TestSupervisorContextPropagation:
         Simulate a single handoff and verify property_preferences, tone_hint,
         and current_frustration are preserved in the next agent's context.
         """
+            # Use 'potencial' → maps to PROPERTY in _STAGE_TO_AGENT
         initial_ctx = _ctx(
-            pipeline_stage="calificacion_financiera",
+            pipeline_stage="potencial",
             property_preferences={"commune": "Ñuñoa", "max_uf": 4500},
             current_frustration=0.3,
             tone_hint="empathetic",
@@ -165,19 +166,26 @@ class TestSupervisorContextPropagation:
             property_mock.name = "PropertyAgent"
             property_mock.should_handle = mock_should_handle_property
             property_mock.process = mock_process_1
-            property_mock.should_handoff = AsyncMock(return_value=None)
+            # should_handoff must return response.handoff (mirrors base implementation)
+            property_mock.should_handoff = AsyncMock(side_effect=lambda resp, ctx: resp.handoff)
 
             scheduler_mock = AsyncMock(spec=SchedulerAgent)
             scheduler_mock.agent_type = AgentType.SCHEDULER
             scheduler_mock.name = "SchedulerAgent"
             scheduler_mock.should_handle = mock_should_handle_scheduler
             scheduler_mock.process = mock_process_2
-            scheduler_mock.should_handoff = AsyncMock(return_value=None)
+            scheduler_mock.should_handoff = AsyncMock(side_effect=lambda resp, ctx: resp.handoff)
 
-            with patch(
-                "app.services.agents.get_priority_agents",
-                return_value=[property_mock, scheduler_mock],
-            ):
+            # Supervisor uses get_agent() from base registry — patch that
+            def _mock_get_agent(agent_type):
+                if agent_type == AgentType.PROPERTY:
+                    return property_mock
+                if agent_type == AgentType.SCHEDULER:
+                    return scheduler_mock
+                return None
+
+            with patch("app.services.agents.supervisor.get_agent", side_effect=_mock_get_agent), \
+                 patch("app.services.agents.model_config.load_all_agent_configs", new_callable=AsyncMock):
                 db = AsyncMock()
                 result = await supervisor.process("quiero visitar", initial_ctx, db)
 
