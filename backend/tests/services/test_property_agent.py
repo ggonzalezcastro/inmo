@@ -29,32 +29,33 @@ def _ctx(**overrides) -> AgentContext:
     return AgentContext(**defaults)
 
 
-# ── should_handle ─────────────────────────────────────────────────────────────
+# ── should_handle (stub — routing now done by AgentSupervisor._STAGE_TO_AGENT) ─
 
 class TestPropertyAgentRouting:
-    @pytest.mark.asyncio
-    async def test_handles_potencial_stage(self):
-        agent = PropertyAgent()
-        assert await agent.should_handle(_ctx(pipeline_stage="potencial"))
+    """should_handle is a deprecated stub since phase 3.1.
+    The Supervisor routes via _STAGE_TO_AGENT deterministically.
+    Tests now verify that sticky routing (current_agent set) works correctly."""
 
     @pytest.mark.asyncio
-    async def test_handles_calificacion_financiera_stage(self):
+    async def test_handles_when_current_agent_is_property(self):
         agent = PropertyAgent()
-        assert await agent.should_handle(_ctx(pipeline_stage="calificacion_financiera"))
+        ctx = _ctx(pipeline_stage="potencial")
+        ctx = ctx.__class__(**{**ctx.__dict__, "current_agent": AgentType.PROPERTY})
+        assert await agent.should_handle(ctx)
 
     @pytest.mark.asyncio
-    async def test_handles_agendado_stage(self):
+    async def test_does_not_handle_when_current_agent_is_other(self):
         agent = PropertyAgent()
-        assert await agent.should_handle(_ctx(pipeline_stage="agendado"))
+        ctx = _ctx(pipeline_stage="potencial")
+        ctx = ctx.__class__(**{**ctx.__dict__, "current_agent": AgentType.QUALIFIER})
+        assert not await agent.should_handle(ctx)
 
     @pytest.mark.asyncio
-    async def test_does_not_handle_entrada_stage(self):
+    async def test_does_not_handle_when_no_current_agent(self):
+        """Without current_agent set, supervisor uses stage table — not should_handle."""
         agent = PropertyAgent()
+        assert not await agent.should_handle(_ctx(pipeline_stage="potencial"))
         assert not await agent.should_handle(_ctx(pipeline_stage="entrada"))
-
-    @pytest.mark.asyncio
-    async def test_does_not_handle_referidos_stage(self):
-        agent = PropertyAgent()
         assert not await agent.should_handle(_ctx(pipeline_stage="referidos"))
 
 
@@ -63,7 +64,8 @@ class TestPropertyAgentRouting:
 class TestPropertyAgentProcess:
     @pytest.mark.asyncio
     async def test_responds_when_no_property_query(self):
-        """Non-property message → conversational response via LLM passthrough, then handoff."""
+        """Non-property message with no tool calls → conversational response, no handoff.
+        Handoffs only happen when the LLM calls handoff_to_qualifier/scheduler tools."""
         agent = PropertyAgent()
         ctx = _ctx()
         db = AsyncMock()
@@ -77,9 +79,8 @@ class TestPropertyAgentProcess:
 
         assert response.message == "Hola, soy Sofía. ¿En qué puedo ayudarte?"
         assert response.agent_type == AgentType.PROPERTY
-        # Non-property message triggers handoff to Qualifier
-        assert response.handoff is not None
-        assert response.handoff.target_agent == AgentType.QUALIFIER
+        # No tool calls → no handoff signal (supervisor handles routing)
+        assert response.handoff is None
 
     @pytest.mark.asyncio
     async def test_executes_property_search_tool(self):
