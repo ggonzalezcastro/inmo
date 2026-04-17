@@ -157,6 +157,148 @@ class TestPropertyAgentProcess:
         assert handoff is None
 
 
+# ── zero-results handoff ──────────────────────────────────────────────────────
+
+class TestPropertyAgentZeroResults:
+    """When search returns 0 results, PropertyAgent should hand off to QualifierAgent
+    with a safe deterministic transition message (never raw LLM text that may
+    leak stock-availability info)."""
+
+    @pytest.mark.asyncio
+    async def test_zero_results_hands_off_to_qualifier(self):
+        agent = PropertyAgent()
+        ctx = _ctx(pipeline_stage="potencial")
+        db = AsyncMock()
+
+        with patch(
+            "app.services.agents.property.execute_property_search",
+            new_callable=AsyncMock,
+            return_value=[],
+        ), patch(
+            "app.services.agents.property.LLMServiceFacade.generate_response_with_function_calling",
+            new_callable=AsyncMock,
+            return_value=("texto generado por LLM que no se usa", []),
+        ), patch(
+            "app.services.observability.event_logger.event_logger.log_property_search",
+            new_callable=AsyncMock,
+        ), patch(
+            "app.services.observability.event_logger.event_logger.log_tool_call",
+            new_callable=AsyncMock,
+        ):
+            # Simulate the tool being called by running process with a search intent
+            # We need to trigger the tool_executor path — patch at facade level
+            # and simulate tool call side effect manually via _handoff_intent
+            response = await _run_with_zero_results(agent, ctx, db)
+
+        assert response.handoff is not None
+        assert response.handoff.target_agent == AgentType.QUALIFIER
+        assert response.handoff.context_updates.get("_zero_results_handoff") is True
+
+    @pytest.mark.asyncio
+    async def test_zero_results_message_is_not_empty(self):
+        """message must never be '' — empty string poisons the history."""
+        agent = PropertyAgent()
+        ctx = _ctx()
+        db = AsyncMock()
+
+        response = await _run_with_zero_results(agent, ctx, db)
+
+        assert response.message, "message must not be empty string"
+        assert response.message.strip(), "message must not be whitespace only"
+
+    @pytest.mark.asyncio
+    async def test_zero_results_message_does_not_mention_availability(self):
+        """Transition message must never reveal lack of stock to the lead."""
+        agent = PropertyAgent()
+        ctx = _ctx()
+        db = AsyncMock()
+
+        response = await _run_with_zero_results(agent, ctx, db)
+
+        forbidden = ["no hay", "no encontr", "sin resultado", "disponib", "stock"]
+        msg_lower = response.message.lower()
+        for word in forbidden:
+            assert word not in msg_lower, (
+                f"Transition message leaks stock info ('{word}'): {response.message}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_zero_results_stores_transition_in_context(self):
+        """_property_transition_said must be set so Qualifier doesn't repeat it."""
+        agent = PropertyAgent()
+        ctx = _ctx()
+        db = AsyncMock()
+
+        response = await _run_with_zero_results(agent, ctx, db)
+
+        assert response.handoff is not None
+        assert "_property_transition_said" in response.handoff.context_updates
+        assert response.handoff.context_updates["_property_transition_said"] == response.message
+
+    @pytest.mark.asyncio
+    async def test_zero_results_with_name_and_phone_gives_different_transition(self):
+        """Lead with name+phone gets a different transition than unknown lead."""
+        agent = PropertyAgent()
+        ctx_unknown = _ctx(lead_data={"broker_name": "Test", "agent_name": "Sofía"})
+        ctx_known = _ctx(lead_data={
+            "broker_name": "Test", "agent_name": "Sofía",
+            "name": "Juan", "phone": "+56912345678",
+        })
+        db = AsyncMock()
+
+        resp_unknown = await _run_with_zero_results(agent, ctx_unknown, db)
+        resp_known = await _run_with_zero_results(agent, ctx_known, db)
+
+        assert resp_unknown.message != resp_known.message, (
+            "Lead with data should get a different transition than unknown lead"
+        )
+
+
+async def _run_with_zero_results(agent: PropertyAgent, ctx: AgentContext, db):
+    """Helper: simulate a search_properties tool call that returns 0 results."""
+    original_process = agent.process
+
+    async def fake_tool_executor_process(message, context, db):
+        # Directly invoke the internal logic by monkey-patching execute_property_search
+        with patch(
+            "app.services.agents.property.execute_property_search",
+            new_callable=AsyncMock,
+            return_value=[],
+        ), patch(
+            "app.services.agents.property.LLMServiceFacade.generate_response_with_function_calling",
+            new_callable=AsyncMock,
+            return_value=("texto LLM descartado", []),
+        ), patch(
+            "app.services.observability.event_logger.event_logger.log_property_search",
+            new_callable=AsyncMock,
+        ), patch(
+            "app.services.observability.event_logger.event_logger.log_tool_call",
+            new_callable=AsyncMock,
+        ):
+            # We need to actually trigger the tool_executor so _handoff_intent gets set.
+            # The simplest way: patch generate_response_with_function_calling to call
+            # the tool_executor with search_properties returning 0 results.
+            from app.services.agents import property as prop_module
+
+            _original_facade = prop_module.LLMServiceFacade.generate_response_with_function_calling
+
+            async def facade_that_triggers_search(system_prompt, contents, tools, tool_executor, **kwargs):
+                # Simulate LLM calling search_properties
+                await tool_executor("search_properties", {
+                    "location": "Santiago", "property_type": "departamento", "strategy": "hybrid"
+                })
+                return ("texto LLM descartado", [])
+
+            with patch.object(
+                prop_module.LLMServiceFacade,
+                "generate_response_with_function_calling",
+                side_effect=facade_that_triggers_search,
+            ):
+                return await original_process(message, context, db)
+
+    return await fake_tool_executor_process("Busco depto en Santiago", ctx, db)
+
+
 # ── agent_type enum ───────────────────────────────────────────────────────────
 
 class TestPropertyAgentIdentity:
