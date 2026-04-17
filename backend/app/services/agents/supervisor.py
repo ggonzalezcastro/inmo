@@ -250,9 +250,12 @@ class AgentSupervisor:
 
             # H3: append Agent A's response to message_history so Agent B has
             # full conversational context without re-processing the same raw message.
-            updated_history = list(current_context.message_history) + [
-                {"role": "assistant", "content": response.message}
-            ]
+            # Guard: skip blank entries — they poison the LLM with empty assistant turns.
+            updated_history = list(current_context.message_history)
+            if response.message and response.message.strip():
+                updated_history = updated_history + [
+                    {"role": "assistant", "content": response.message}
+                ]
             current_context = AgentContext(
                 lead_id=current_context.lead_id,
                 broker_id=current_context.broker_id,

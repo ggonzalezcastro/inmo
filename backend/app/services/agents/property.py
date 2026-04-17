@@ -349,14 +349,22 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
             else:
                 handoff_reason += " — pídele su nombre y teléfono de contacto."
 
+            # Use a deterministic safe transition — never trust raw LLM text here
+            # since it may leak "no hay disponibilidad" despite the prompt instruction.
+            if _has_name and _has_phone:
+                _transition = "Para encontrar la mejor opción según tu perfil, voy a conectarte con quien puede orientarte. 😊"
+            else:
+                _transition = "Para encontrar la propiedad ideal para ti, necesito conocerte un poco mejor. 😊"
+
             return AgentResponse(
-                message="",  # Qualifier generates the response
+                message=_transition,
                 agent_type=AgentType.PROPERTY,
                 handoff=HandoffSignal(
                     target_agent=AgentType.QUALIFIER,
                     reason=handoff_reason,
                     context_updates={
                         "_zero_results_handoff": True,
+                        "_property_transition_said": _transition,
                         "last_property_search": {
                             "results_count": 0,
                             "strategy": tool_results[0]["strategy"] if tool_results else "unknown",

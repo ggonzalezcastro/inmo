@@ -215,11 +215,18 @@ class QualifierAgent(BaseAgent):
         # When routed from PropertyAgent (no properties found), tell LLM to pivot
         # to qualification instead of trying to show properties.
         if lead_data.get("_handoff_from") == "property":
+            _transition_said = lead_data.get("_property_transition_said", "")
+            _no_repeat = (
+                f"El agente anterior ya dijo al lead: \"{_transition_said}\" — "
+                "NO repitas esa frase ni uses palabras similares. Continúa directamente con la siguiente pregunta."
+                if _transition_said else ""
+            )
             base_prompt += (
                 "\n\n## CONTEXTO DEL TRASPASO\n"
                 "Vienes del agente de propiedades — no había propiedades disponibles para los criterios del lead. "
                 "Tu objetivo ahora es recopilar sus datos de calificación (nombre, teléfono, email, ubicación, renta). "
                 "NO intentes buscar propiedades ni uses handoff_to_property. "
+                f"{_no_repeat}\n"
                 "Continúa con una pregunta natural para avanzar en la calificación.\n"
             )
 
