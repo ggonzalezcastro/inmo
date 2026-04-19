@@ -14,9 +14,10 @@ from app.database import init_db, close_db
 from app.config import settings
 
 # ── Logging must be configured before any other module logs anything ──────────
+_log_level = "DEBUG" if settings.DEBUG else ("ERROR" if settings.ENVIRONMENT == "production" else "INFO")
 setup_logging(
     environment=settings.ENVIRONMENT,
-    log_level="DEBUG" if settings.DEBUG else "INFO",
+    log_level=_log_level,
 )
 from app.features.auth.routes import router as auth_router
 from app.features.leads.routes import router as leads_router

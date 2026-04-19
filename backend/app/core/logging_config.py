@@ -80,11 +80,12 @@ def setup_logging(environment: str = "development", log_level: str = "INFO") -> 
     root_logger.handlers.clear()
     root_logger.addHandler(handler)
 
-    # Reduce noise from chatty libraries
+    # Silence chatty libraries — in production everything below ERROR is dropped
+    lib_level = logging.ERROR if environment == "production" else logging.WARNING
     for noisy in ("httpx", "httpcore", "asyncio", "multipart", "uvicorn.access"):
-        logging.getLogger(noisy).setLevel(logging.WARNING)
+        logging.getLogger(noisy).setLevel(lib_level)
 
-    logging.getLogger("uvicorn.error").setLevel(logging.INFO)
+    logging.getLogger("uvicorn.error").setLevel(lib_level)
 
 
 def get_logger(name: str) -> logging.Logger:
