@@ -873,6 +873,57 @@ class ChatOrchestratorService:
             },
         )
 
+        # ── Response-time metrics + fast-responder tag (on_message) ─────────
+        # Recompute bot→lead turnaround after every exchange and apply/remove
+        # the ``respuesta_rapida`` tag. The full lead_score recalculation
+        # remains in the daily Celery task; here we only persist the tag and
+        # the metrics dict for real-time UI.
+        try:
+            from app.services.leads.response_metrics import (
+                update_lead_response_metrics,
+            )
+            from app.services.leads.constants import FAST_RESPONDER_TAG
+
+            _result = await update_lead_response_metrics(db, current_lead_id)
+            await db.commit()
+            await db.refresh(lead)
+
+            if _result["tag_changed"]:
+                # Activity log for auditability
+                try:
+                    await ActivityService.log_activity(
+                        db,
+                        lead_id=current_lead_id,
+                        action_type="tag_changed",
+                        details={
+                            "tag": FAST_RESPONDER_TAG,
+                            "applied": _result["applied"],
+                            "metrics": _result["metrics"],
+                        },
+                    )
+                except Exception as _act_exc:
+                    logger.debug("[ResponseMetrics] activity log failed: %s", _act_exc)
+
+                # WS broadcast so the frontend updates the badge immediately
+                if broker_id:
+                    try:
+                        from app.core.websocket_manager import ws_manager
+                        await ws_manager.broadcast(broker_id, "lead_tag_changed", {
+                            "lead_id": current_lead_id,
+                            "tags": _result["new_tags"],
+                            "tag": FAST_RESPONDER_TAG,
+                            "applied": _result["applied"],
+                            "response_metrics": _result["metrics"],
+                        })
+                    except Exception as _ws_exc:
+                        logger.debug("[ResponseMetrics] WS broadcast failed: %s", _ws_exc)
+        except Exception as _rm_exc:
+            logger.warning("[ResponseMetrics] computation failed (non-fatal): %s", _rm_exc)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
         # Broadcast AI response + stop typing indicator (TASK-027)
         if broker_id:
             try:

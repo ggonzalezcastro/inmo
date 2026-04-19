@@ -46,6 +46,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/leads', label: 'Leads', icon: Users },
   { path: '/pipeline', label: 'Pipeline', icon: GitBranch, excludeRoles: ['superadmin'] },
+  { path: '/projects', label: 'Inventario', icon: Building2, roles: ['admin', 'superadmin'] },
   { path: '/properties', label: 'Propiedades', icon: Home, roles: ['admin', 'superadmin'] },
   { path: '/conversations', label: 'Conversaciones', icon: Inbox, excludeRoles: ['superadmin'] },
   { path: '/campaigns', label: 'Campañas', icon: Megaphone, roles: ['admin'] },

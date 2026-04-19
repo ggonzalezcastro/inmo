@@ -21,8 +21,10 @@ import {
 } from '@/shared/components/ui/select'
 import { Badge } from '@/shared/components/ui/badge'
 import { propertiesService } from '../services/properties.service'
+import { projectsService } from '@/features/projects/services/projects.service'
 import { getErrorMessage } from '@/shared/types/api'
 import type { Property, CreatePropertyDto, PropertyStatus, PropertyType } from '../types'
+import type { Project } from '@/features/projects/types'
 
 interface PropertyFormDialogProps {
   open: boolean
@@ -30,6 +32,8 @@ interface PropertyFormDialogProps {
   property?: Property | null
   onSuccess: (property: Property) => void
   brokerIdOverride?: number
+  /** Pre-fills the project selector when opening from a project's accordion */
+  initialProjectId?: number | null
 }
 
 const STATUS_OPTIONS: { value: PropertyStatus; label: string }[] = [
@@ -52,12 +56,16 @@ export function PropertyFormDialog({
   property,
   onSuccess,
   brokerIdOverride,
+  initialProjectId = null,
 }: PropertyFormDialogProps) {
   const isEditing = !!property
 
   // Basic
   const [name, setName] = useState('')
-  const [internalCode, setInternalCode] = useState('')
+  const [codigo, setCodigo] = useState('')
+  const [tipologia, setTipologia] = useState('')
+  const [projectId, setProjectId] = useState<number | null>(null)
+  const [projects, setProjects] = useState<Project[]>([])
   const [propertyType, setPropertyType] = useState<PropertyType | ''>('')
   const [status, setStatus] = useState<PropertyStatus>('available')
 
@@ -79,6 +87,11 @@ export function PropertyFormDialog({
   // Pricing
   const [priceUf, setPriceUf] = useState('')
   const [priceClp, setPriceClp] = useState('')
+  const [listPriceUf, setListPriceUf] = useState('')
+  const [listPriceClp, setListPriceClp] = useState('')
+  const [offerPriceUf, setOfferPriceUf] = useState('')
+  const [offerPriceClp, setOfferPriceClp] = useState('')
+  const [hasOffer, setHasOffer] = useState(false)
   const [commonExpenses, setCommonExpenses] = useState('')
   const [subsidioEligible, setSubsidioEligible] = useState(false)
 
@@ -101,7 +114,9 @@ export function PropertyFormDialog({
   useEffect(() => {
     if (property) {
       setName(property.name ?? '')
-      setInternalCode(property.internal_code ?? '')
+      setCodigo(property.codigo ?? '')
+      setTipologia(property.tipologia ?? '')
+      setProjectId(property.project_id ?? null)
       setPropertyType(property.property_type ?? '')
       setStatus(property.status)
       setCommune(property.commune ?? '')
@@ -117,6 +132,11 @@ export function PropertyFormDialog({
       setOrientation(property.orientation ?? '')
       setPriceUf(property.price_uf != null ? String(property.price_uf) : '')
       setPriceClp(property.price_clp != null ? String(property.price_clp) : '')
+      setListPriceUf(property.list_price_uf != null ? String(property.list_price_uf) : '')
+      setListPriceClp(property.list_price_clp != null ? String(property.list_price_clp) : '')
+      setOfferPriceUf(property.offer_price_uf != null ? String(property.offer_price_uf) : '')
+      setOfferPriceClp(property.offer_price_clp != null ? String(property.offer_price_clp) : '')
+      setHasOffer(!!property.has_offer)
       setCommonExpenses(property.common_expenses_clp != null ? String(property.common_expenses_clp) : '')
       setSubsidioEligible(property.subsidio_eligible)
       setDescription(property.description ?? '')
@@ -126,16 +146,64 @@ export function PropertyFormDialog({
       setFloorPlanUrl(property.floor_plan_url ?? '')
       setVirtualTourUrl(property.virtual_tour_url ?? '')
     } else {
-      setName(''); setInternalCode(''); setPropertyType(''); setStatus('available')
+      setName(''); setCodigo(''); setTipologia(''); setProjectId(initialProjectId)
+      setPropertyType(''); setStatus('available')
       setCommune(''); setCity(''); setRegion(''); setAddress('')
       setBedrooms(''); setBathrooms(''); setParkingSpots(''); setSqmTotal(''); setSqmUseful('')
       setFloorNumber(''); setOrientation('')
       setPriceUf(''); setPriceClp(''); setCommonExpenses(''); setSubsidioEligible(false)
+      setListPriceUf(''); setListPriceClp(''); setOfferPriceUf(''); setOfferPriceClp(''); setHasOffer(false)
       setDescription(''); setHighlights('')
       setAmenities([]); setAmenityInput('')
       setImageUrls([]); setImageUrlInput(''); setFloorPlanUrl(''); setVirtualTourUrl('')
     }
-  }, [property, open])
+  }, [property, open, initialProjectId])
+
+  // Load broker projects for the selector (only when dialog opens, no edit cycles)
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    projectsService
+      .getProjects({ broker_id: brokerIdOverride ?? null, limit: 200 })
+      .then((res) => {
+        if (cancelled) return
+        setProjects(res.items)
+        // Autofill location/subsidio cuando el dialog se abre con un proyecto
+        // pre-seleccionado (ej. desde "+ Agregar unidad" del acordeón) y la
+        // property es nueva (no estamos editando una existente).
+        if (!property && initialProjectId != null) {
+          const proj = res.items.find((p) => p.id === initialProjectId)
+          if (proj) {
+            if (proj.commune) setCommune((c) => c || proj.commune || '')
+            if (proj.city) setCity((c) => c || proj.city || '')
+            if (proj.region) setRegion((c) => c || proj.region || '')
+            if (proj.subsidio_eligible) setSubsidioEligible((v) => v || true)
+          }
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setProjects([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, brokerIdOverride, property, initialProjectId])
+
+  // When user selects a project, autofill commune/city/region/financing/subsidio if empty
+  const handleProjectChange = (value: string) => {
+    if (value === '__none__') {
+      setProjectId(null)
+      return
+    }
+    const id = Number(value)
+    setProjectId(id)
+    const proj = projects.find((p) => p.id === id)
+    if (!proj) return
+    if (!commune && proj.commune) setCommune(proj.commune)
+    if (!city && proj.city) setCity(proj.city)
+    if (!region && proj.region) setRegion(proj.region)
+    if (!subsidioEligible && proj.subsidio_eligible) setSubsidioEligible(true)
+  }
 
   const addAmenity = () => {
     const v = amenityInput.trim()
@@ -155,7 +223,9 @@ export function PropertyFormDialog({
     try {
       const data: CreatePropertyDto = {
         ...(name && { name }),
-        ...(internalCode && { internal_code: internalCode }),
+        ...(codigo && { codigo }),
+        ...(tipologia && { tipologia }),
+        project_id: projectId,
         ...(propertyType && { property_type: propertyType }),
         status,
         ...(commune && { commune }),
@@ -171,6 +241,11 @@ export function PropertyFormDialog({
         ...(orientation && { orientation }),
         ...(priceUf && { price_uf: Number(priceUf) }),
         ...(priceClp && { price_clp: Number(priceClp) }),
+        ...(listPriceUf && { list_price_uf: Number(listPriceUf) }),
+        ...(listPriceClp && { list_price_clp: Number(listPriceClp) }),
+        ...(offerPriceUf && { offer_price_uf: Number(offerPriceUf) }),
+        ...(offerPriceClp && { offer_price_clp: Number(offerPriceClp) }),
+        has_offer: hasOffer,
         ...(commonExpenses && { common_expenses_clp: Number(commonExpenses) }),
         subsidio_eligible: subsidioEligible,
         ...(description && { description }),
@@ -211,8 +286,8 @@ export function PropertyFormDialog({
                 <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej: Edificio La Moneda" />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="code">Código interno</Label>
-                <Input id="code" value={internalCode} onChange={(e) => setInternalCode(e.target.value)} placeholder="Ej: DEP-012" />
+                <Label htmlFor="code">Código</Label>
+                <Input id="code" value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Ej: Depto 502" />
               </div>
               <div className="space-y-1">
                 <Label>Tipo</Label>
@@ -229,6 +304,27 @@ export function PropertyFormDialog({
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {STATUS_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="tipologia">Tipología</Label>
+                <Input id="tipologia" value={tipologia} onChange={(e) => setTipologia(e.target.value)} placeholder="Ej: 2D2B, A1" />
+              </div>
+              <div className="space-y-1">
+                <Label>Proyecto</Label>
+                <Select
+                  value={projectId == null ? '__none__' : String(projectId)}
+                  onValueChange={handleProjectChange}
+                >
+                  <SelectTrigger><SelectValue placeholder="Sin proyecto" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Sin proyecto</SelectItem>
+                    {projects.map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.name}{p.code ? ` · ${p.code}` : ''}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -287,17 +383,47 @@ export function PropertyFormDialog({
             <h3 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">Precios</h3>
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1">
-                <Label htmlFor="price_uf">Precio UF</Label>
+                <Label htmlFor="price_uf">Precio UF (actual)</Label>
                 <Input id="price_uf" type="number" value={priceUf} onChange={(e) => setPriceUf(e.target.value)} placeholder="Ej: 3500" />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="price_clp">Precio CLP</Label>
+                <Label htmlFor="price_clp">Precio CLP (actual)</Label>
                 <Input id="price_clp" type="number" value={priceClp} onChange={(e) => setPriceClp(e.target.value)} placeholder="Ej: 120000000" />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="gastos">Gastos comunes</Label>
                 <Input id="gastos" type="number" value={commonExpenses} onChange={(e) => setCommonExpenses(e.target.value)} placeholder="CLP mensual" />
               </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="list_uf">Precio lista UF</Label>
+                <Input id="list_uf" type="number" value={listPriceUf} onChange={(e) => setListPriceUf(e.target.value)} placeholder="Precio publicado" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="list_clp">Precio lista CLP</Label>
+                <Input id="list_clp" type="number" value={listPriceClp} onChange={(e) => setListPriceClp(e.target.value)} />
+              </div>
+              <div />
+
+              <div className="space-y-1">
+                <Label htmlFor="offer_uf">Precio oferta UF</Label>
+                <Input id="offer_uf" type="number" value={offerPriceUf} onChange={(e) => setOfferPriceUf(e.target.value)} placeholder="Precio promocional" disabled={!hasOffer} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="offer_clp">Precio oferta CLP</Label>
+                <Input id="offer_clp" type="number" value={offerPriceClp} onChange={(e) => setOfferPriceClp(e.target.value)} disabled={!hasOffer} />
+              </div>
+              <div className="flex items-center gap-2 pt-6">
+                <input
+                  type="checkbox"
+                  id="has_offer"
+                  checked={hasOffer}
+                  onChange={(e) => setHasOffer(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <Label htmlFor="has_offer" className="cursor-pointer">Oferta disponible</Label>
+              </div>
+
               <div className="col-span-3 flex items-center gap-2">
                 <input
                   type="checkbox"

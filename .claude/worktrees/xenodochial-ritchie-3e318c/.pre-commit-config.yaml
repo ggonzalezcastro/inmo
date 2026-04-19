@@ -1,0 +1,22 @@
+# Pre-commit hooks - run: pre-commit install
+# Then: pre-commit run --all-files
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: detect-private-key
+      - id: check-merge-conflict
+      - id: debug-statements
+
+  - repo: local
+    hooks:
+      - id: check-env-not-committed
+        name: Block .env and backup env files
+        entry: bash -c 'git diff --cached --name-only | grep -qE "^\.env$|^\.env\.bak$|^\.env\.backup$|^\.env\.local$" && (echo "ERROR: No commit .env or backup env files"; exit 1) || exit 0'
+        language: system
+        pass_filenames: false

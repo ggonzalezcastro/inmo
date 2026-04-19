@@ -97,38 +97,17 @@ class LeadResponse(LeadBase):
     updated_at: datetime
     metadata: dict = Field(default_factory=dict, alias='lead_metadata')
     email: Optional[str] = None  # Override to allow pre-existing invalid emails in DB
+    response_metrics: Optional[dict] = Field(
+        default=None,
+        description="Bot→lead reply turnaround metrics (avg, fast_reply_count, is_fast_responder, ...).",
+    )
     
     @model_validator(mode='before')
     @classmethod
     def validate_metadata(cls, data):
-        """Ensure metadata is always a dict"""
-        if isinstance(data, dict):
-            # Handle dict input
-            if 'lead_metadata' in data:
-                metadata_value = data['lead_metadata']
-            elif 'metadata' in data:
-                metadata_value = data['metadata']
-            else:
-                metadata_value = {}
-            
-            # Ensure it's a dict
-            if metadata_value is None:
-                metadata_value = {}
-            elif not isinstance(metadata_value, dict):
-                # Try to convert to dict
-                try:
-                    if hasattr(metadata_value, '__dict__'):
-                        metadata_value = dict(metadata_value)
-                    else:
-                        metadata_value = {}
-                except (TypeError, ValueError):
-                    metadata_value = {}
-            
-            data['metadata'] = metadata_value
-            if 'lead_metadata' in data:
-                data['lead_metadata'] = metadata_value
-        elif hasattr(data, 'lead_metadata'):
-            # Handle SQLAlchemy model object
+        """Ensure metadata is always a dict and surface response_metrics."""
+        # First, normalise the input into a dict we can mutate freely.
+        if not isinstance(data, dict) and hasattr(data, 'lead_metadata'):
             metadata_value = data.lead_metadata
             if metadata_value is None:
                 metadata_value = {}
@@ -140,26 +119,48 @@ class LeadResponse(LeadBase):
                         metadata_value = {}
                 except (TypeError, ValueError):
                     metadata_value = {}
-            
-            # Convert object to dict for processing
-            if not isinstance(data, dict):
-                data = {
-                    'id': data.id,
-                    'phone': data.phone,
-                    'name': getattr(data, 'name', None),
-                    'email': getattr(data, 'email', None),
-                    'tags': getattr(data, 'tags', []) or [],
-                    'status': data.status,
-                    'lead_score': getattr(data, 'lead_score', 0.0) or 0.0,
-                    'pipeline_stage': getattr(data, 'pipeline_stage', None),
-                    'last_contacted': getattr(data, 'last_contacted', None),
-                    'created_at': data.created_at,
-                    'updated_at': data.updated_at,
-                    'metadata': metadata_value
-                }
+            data = {
+                'id': data.id,
+                'phone': data.phone,
+                'name': getattr(data, 'name', None),
+                'email': getattr(data, 'email', None),
+                'tags': getattr(data, 'tags', []) or [],
+                'status': data.status,
+                'lead_score': getattr(data, 'lead_score', 0.0) or 0.0,
+                'pipeline_stage': getattr(data, 'pipeline_stage', None),
+                'last_contacted': getattr(data, 'last_contacted', None),
+                'created_at': data.created_at,
+                'updated_at': data.updated_at,
+                'metadata': metadata_value,
+            }
+
+        if isinstance(data, dict):
+            if 'lead_metadata' in data:
+                metadata_value = data['lead_metadata']
+            elif 'metadata' in data:
+                metadata_value = data['metadata']
             else:
-                data['metadata'] = metadata_value
-        
+                metadata_value = {}
+
+            if metadata_value is None:
+                metadata_value = {}
+            elif not isinstance(metadata_value, dict):
+                try:
+                    if hasattr(metadata_value, '__dict__'):
+                        metadata_value = dict(metadata_value)
+                    else:
+                        metadata_value = {}
+                except (TypeError, ValueError):
+                    metadata_value = {}
+
+            data['metadata'] = metadata_value
+            if 'lead_metadata' in data:
+                data['lead_metadata'] = metadata_value
+
+            # Promote response_metrics from metadata to top-level field.
+            if data.get('response_metrics') is None:
+                data['response_metrics'] = metadata_value.get('response_metrics')
+
         return data
     
     class Config:

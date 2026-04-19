@@ -13,11 +13,21 @@ export interface NearbyPlace {
   distance_m?: number
 }
 
+export interface ProjectSummary {
+  id: number
+  name: string
+  code: string | null
+  commune: string | null
+}
+
 export interface Property {
   id: number
   broker_id: number
   name: string | null
-  internal_code: string | null
+  codigo: string | null
+  tipologia: string | null
+  project_id: number | null
+  project: ProjectSummary | null
   property_type: PropertyType | null
   status: PropertyStatus
   commune: string | null
@@ -28,6 +38,11 @@ export interface Property {
   longitude: number | null
   price_uf: number | null
   price_clp: number | null
+  list_price_uf: number | null
+  list_price_clp: number | null
+  offer_price_uf: number | null
+  offer_price_clp: number | null
+  has_offer: boolean
   bedrooms: number | null
   bathrooms: number | null
   parking_spots: number | null
@@ -55,7 +70,9 @@ export interface Property {
 
 export interface CreatePropertyDto {
   name?: string
-  internal_code?: string
+  codigo?: string
+  tipologia?: string
+  project_id?: number | null
   property_type?: PropertyType
   status?: PropertyStatus
   commune?: string
@@ -66,6 +83,11 @@ export interface CreatePropertyDto {
   longitude?: number
   price_uf?: number
   price_clp?: number
+  list_price_uf?: number
+  list_price_clp?: number
+  offer_price_uf?: number
+  offer_price_clp?: number
+  has_offer?: boolean
   bedrooms?: number
   bathrooms?: number
   parking_spots?: number
@@ -97,6 +119,10 @@ export interface PropertyFilters {
   min_price_uf?: number | ''
   max_price_uf?: number | ''
   min_bedrooms?: number | ''
+  has_offer?: boolean
+  project_id?: number | null
+  tipologia?: string
+  no_project?: boolean
   broker_id?: number | null
   offset?: number
   limit?: number

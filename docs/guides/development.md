@@ -1,269 +1,362 @@
----
-title: Guía de Desarrollo
-version: 1.0.0
-date: 2026-02-21
-author: Equipo Inmo
----
-
 # Guía de Desarrollo
+
+> Última actualización: 2026-04-18
 
 ## Estructura del Proyecto
 
 ```
 inmo/
-├── backend/
+├── backend/              # FastAPI + SQLAlchemy
 │   ├── app/
-│   │   ├── core/                  # Configuración, database, cache
-│   │   │   ├── config.py          # Settings (Pydantic)
-│   │   │   ├── database.py        # Async SQLAlchemy setup
-│   │   │   └── cache.py           # Redis cache
-│   │   ├── middleware/            # Auth, rate limiting, permisos
-│   │   │   ├── auth.py            # JWT authentication
-│   │   │   ├── permissions.py     # Role-based access
-│   │   │   └── rate_limiter.py    # Redis rate limiting
-│   │   ├── models/                # SQLAlchemy models
-│   │   │   ├── base.py            # IdMixin, TimestampMixin
-│   │   │   ├── broker.py          # Broker, configs, campaigns
-│   │   │   └── lead.py            # Lead, messages, activities
-│   │   ├── routes/                # FastAPI routers
-│   │   ├── schemas/               # Pydantic request/response
-│   │   ├── services/              # Business logic
-│   │   │   ├── voice/             # Voice providers
-│   │   │   ├── llm/               # LLM providers
-│   │   │   ├── chat/              # Chat providers
-│   │   │   ├── broker/            # Broker config
-│   │   │   ├── leads/             # Lead management
-│   │   │   ├── pipeline/          # Sales pipeline
-│   │   │   ├── appointments/      # Scheduling
-│   │   │   ├── campaigns/         # Marketing campaigns
-│   │   │   └── shared/            # Cross-domain services
-│   │   ├── tasks/                 # Celery background tasks
-│   │   └── main.py                # App entrypoint
-│   ├── migrations/                # Alembic migrations
-│   ├── scripts/                   # Utility scripts
-│   ├── tests/                     # Test suite
-│   └── requirements.txt
-├── frontend/
+│   │   ├── features/    # Vertical slices (auth, leads, chat, etc.)
+│   │   ├── routes/     # Endpoint implementations
+│   │   ├── services/   # Business logic
+│   │   │   ├── agents/        # Multi-agent system
+│   │   │   ├── chat/         # Chat orchestrator
+│   │   │   ├── llm/          # LLM providers
+│   │   │   ├── pipeline/    # Pipeline stages
+│   │   │   └── sentiment/    # Sentiment analysis
+│   │   ├── core/      # Config, encryption, websockets
+│   │   ├── models/    # SQLAlchemy models
+│   │   ├── tasks/     # Celery tasks
+│   │   └── mcp/       # MCP server
+│   ├── migrations/     # Alembic migrations
+│   └── tests/          # Pytest tests
+├── frontend/           # React + Vite + TypeScript
 │   ├── src/
-│   │   ├── app/                   # Router (router.tsx) y App root (App.tsx)
-│   │   ├── features/              # Vertical slices por dominio
-│   │   │   ├── auth/              # store/, services/, hooks/, components/, index.ts
-│   │   │   ├── dashboard/
-│   │   │   ├── leads/
-│   │   │   ├── pipeline/
-│   │   │   ├── campaigns/
-│   │   │   ├── appointments/
-│   │   │   ├── templates/
-│   │   │   ├── settings/
-│   │   │   ├── users/
-│   │   │   ├── brokers/
-│   │   │   ├── chat/              # Wrapper de ChatTest.jsx (sin modificar)
-│   │   │   └── llm-costs/
-│   │   ├── shared/
-│   │   │   ├── components/
-│   │   │   │   ├── ui/            # Shadcn/ui (Button, Dialog, Select, etc.)
-│   │   │   │   ├── common/        # StatusBadge, ScoreBadge, DataTable, etc.
-│   │   │   │   └── layout/        # AppShell, Sidebar
-│   │   │   ├── guards/            # AuthGuard, RoleGuard
-│   │   │   ├── hooks/             # usePermissions, useDebounce, usePagination
-│   │   │   ├── lib/               # utils.ts, constants.ts, api-client.ts
-│   │   │   └── types/             # api.ts, auth.ts, common.ts
-│   │   ├── store/                 # authStore.js (shim de retrocompat → features/auth)
-│   │   ├── styles/                # globals.css (tokens CSS shadcn/ui)
-│   │   └── main.tsx               # Entry point
-│   ├── vite.config.ts             # Alias @/ → src/
-│   └── tsconfig.json
-├── config/                        # Deployment configs
-├── docker-compose.yml
-└── docs/                          # This documentation
+│   │   ├── features/  # Feature modules
+│   │   ├── shared/    # Shared components
+│   │   ├── store/     # Zustand stores
+│   │   └── app/       # Router, App.tsx
+│   └── tests/          # Frontend tests
+└── docs/               # Esta documentación
 ```
 
-## Convenciones de Código
+---
 
-### Backend (Python)
+## Backend Development
 
-| Convención | Ejemplo |
-|-----------|---------|
-| Archivos | `snake_case.py` |
-| Clases | `PascalCase` |
-| Funciones | `snake_case()` |
-| Variables | `snake_case` |
-| Constantes | `UPPER_SNAKE_CASE` |
-| Modelos SQLAlchemy | Singular: `Lead`, `Broker` |
-| Tablas | Plural: `leads`, `brokers` |
-| Rutas | Plural: `/api/v1/leads` |
-
-### Frontend (TypeScript/React)
-
-| Convención | Ejemplo |
-|-----------|---------|
-| Componentes | `PascalCase.tsx` |
-| Lógica pura (hooks, stores, services) | `camelCase.ts` |
-| Stores Zustand | `camelCaseStore.ts` en `features/<name>/store/` |
-| Servicios API | `<name>.service.ts` en `features/<name>/services/` |
-| Exports | Barrel `index.ts` por feature |
-| CSS | Tailwind utility classes + variables CSS HSL |
-| Imports internos | Alias `@/` (ej. `@/shared/lib/utils`) |
-
-## Agregar un Nuevo Proveedor de Voz
-
-El sistema usa Strategy Pattern para proveedores. Para agregar un nuevo proveedor:
-
-### 1. Crear el módulo del proveedor
-
-```
-backend/app/services/voice/providers/my_provider/
-├── __init__.py
-└── provider.py
-```
-
-### 2. Implementar la interfaz
-
-```python
-from app.services.voice.base_provider import BaseVoiceProvider
-from app.services.voice.types import (
-    MakeCallRequest, CallStatusResult, WebhookEvent,
-    VoiceProviderType, CallEventType
-)
-
-class MyProvider(BaseVoiceProvider):
-
-    async def make_call(self, request: MakeCallRequest) -> str:
-        # Retorna external_call_id
-        ...
-
-    async def get_call_status(self, call_id: str) -> CallStatusResult:
-        ...
-
-    async def handle_webhook(self, payload: dict) -> WebhookEvent:
-        # Normalizar payload del proveedor a WebhookEvent
-        ...
-
-    async def cancel_call(self, call_id: str) -> bool:
-        ...
-
-    def get_provider_type(self) -> VoiceProviderType:
-        return VoiceProviderType.MY_PROVIDER
-```
-
-### 3. Registrar en la factory
-
-En `backend/app/services/voice/factory.py`:
-
-```python
-from app.services.voice.providers.my_provider import MyProvider
-
-register_voice_provider(VoiceProviderType.MY_PROVIDER, MyProvider)
-```
-
-### 4. Agregar configuración
-
-En `backend/app/core/config.py`:
-
-```python
-MY_PROVIDER_API_KEY: str = ""
-```
-
-## Agregar un Nuevo Endpoint
-
-### 1. Crear schema (si necesario)
-
-En `backend/app/schemas/`:
-
-```python
-from pydantic import BaseModel
-
-class MyRequest(BaseModel):
-    field: str
-
-class MyResponse(BaseModel):
-    id: int
-    field: str
-```
-
-### 2. Agregar ruta
-
-En `backend/app/routes/my_route.py`:
-
-```python
-from fastapi import APIRouter, Depends
-from app.middleware.auth import get_current_user
-
-router = APIRouter(prefix="/api/v1/my-resource", tags=["my-resource"])
-
-@router.get("/")
-async def list_resources(current_user=Depends(get_current_user)):
-    ...
-```
-
-### 3. Incluir router en main.py
-
-```python
-from app.routes import my_route
-app.include_router(my_route.router)
-```
-
-## Migraciones de Base de Datos
+### Setup del entorno
 
 ```bash
 cd backend
 
-# Crear nueva migración
-alembic revision --autogenerate -m "descripción del cambio"
+# Crear virtualenv
+python3 -m venv .venv
+source .venv/bin/activate
 
-# Aplicar migraciones
+# Instalar dependencias
+pip install -r requirements.txt
+
+# Variables de entorno
+cp .env.example .env
+# Editar .env con tus credenciales
+```
+
+### Base de datos
+
+```bash
+# Crear migración
+alembic revision --autogenerate -m "Descripción del cambio"
+
+# Ejecutar migraciones
 alembic upgrade head
 
-# Revertir última migración
+# Rollback
 alembic downgrade -1
 
-# Ver historial
+# Ver estado
+alembic current
 alembic history
 ```
 
-## Testing
+### Servidor de desarrollo
 
 ```bash
-cd backend
+# Activar venv y correr
+source .venv/bin/activate
+uvicorn app.main:app --reload --port 8000
 
-# Instalar dependencias de test
-pip install -r requirements-test.txt
-
-# Ejecutar tests
-pytest
-
-# Con cobertura
-pytest --cov=app --cov-report=html
-
-# Solo un archivo
-pytest tests/services/test_voice_providers.py -v
+# Con logs verbose
+uvicorn app.main:app --reload --log-level debug
 ```
+
+### Tareas Celery
+
+```bash
+# Worker principal
+celery -A app.celery_app worker --loglevel=info
+
+# Beat (tareas periódicas)
+celery -A app.celery_app beat --loglevel=info
+
+# Ambos en foreground (desarrollo)
+celery -A app.celery_app worker --loglevel=info --beat --loglevel=info
+```
+
+### Tests
+
+```bash
+# Todos los tests (requiere Docker services)
+pytest tests/ -v
+
+# Tests unitarios (sin DB)
+pytest tests/services/test_multi_agent.py -v --noconftest
+
+# Tests de un módulo específico
+pytest tests/services/ -v
+
+# Coverage
+pytest tests/ --cov=app --cov-report=html
+```
+
+### Patrones de código
+
+**Modelos SQLAlchemy:**
+
+```python
+from app.models.base import Base, IdMixin, TimestampMixin
+
+class MyModel(Base, IdMixin, TimestampMixin):
+    __tablename__ = "my_table"
+
+    name = Column(String(100), nullable=False)
+    status = Column(String(20), default="active")
+    metadata = Column(JSONB, default={})
+
+    # Índices
+    __table_args__ = (
+        Index('idx_name_status', 'name', 'status'),
+    )
+```
+
+**Rutas FastAPI:**
+
+```python
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.database import get_db
+from app.middleware.auth import get_current_user
+
+router = APIRouter()
+
+@router.get("/items")
+async def list_items(
+    skip: int = 0,
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    # Filtrar por broker_id del usuario actual
+    broker_id = current_user.get("broker_id")
+    items = await ItemService.get_items(db, broker_id, skip, limit)
+    return {"items": items}
+```
+
+**Servicios:**
+
+```python
+class MyService:
+    @staticmethod
+    async def get_items(db: AsyncSession, broker_id: int, skip: int, limit: int):
+        result = await db.execute(
+            select(Item)
+            .where(Item.broker_id == broker_id)
+            .offset(skip)
+            .limit(limit)
+        )
+        return result.scalars().all()
+```
+
+---
+
+## Frontend Development
+
+### Setup
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### Estructura
+
+```
+src/
+├── app/
+│   ├── router.tsx      # Definición de rutas
+│   └── App.tsx        # Componente raíz
+├── features/
+│   ├── auth/          # Login, registro
+│   ├── leads/         # Gestión de leads
+│   ├── pipeline/      # Vista kanban
+│   └── ...
+├── shared/
+│   ├── components/    # Componentes compartidos
+│   ├── context/       # React contexts
+│   ├── guards/        # AuthGuard, RoleGuard
+│   └── lib/           # API client, utils
+└── store/
+    ├── authStore.ts   # Estado de autenticación
+    └── ...
+```
+
+### Patrones de código
+
+**Zustand Store:**
+
+```typescript
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+
+interface AuthState {
+  user: User | null
+  token: string | null
+  login: (email: string, password: string) => Promise<void>
+  logout: () => void
+}
+
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
+      user: null,
+      token: null,
+      login: async (email, password) => {
+        const response = await authAPI.login(email, password)
+        set({ token: response.token, user: response.user })
+      },
+      logout: () => set({ user: null, token: null }),
+    }),
+    { name: 'auth-storage' }
+  )
+)
+```
+
+**Componente con guards:**
+
+```typescript
+import { AuthGuard } from '@/shared/guards/AuthGuard'
+import { RoleGuard } from '@/shared/guards/RoleGuard'
+
+function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/admin"
+        element={
+          <AuthGuard>
+            <RoleGuard allowedRoles={['admin', 'superadmin']}>
+              <AdminPage />
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+    </Routes>
+  )
+}
+```
+
+---
 
 ## Debugging
 
-### Logs
-
-El backend usa `logging` de Python con diferentes niveles:
+### Backend
 
 ```python
+# Logging
 import logging
 logger = logging.getLogger(__name__)
 
-logger.debug("Detalle de debugging")
-logger.info("Operación completada")
-logger.warning("Algo inesperado")
-logger.error("Error", exc_info=True)
+logger.info("Mensaje de info")
+logger.error(f"Error: {e}", exc_info=True)
 ```
-
-### Swagger UI
-
-Disponible en `http://localhost:8000/docs` para probar endpoints interactivamente.
-
-### Redis CLI
 
 ```bash
-redis-cli
-> KEYS *               # Ver todas las claves
-> GET "lead:ctx:123"   # Ver contexto cacheado de un lead
-> TTL "lead:ctx:123"   # Ver TTL de una clave
+# Logs en tiempo real
+tail -f backend/logs/app.log
+
+# Verbose uvicorn
+uvicorn app.main:app --log-level debug
 ```
+
+### Frontend
+
+```typescript
+// Debug en componente
+console.log("state:", state)
+
+// React DevTools
+// Instalar extensión del navegador
+```
+
+### Base de datos
+
+```sql
+-- Ver queries lentas
+SELECT * FROM pg_stat_activity WHERE state = 'active';
+
+-- Ver locks
+SELECT * FROM pg_locks;
+
+-- Stats de tablas
+SELECT * FROM pg_stat_user_tables WHERE relname = 'leads';
+```
+
+---
+
+## Code Quality
+
+### Backend
+
+```bash
+# Formatear código
+black app/
+isort app/
+
+# Linting
+ruff check app/
+
+# Type checking
+mypy app/
+```
+
+### Frontend
+
+```bash
+# Formatear y lint
+npm run lint
+npm run lint:fix
+
+# Type check
+npm run typecheck
+```
+
+---
+
+## Hot Reload
+
+### Backend
+
+Uvicorn tiene hot reload por defecto con `--reload`. Los cambios en Python se recargan automáticamente.
+
+### Frontend
+
+Vite tiene hot module replacement (HMR). Los cambios en React se recargan sin perder estado.
+
+### Docker Compose
+
+```bash
+# Editar código directamente (mapeado al contenedor)
+# Los cambios se recargan automáticamente
+docker-compose up -d backend
+```
+
+---
+
+## Changelog
+
+| Fecha | Descripción |
+|--------|-------------|
+| 2026-04-18 | Creación del guide de desarrollo |

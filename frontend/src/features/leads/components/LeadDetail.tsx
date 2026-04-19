@@ -155,6 +155,23 @@ export function LeadDetail({ lead, onClose, onUpdate }: LeadDetailProps) {
             <DetailRow label="Email" value={lead.email ? <a href={`mailto:${lead.email}`} className="text-blue-600 hover:underline truncate block max-w-[140px]">{lead.email}</a> : null} />
             <DetailRow label="Creado" value={formatDate(lead.created_at)} />
             <DetailRow label="Último contacto" value={formatDate(lead.last_contacted)} />
+            {lead.response_metrics && lead.response_metrics.reply_count > 0 && (
+              <DetailRow
+                label="Velocidad de respuesta"
+                value={
+                  <span className={lead.response_metrics.is_fast_responder ? 'text-amber-600 font-medium' : ''}>
+                    {lead.response_metrics.avg_response_seconds != null
+                      ? `${Math.round(lead.response_metrics.avg_response_seconds)}s prom.`
+                      : '—'}
+                    {' '}
+                    <span className="text-muted-foreground">
+                      ({lead.response_metrics.reply_count} resp.)
+                    </span>
+                    {lead.response_metrics.is_fast_responder && ' ⚡'}
+                  </span>
+                }
+              />
+            )}
           </div>
 
           {/* Tags section */}

@@ -58,4 +58,19 @@ export const propertiesService = {
     if (options.dryRun) params.dry_run = true
     return apiClient.post('/api/v1/properties/import-from-kb', {}, { params })
   },
+
+  async generateSampleProperties(
+    brokerIdOverride?: number,
+    count = 10,
+    projectCount = 0,
+  ): Promise<{
+    created: number
+    ids: number[]
+    embed_failures: number
+  }> {
+    const params: Record<string, unknown> = { count }
+    if (projectCount > 0) params.project_count = projectCount
+    if (brokerIdOverride) params.broker_id = brokerIdOverride
+    return apiClient.post('/api/v1/properties/generate-sample', {}, { params })
+  },
 }

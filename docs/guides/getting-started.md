@@ -1,180 +1,265 @@
+# Guía de Inicio Rápido
+
+> Última actualización: 2026-04-18
+
+## Prerequisites
+
+### Software requerido
+
+| Software | Versión mínima | Notas |
+|----------|---------------|-------|
+| Node.js | 18+ | Para frontend |
+| Python | 3.11+ | Para backend |
+| Docker | 24+ | Para servicios local |
+| Docker Compose | 2.20+ | Orquestación |
+| Git | 2.40+ | Control de versiones |
+
+### Cuentas API necesarias
+
+| Servicio | Required | Notas |
+|----------|----------|-------|
+| Gemini API Key | Sí (producción) | googleai.google.dev |
+| Telegram Bot Token | No | Solo si usas Telegram |
+| WhatsApp Business | No | Solo si usas WhatsApp |
+| VAPI | No | Solo si usas voz |
+
 ---
-title: Guía de Inicio
-version: 1.0.0
-date: 2026-02-21
-author: Equipo Inmo
----
 
-# Guía de Inicio
+## Setup Local (Desarrollo)
 
-## Prerrequisitos
-
-| Software | Versión Mínima | Descripción |
-|----------|---------------|-------------|
-| Python | 3.11+ | Runtime del backend |
-| Node.js | 18+ | Runtime del frontend |
-| PostgreSQL | 15 | Base de datos |
-| Redis | 7+ | Cache y cola de tareas |
-| Docker + Docker Compose | 24+ | Contenedores (opcional) |
-
-## Instalación Rápida con Docker
+### 1. Clonar el repositorio
 
 ```bash
 git clone <repo-url>
 cd inmo
-
-cp .env.example .env
-# Editar .env con tus configuraciones
-
-docker-compose up -d
 ```
 
-Esto levanta: PostgreSQL, Redis, Backend (FastAPI), Celery Worker y Celery Beat.
-
-## Instalación Manual
-
-### 1. Base de Datos y Redis
+### 2. Configurar variables de entorno
 
 ```bash
-# PostgreSQL
-createdb lead_agent
+# Backend
+cp backend/.env.example backend/.env
+# Editar backend/.env con tus API keys
 
-# Redis (verificar que esté corriendo)
-redis-cli ping
-# Debe responder: PONG
+#Frontend
+cp frontend/.env.example frontend/.env.local
 ```
 
-### 2. Backend
+### 3. Variables de entorno mínimas para desarrollo
 
 ```bash
-cd backend
-
-# Crear entorno virtual
-python3 -m venv venv
-source venv/bin/activate
-
-# Instalar dependencias
-pip install -r requirements.txt
-
-# Configurar variables de entorno
-cp .env.production.example .env
-# Editar .env con tus valores
+# backend/.env
+DATABASE_URL=postgresql+asyncpg://lead_user:lead_pass_123@localhost:5432/lead_agent
+REDIS_URL=redis://localhost:6379/0
+SECRET_KEY=dev-secret-key-change-in-production
+GEMINI_API_KEY=your_gemini_api_key
+LLM_PROVIDER=gemini
 ```
 
-### 3. Configurar Variables de Entorno
+### 4. Iniciar servicios con Docker
 
-Variables mínimas necesarias:
+```bash
+docker-compose up -d db redis
+```
 
-| Variable | Descripción | Ejemplo |
-|----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql+asyncpg://user:pass@localhost:5432/lead_agent` |
-| `REDIS_URL` | Redis connection string | `redis://localhost:6379/0` |
-| `SECRET_KEY` | JWT secret (min 32 chars) | `tu-secret-key-super-segura-de-32-chars` |
-| `GEMINI_API_KEY` | Google Gemini API key | `AIza...` |
-| `ENVIRONMENT` | development / production | `development` |
-
-Variables opcionales:
-
-| Variable | Descripción | Default |
-|----------|-------------|---------|
-| `LLM_PROVIDER` | Proveedor LLM | `gemini` |
-| `VOICE_PROVIDER` | Proveedor de voz | `vapi` |
-| `VAPI_API_KEY` | API key de VAPI | - |
-| `TELEGRAM_TOKEN` | Token del bot de Telegram | - |
-| `GOOGLE_CLIENT_ID` | Google Calendar OAuth | - |
-| `GOOGLE_CLIENT_SECRET` | Google Calendar OAuth | - |
-| `GOOGLE_REFRESH_TOKEN` | Google Calendar OAuth | - |
-| `ALLOWED_ORIGINS` | CORS origins | `http://localhost:5173,http://localhost:3000` |
-| `DEBUG` | Modo debug | `false` |
-
-### 4. Migraciones de Base de Datos
+### 5. Ejecutar migraciones
 
 ```bash
 cd backend
-
-# Ejecutar migraciones
+source .venv/bin/activate  # o pip install -r requirements.txt
 alembic upgrade head
 ```
 
-### 5. Iniciar Backend
+### 6. Iniciar backend
 
 ```bash
 cd backend
-
-# Servidor de desarrollo
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+source .venv/bin/activate
+uvicorn app.main:app --reload --port 8000
 ```
 
-### 6. Iniciar Celery Worker
-
-```bash
-cd backend
-
-# Worker
-celery -A app.tasks worker --loglevel=info
-
-# Beat (scheduler) - en otra terminal
-celery -A app.tasks beat --loglevel=info
-```
-
-### 7. Frontend
+### 7. Iniciar frontend
 
 ```bash
 cd frontend
-
-# Instalar dependencias
 npm install
-
-# Servidor de desarrollo
 npm run dev
 ```
 
-El frontend estará disponible en `http://localhost:5173`.
+### 8. Verificar que funciona
 
-## Verificar Instalación
+- Frontend: http://localhost:5173
+- Backend API: http://localhost:8000
+- API Docs: http://localhost:8000/docs
 
-### Health Check
+---
 
-```bash
-curl http://localhost:8000/health
-```
+## Docker Compose (Desarrollo Completo)
 
-Respuesta esperada:
-
-```json
-{
-  "status": "healthy",
-  "database": "connected",
-  "redis": "connected"
-}
-```
-
-### Crear Primer Usuario
+Para desarrollo local con todos los servicios:
 
 ```bash
-curl -X POST http://localhost:8000/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "admin@miinmobiliaria.com",
-    "password": "MiPassword123",
-    "broker_name": "Mi Inmobiliaria"
-  }'
+docker-compose up -d
 ```
 
-### Crear Superadmin
+Servicios iniciados:
 
-Para crear un superadmin, usar el script:
+| Servicio | Puerto | Descripción |
+|----------|---------|-------------|
+| frontend | 5173 | React dev server |
+| backend | 8000 | FastAPI |
+| db | 5432 | PostgreSQL + pgvector |
+| redis | 6379 | Cache + Celery broker |
+| mcp-server | 8001 | MCP tool server |
+
+---
+
+## Primeros Pasos para Nuevos Desarrolladores
+
+### 1. Entender la arquitectura
+
+Lee estos documentos en orden:
+
+1. [[arquitectura/overview]] - Visión general del sistema
+2. [[arquitectura/multi-agente]] - Cómo trabajan los agentes IA
+3. [[frontend/structure]] - Estructura del frontend
+
+### 2. Revisar el flujo de un lead
+
+```
+WhatsApp/Telegram/Webchat
+    ↓
+ChatOrchestratorService.process_chat_message()
+    ↓
+Sentiment Analysis (sync heuristics)
+    ↓
+AgentSupervisor.process()
+    ↓
+QualifierAgent → SchedulerAgent → FollowUpAgent
+    ↓
+LLMServiceFacade (Gemini/Claude/OpenAI)
+    ↓
+Response + WebSocket broadcast
+```
+
+### 3. Archivos clave a conocer
+
+| Archivo | Propósito |
+|---------|----------|
+| `backend/app/services/chat/orchestrator.py` | Punto de entrada del chat |
+| `backend/app/services/agents/supervisor.py` | Router de agentes |
+| `backend/app/services/llm/facade.py` | Capa LLM |
+| `frontend/src/app/router.tsx` | Rutas del frontend |
+| `frontend/src/store/authStore.ts` | Estado de autenticación |
+
+### 4. Hacer un cambio pequeño
+
+1. Crea un broker de prueba via `/auth/register`
+2. Envia un mensaje de prueba via `/chat/test`
+3. Observa los logs del backend
+4. Revisa la respuesta en el frontend
+
+---
+
+## Comandos Útiles
+
+### Backend
 
 ```bash
-cd backend
-python3 scripts/create_superadmin_simple.py
+# Activar virtualenv
+source backend/.venv/bin/activate
+
+# Servidor de desarrollo
+uvicorn app.main:app --reload --port 8000
+
+# Worker de Celery
+celery -A app.celery_app worker --loglevel=info
+
+# Beat (tareas periódicas)
+celery -A app.celery_app beat --loglevel=info
+
+# Migraciones
+alembic upgrade head
+alembic revision --autogenerate -m "tu mensaje"
+
+# Tests
+pytest tests/ -v
 ```
 
-## Acceder al Sistema
+### Frontend
 
-| URL | Descripción |
-|-----|-------------|
-| `http://localhost:5173` | Frontend (React) |
-| `http://localhost:8000` | Backend (API) |
-| `http://localhost:8000/docs` | Swagger UI |
-| `http://localhost:8000/redoc` | ReDoc |
+```bash
+cd frontend
+npm install          # Instalar dependencias
+npm run dev         # Dev server en :5173
+npm run build       # Build producción
+npm run lint        # Linting
+```
+
+### Docker
+
+```bash
+docker-compose up -d                # Iniciar todos
+docker-compose logs -f backend      # Ver logs del backend
+docker-compose exec backend bash     # Shell en el contenedor
+docker-compose down                 # Detener todos
+```
+
+---
+
+## Issues Comunes y Soluciones
+
+### "Connection refused" en PostgreSQL
+
+```bash
+# Verificar que PostgreSQL está corriendo
+docker-compose ps db
+
+# Esperar a que esté healthy
+docker-compose up -d db
+docker-compose logs db --tail=20
+```
+
+### "Module not found" en Python
+
+```bash
+# Reinstalar dependencias
+pip install -r requirements.txt
+
+# Verificar que el venv está activado
+which python  # debe指向 .venv/bin/python
+```
+
+### CORS errors en el navegador
+
+```bash
+# Verificar FRONTEND_URL en backend/.env
+FRONTEND_URL=http://localhost:5173
+
+# Reiniciar backend
+```
+
+### Redis connection refused
+
+```bash
+docker-compose up -d redis
+docker-compose logs redis --tail=10
+```
+
+---
+
+## Siguientes Pasos
+
+- [[guides/development]] - Workflow de desarrollo detallado
+- [[guides/USAGE_GUIDE]] - Cómo usar el sistema
+- [[guides/ENV_VARIABLES]] - Variables de entorno completas
+- [[bugs-conocidos]] - Bugs y tech debt conocidos
+
+---
+
+## Changelog
+
+| Fecha | Descripción |
+|--------|-------------|
+| 2026-04-18 | Creación del getting started guide |
+| 2026-04-17 | Agregada sección de primeros pasos para nuevos desarrolladores |

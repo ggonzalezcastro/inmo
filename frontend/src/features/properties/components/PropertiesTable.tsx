@@ -91,8 +91,11 @@ export function PropertiesTable({
         return (
           <div className="flex flex-col gap-0.5 min-w-0">
             <span className="font-medium text-sm truncate max-w-[200px]">{p.name ?? '—'}</span>
-            {p.internal_code && (
-              <span className="text-[11px] text-muted-foreground">{p.internal_code}</span>
+            {p.codigo && (
+              <span className="text-[11px] text-muted-foreground">{p.codigo}</span>
+            )}
+            {p.project && (
+              <span className="text-[10px] text-blue-700">{p.project.name}</span>
             )}
           </div>
         )

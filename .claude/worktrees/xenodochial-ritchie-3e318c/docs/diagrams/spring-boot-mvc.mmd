@@ -1,0 +1,36 @@
+%% Spring Boot MVC - Flujo de petición
+%% Abrir en Draw.io: Archivo > Importar desde > Mermaid
+%% O usar MCP drawio: open_drawio_mermaid con este contenido
+
+flowchart TB
+  subgraph client["Cliente"]
+    Browser["Browser / HTTP Client"]
+  end
+
+  subgraph spring["Spring Boot MVC"]
+    DS["DispatcherServlet"]
+    HM["HandlerMapping"]
+    HA["HandlerAdapter"]
+    C["Controller"]
+    MV["ModelAndView"]
+    VR["ViewResolver"]
+    V["View"]
+  end
+
+  subgraph model["Modelo"]
+    ModelData["Model Data"]
+  end
+
+  Browser -->|"HTTP Request"| DS
+  DS --> HM
+  HM -->|"Mapea a Controller"| HA
+  HA --> C
+  C -->|"Return ModelAndView"| MV
+  MV --> VR
+  VR -->|"Resuelve nombre de vista"| V
+  V -->|"Render + Model"| ModelData
+  ModelData -->|"HTTP Response"| Browser
+
+  style DS fill:#6db33f,color:#fff
+  style C fill:#6db33f,color:#fff
+  style V fill:#6db33f,color:#fff

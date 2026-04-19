@@ -1,0 +1,6 @@
+# Un-ignore shared lib directory (excluded by root .gitignore lib/ rule)
+!src/shared/lib/
+!src/shared/lib/**
+
+# Build output
+dist/

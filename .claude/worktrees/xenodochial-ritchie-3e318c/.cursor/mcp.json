@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "stagewise": {
+      "url": "http://localhost:5746/sse",
+      "env": {}
+    },
+    "drawio": {
+      "command": "npx",
+      "args": [
+        "@drawio/mcp"
+      ],
+      "env": {}
+    }
+  }
+}

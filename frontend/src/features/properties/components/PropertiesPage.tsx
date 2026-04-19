@@ -1,10 +1,13 @@
 import { useState } from 'react'
-import { Plus } from 'lucide-react'
+import { Plus, Sparkles, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/shared/components/ui/button'
 import { PageHeader } from '@/shared/components/common/PageHeader'
 import { usePermissions } from '@/shared/hooks/usePermissions'
 import { useProperties } from '../hooks/useProperties'
 import { usePropertiesStore } from '../store/propertiesStore'
+import { propertiesService } from '../services/properties.service'
+import { getErrorMessage } from '@/shared/types/api'
 import { PropertyFiltersBar } from './PropertyFiltersBar'
 import { PropertiesTable } from './PropertiesTable'
 import { PropertyFormDialog } from './PropertyFormDialog'
@@ -20,6 +23,7 @@ export function PropertiesPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [editTarget, setEditTarget] = useState<Property | null>(null)
   const [viewTarget, setViewTarget] = useState<Property | null>(null)
+  const [isGenerating, setIsGenerating] = useState(false)
 
   const page = Math.floor((filters.offset ?? 0) / (filters.limit ?? 20)) + 1
   const limit = filters.limit ?? 20
@@ -31,6 +35,33 @@ export function PropertiesPage() {
   const handleBrokerChange = (broker: SelectedBroker | null) => {
     setFilter('broker_id', broker?.id ?? null)
     setFilter('offset', 0)
+  }
+
+  const handleGenerate = async () => {
+    const ok = window.confirm(
+      '¿Generar 10 propiedades de prueba con datos chilenos aleatorios?\n\n' +
+      'Se crearán en el broker actualmente seleccionado e incluirán embeddings ' +
+      'para búsqueda semántica. Esta acción no se puede deshacer fácilmente.'
+    )
+    if (!ok) return
+    setIsGenerating(true)
+    const toastId = toast.loading('Generando 10 propiedades y embeddings…')
+    try {
+      const res = await propertiesService.generateSampleProperties(
+        filters.broker_id ?? undefined,
+        10,
+      )
+      toast.success(
+        `Se generaron ${res.created} propiedades` +
+          (res.embed_failures > 0 ? ` (${res.embed_failures} sin embedding)` : ''),
+        { id: toastId },
+      )
+      refetch()
+    } catch (error) {
+      toast.error(getErrorMessage(error), { id: toastId })
+    } finally {
+      setIsGenerating(false)
+    }
   }
 
   const selectedBroker = filters.broker_id
@@ -54,10 +85,26 @@ export function PropertiesPage() {
                 />
               )}
               {isAdmin && (
-                <Button size="sm" onClick={() => setShowCreate(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Nueva Propiedad
-                </Button>
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleGenerate}
+                    disabled={isGenerating}
+                    title="Generar 10 propiedades de prueba con datos aleatorios"
+                  >
+                    {isGenerating ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="mr-2 h-4 w-4" />
+                    )}
+                    Generar propiedades
+                  </Button>
+                  <Button size="sm" onClick={() => setShowCreate(true)}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Nueva Propiedad
+                  </Button>
+                </>
               )}
             </>
           }

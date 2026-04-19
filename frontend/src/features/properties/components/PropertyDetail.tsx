@@ -30,8 +30,14 @@ export function PropertyDetail({ property: p, onClose, onEdit }: PropertyDetailP
       <div className="flex items-start justify-between p-4 border-b border-[#E2EAF4] sticky top-0 bg-white z-10">
         <div className="flex-1 min-w-0">
           <h2 className="font-semibold text-sm truncate">{p.name ?? 'Sin nombre'}</h2>
-          {p.internal_code && (
-            <p className="text-[11px] text-muted-foreground">{p.internal_code}</p>
+          {p.codigo && (
+            <p className="text-[11px] text-muted-foreground">{p.codigo}</p>
+          )}
+          {p.project && (
+            <p className="text-[11px] text-blue-700">Proyecto: {p.project.name}</p>
+          )}
+          {p.tipologia && (
+            <p className="text-[11px] text-slate-600">Tipología: {p.tipologia}</p>
           )}
         </div>
         <div className="flex items-center gap-1.5 ml-2 shrink-0">
@@ -67,19 +73,44 @@ export function PropertyDetail({ property: p, onClose, onEdit }: PropertyDetailP
               Subsidio
             </Badge>
           )}
+          {p.has_offer && (
+            <Badge variant="outline" className="text-[11px] bg-rose-50 text-rose-700 border-rose-200 font-semibold">
+              OFERTA
+            </Badge>
+          )}
         </div>
 
         {/* Price */}
         <div>
-          {p.price_uf != null && (
-            <p className="text-2xl font-bold text-slate-900">
-              UF {p.price_uf.toLocaleString('es-CL')}
-            </p>
-          )}
-          {p.price_clp != null && (
-            <p className="text-sm text-muted-foreground">
-              ${p.price_clp.toLocaleString('es-CL')} CLP
-            </p>
+          {p.has_offer && p.offer_price_uf != null ? (
+            <>
+              <p className="text-2xl font-bold text-rose-600">
+                UF {p.offer_price_uf.toLocaleString('es-CL')}
+              </p>
+              {p.list_price_uf != null && (
+                <p className="text-sm text-muted-foreground line-through">
+                  UF {p.list_price_uf.toLocaleString('es-CL')}
+                </p>
+              )}
+              {p.offer_price_clp != null && (
+                <p className="text-sm text-muted-foreground">
+                  ${p.offer_price_clp.toLocaleString('es-CL')} CLP
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              {(p.list_price_uf ?? p.price_uf) != null && (
+                <p className="text-2xl font-bold text-slate-900">
+                  UF {(p.list_price_uf ?? p.price_uf)!.toLocaleString('es-CL')}
+                </p>
+              )}
+              {(p.list_price_clp ?? p.price_clp) != null && (
+                <p className="text-sm text-muted-foreground">
+                  ${(p.list_price_clp ?? p.price_clp)!.toLocaleString('es-CL')} CLP
+                </p>
+              )}
+            </>
           )}
           {p.common_expenses_clp != null && (
             <p className="text-xs text-muted-foreground mt-0.5">

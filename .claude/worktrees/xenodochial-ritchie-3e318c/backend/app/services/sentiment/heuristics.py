@@ -1,0 +1,302 @@
+"""
+Heuristic sentiment analyzer — fast keyword/pattern based, zero LLM cost.
+
+Returns a SentimentResult with:
+- score: float 0.0 (positive) → 1.0 (very frustrated)
+- emotions: list of detected emotion tags
+- confidence: float — how confident we are (low → send to LLM for confirmation)
+- needs_llm: bool — True if sarcasm detected OR confidence < threshold
+
+Also exposes quick_analyze() for the pre-pipeline gate in the orchestrator:
+- explicit_human_request: lead asked to talk to a real person (immediate escalation)
+- sensitive_topic: money complaints, legal threats, SERNAC (high-priority escalation)
+- loop_detected: lead repeated the same question 3+ times in recent messages
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from typing import List, Optional
+
+
+# ── Data classes ──────────────────────────────────────────────────────────────
+
+@dataclass
+class SentimentResult:
+    score: float                    # 0.0 = positive/neutral, 1.0 = very frustrated
+    emotions: List[str]             # e.g. ["abandonment_threat", "confusion"]
+    confidence: float               # 0.0 = very uncertain, 1.0 = very certain
+    needs_llm: bool = False         # True → pass to LLM analyzer
+
+
+@dataclass
+class QuickAnalysisResult:
+    """Result of quick_analyze() — used by the orchestrator pre-pipeline gate."""
+    sentiment: SentimentResult
+    explicit_human_request: bool = False   # Lead asked to talk to a real person
+    sensitive_topic: bool = False          # Legal threat, money complaint, SERNAC
+    loop_detected: bool = False            # Same question repeated 3+ times recently
+    off_topic_detected: bool = False       # Prompt injection or clearly off-topic spam
+
+
+# ── Pattern definitions ────────────────────────────────────────────────────────
+
+# Each entry: (compiled_pattern, score_contribution, emotion_tag, confidence)
+# Patterns are ordered from strongest signal to weakest.
+
+_ABANDONMENT_PATTERNS: List[tuple] = [
+    # Strong — explicit goodbye/abandonment in real estate context
+    (re.compile(r"\b(me voy|me voy a ir|me fui)\b.*\b(otra|otro|competencia|lado|parte)\b", re.I), 0.9, "abandonment_threat", 0.95),
+    (re.compile(r"\b(buscar[eé]|voy a buscar|llamar[eé])\b.*\b(otra|otro|inmobiliaria|corredor|agencia|broker)\b", re.I), 0.85, "abandonment_threat", 0.90),
+    (re.compile(r"\b(no me interesa (m[aá]s|más)|ya no me interesa|pierdo el inter[eé]s)\b", re.I), 0.80, "abandonment_threat", 0.90),
+    (re.compile(r"\b(olv[ií]dalo|olv[ií]dense|lo olvido)\b", re.I), 0.75, "abandonment_threat", 0.85),
+    (re.compile(r"\b(chao|adi[oó]s|bye)\b.*\b(suerte|todo|esto)\b", re.I), 0.70, "abandonment_threat", 0.80),
+    # Medium — expressions of giving up
+    (re.compile(r"\b(ya (no|basta)|hasta aqu[ií]|no (m[aá]s|más) esto|me cans[eé])\b", re.I), 0.65, "abandonment_threat", 0.75),
+    (re.compile(r"\b(mala (experiencia|atenci[oó]n|atención)|p[eé]simo (servicio|trato)|muy malo)\b", re.I), 0.70, "abandonment_threat", 0.85),
+    (re.compile(r"\b(no vuelvo|nunca m[aá]s|nunca más)\b", re.I), 0.80, "abandonment_threat", 0.90),
+    # Mild
+    (re.compile(r"\b(no vale la pena|no sirve|no funciona)\b", re.I), 0.45, "abandonment_threat", 0.65),
+]
+
+_CONFUSION_PATTERNS: List[tuple] = [
+    # Strong explicit confusion
+    (re.compile(r"\?{2,}", re.I), 0.35, "confusion", 0.70),          # Multiple question marks
+    (re.compile(r"\b(no entend[ií]|no entiendo|no comprend[ií]|no comprendo)\b", re.I), 0.45, "confusion", 0.85),
+    (re.compile(r"\b(me perd[ií]|me perdi|qu[eé] quieres (decir|deciR))\b", re.I), 0.45, "confusion", 0.85),
+    (re.compile(r"\b(de qu[eé] (hablas|estás hablando))\b", re.I), 0.50, "confusion", 0.80),
+    (re.compile(r"\b(no me queda claro|no es claro|es confuso)\b", re.I), 0.40, "confusion", 0.80),
+    # Repeated question markers (eh?, qué?, cómo?)
+    (re.compile(r"\b(qu[eé]\?|c[oó]mo\?|eh\?)\s*\1", re.I), 0.40, "confusion", 0.75),
+    # Mild
+    (re.compile(r"\b(no s[eé] a qu[eé] te refieres|no sigo)\b", re.I), 0.35, "confusion", 0.70),
+]
+
+# Anger/Frustration (non-sarcasm — explicit)
+_FRUSTRATION_PATTERNS: List[tuple] = [
+    # Explicit frustration — also covers "toy" (Chilean colloquial for "estoy")
+    (re.compile(r"\b((estoy|toy) (enojad[oa]|molest[oa]|frustrad[oa]|harto|harta|bravo|brava|alterado|alterada))\b", re.I), 0.75, "frustration", 0.90),
+    (re.compile(r"\b(me molesta|me tiene harto|me tiene harta|ya me hartaron|estoy harto|toy harto|toy enojad[oa])\b", re.I), 0.70, "frustration", 0.90),
+    (re.compile(r"\b(es una lata|qu[eé] lata|qu[eé] fome|qu[eé] penca)\b", re.I), 0.40, "frustration", 0.75),  # Chilean idioms
+    (re.compile(r"\b(demasiado lento|muy lento|tardando mucho|tardan mucho|tardando demasiado|cu[aá]nto (m[aá]s|más) tardan)\b", re.I), 0.40, "frustration", 0.70),
+    (re.compile(r"\b(llevan (mucho tiempo|horas|d[ií]as)|cu[aá]nto (m[aá]s|más) voy a esperar)\b", re.I), 0.45, "frustration", 0.75),
+    # Uppercase frustration — at least 3 all-caps words (2+ chars each) to reduce false positives
+    # from common Chilean real estate acronyms like UF, DNI, VER, etc.
+    (re.compile(r"(?:(?:^|(?<=\s))[A-ZÁÉÍÓÚÑ]{2,}(?=\s|$).*?){3,}", re.M), 0.40, "frustration", 0.60),
+    # Repeated exclamation marks
+    (re.compile(r"!{2,}"), 0.30, "frustration", 0.55),
+    (re.compile(r"\b(esto es un desastre|qu[eé] desastre|terrible (servicio|atenci[oó]n))\b", re.I), 0.70, "frustration", 0.85),
+    # Chilean profanity / insults — strong anger signal
+    (re.compile(r"\b(maldito|maldita|conchetumare|concha (de )?tu madre|ctm|weon|hue[ov][oó]n|chucha|la chucha|puta (la |que la |madre)?|como el pico|de mierda|idiota|imbecil|estupido|estupida)\b", re.I), 0.85, "anger", 0.90),
+    # Demand to speak with supervisor/manager — clear escalation intent
+    (re.compile(r"\b(quiero (hablar|habla|comunicarme) con (un |el )?(jefe|supervisor|encargado|gerente|due[ñn]o|responsable))\b", re.I), 0.80, "escalation_demand", 0.90),
+    (re.compile(r"\b(p[aá]same (con |al )?(jefe|supervisor|encargado|gerente))\b", re.I), 0.80, "escalation_demand", 0.90),
+    (re.compile(r"\b(hablar con (tu |el )?(jefe|supervisor|encargado|gerente|due[ñn]o))\b", re.I), 0.80, "escalation_demand", 0.90),
+]
+
+# Sarcasm markers — high uncertainty, always needs LLM confirmation
+_SARCASM_MARKERS: List[tuple] = [
+    (re.compile(r"\b(cl[aá]ro|claro)\.{2,}", re.I), "sarcasm", 0.30),            # "claro..." (dismissive dots)
+    (re.compile(r"\b(s[ií],? seguro|s[ií],? claro)\b", re.I), "sarcasm", 0.25),  # "sí, seguro"
+    (re.compile(r"\b(obvio|obviam)\b.*[!?]", re.I), "sarcasm", 0.25),
+    (re.compile(r"\b(genial|excelente|incre[ií]ble)\b.*!.*\b(ja|jaja|jajaja)\b", re.I), "sarcasm", 0.35),
+    (re.compile(r"\b(jaja+\s*,?\s*(qué|que)\s*(bueno|genial|bien))\b", re.I), "sarcasm", 0.30),
+    (re.compile(r"\.{3,}\b(gracias|ok|bien|entendido)\b", re.I), "sarcasm", 0.20),  # "...gracias"
+]
+
+# Positive signals that lower the score
+_POSITIVE_PATTERNS: List[tuple] = [
+    (re.compile(r"\b(gracias|thank|perfecto|excelente|genial|me parece bien|de acuerdo|ok|dale)\b", re.I), -0.15),
+    (re.compile(r"\b(entendido|entend[ií]|claro que s[ií]|por supuesto|con gusto)\b", re.I), -0.10),
+    (re.compile(r"\b(me interesa|me gusta|s[ií] me interesa|quiero saber m[aá]s)\b", re.I), -0.20),
+]
+
+# Explicit human request — lead wants to talk to a real person, not just a supervisor.
+# These trigger immediate escalation regardless of the cumulative frustration score.
+_EXPLICIT_HUMAN_PATTERNS: List[re.Pattern] = [
+    re.compile(r"\b(quiero|necesito|prefiero)\b.{0,30}\b(hablar|habla|comunicarme|atenci[oó]n)\b.{0,30}\b(con\b.{0,20}\b)?(persona|humano|humana|alguien real|ser humano|agente real|asesor real)\b", re.I | re.S),
+    re.compile(r"\b(p[aá]same|c[oó]muniqueme|con[ée]ctame)\b.{0,30}\b(persona|humano|alguien|agente)\b", re.I),
+    re.compile(r"\b(no (quiero|me gusta|me atienda|me responda))\b.{0,30}\b(bot|robot|ia|inteligencia artificial|m[aá]quina)\b", re.I),
+    re.compile(r"\b(hablar con (una?|un) (persona|humano|humana|ser humano|asesor real))\b", re.I),
+    re.compile(r"\b(qu[ée]ro|quiero)\b.{0,20}\b(un (humano|persona|ser humano|agente))\b", re.I),
+    re.compile(r"\b(alguien real|una persona de verdad|un ser humano)\b", re.I),
+]
+
+# Sensitive topics — money complaints, legal threats, regulatory bodies.
+# High-score sensitive topics should escalate to human immediately.
+_SENSITIVE_TOPIC_PATTERNS: List[re.Pattern] = [
+    # Legal threats
+    re.compile(r"\b(llamar|llamar[eé]|voy a llamar|llamando)\b.{0,30}\b(abogado|abogada|asesor legal|letrado)\b", re.I),
+    re.compile(r"\b(demandar|denunciar|demanda|denuncia|juicio|recurso legal)\b", re.I),
+    re.compile(r"\b(SERNAC|sernac|defensa del consumidor|consumidor)\b.{0,20}\b(reclamo|queja|denunci|llamar)\b", re.I),
+    re.compile(r"\b(mis derechos (como )?consumidor|ley del consumidor|protecci[oó]n al consumidor)\b", re.I),
+    # Money complaints
+    re.compile(r"\b(me (deben|cobrar[oó]n|descont[oó]|robaron)|cobro incorrecto|cargo (incorrecto|extra|no autorizado))\b", re.I),
+    re.compile(r"\b(devolu[cć]i[oó]n (del|de mi) (dinero|pago|dep[oó]sito)|quiero mi dinero de vuelta|me devuelven)\b", re.I),
+    re.compile(r"\b(estafa|enga[ñn]o|fraude|robo|me robaron|timaron)\b", re.I),
+]
+
+
+# ── Off-topic / prompt injection patterns ────────────────────────────────────
+# Detected once → AI responds normally. Detected 3+ times → auto do_not_reply.
+
+_OFF_TOPIC_PATTERNS: List[re.Pattern] = [
+    # Prompt injection attempts
+    re.compile(r"\b(ignora|olvida|deja de lado|descarta)\b.{0,40}\b(instrucciones|prompt|rol|sistema|reglas|base|contexto)\b", re.I | re.S),
+    re.compile(r"\b(act[úu]a como|pretend|eres ahora|ahora eres|ser[eé]s)\b.{0,30}\b(otro|diferente|libre|sin l[ií]mites)\b", re.I),
+    re.compile(r"\b(jailbreak|modo dios|modo libre|sin restricciones|sin censura|DAN)\b", re.I),
+    re.compile(r"\b(ignora (tu|tus) (rol|instrucciones?|prompt|reglas?|sistema))\b", re.I),
+    re.compile(r"\b(olvida (tu|tus) (rol|instrucciones?|prompt|reglas?|sistema))\b", re.I),
+    re.compile(r"\b(cu[aá]l es (tu|el) (modelo|sistema|prompt base|instrucciones?))\b", re.I),
+    re.compile(r"\b(qu[eé] (modelo|llm|ia|inteligencia artificial|gpt|gemini|claude) (eres|usas|corres|est[aá]s usando))\b", re.I),
+    re.compile(r"\b(revela(me)?|mu[eé]stra(me)?|dame) (tu|el) (prompt|instrucciones?|sistema)\b", re.I),
+]
+
+
+# ── Analyzer ──────────────────────────────────────────────────────────────────
+
+def analyze_heuristics(message: str) -> SentimentResult:
+    """
+    Analyze a single message with heuristic patterns.
+
+    Returns a SentimentResult. If needs_llm=True, the caller should
+    pass the message to llm_analyzer for confirmation.
+    """
+    if not message or not message.strip():
+        return SentimentResult(score=0.0, emotions=[], confidence=1.0, needs_llm=False)
+
+    total_score = 0.0
+    emotions: List[str] = []
+    max_confidence = 0.0
+    sarcasm_detected = False
+
+    # Check sarcasm markers first (always triggers LLM)
+    for pattern, emotion_tag, _ in _SARCASM_MARKERS:
+        if pattern.search(message):
+            sarcasm_detected = True
+            if emotion_tag not in emotions:
+                emotions.append(emotion_tag)
+            total_score = max(total_score, 0.35)  # baseline score for sarcasm
+
+    # Check explicit patterns
+    for pattern_group in [_ABANDONMENT_PATTERNS, _CONFUSION_PATTERNS, _FRUSTRATION_PATTERNS]:
+        for pattern, score_contrib, emotion_tag, confidence in pattern_group:
+            if pattern.search(message):
+                total_score = max(total_score, score_contrib)
+                if emotion_tag not in emotions:
+                    emotions.append(emotion_tag)
+                max_confidence = max(max_confidence, confidence)
+
+    # Apply positive dampeners
+    for pattern, dampener in _POSITIVE_PATTERNS:
+        if pattern.search(message):
+            total_score = max(0.0, total_score + dampener)
+
+    # Clamp score
+    total_score = min(1.0, max(0.0, total_score))
+
+    # Determine needs_llm
+    needs_llm = (
+        sarcasm_detected
+        or (0.0 < total_score < 0.9 and max_confidence < 0.70)
+        or (total_score == 0.0 and max_confidence == 0.0 and len(message) > 30)
+    )
+
+    # If score is very low and no emotions detected, high confidence it's fine
+    if total_score < 0.05 and not emotions:
+        max_confidence = 0.95
+        needs_llm = False
+
+    return SentimentResult(
+        score=total_score,
+        emotions=emotions,
+        confidence=max_confidence if max_confidence > 0 else 0.5,
+        needs_llm=needs_llm,
+    )
+
+
+# ── Quick analyzer (pre-pipeline gate) ───────────────────────────────────────
+
+def _detect_loop(message: str, recent_messages: List[str]) -> bool:
+    """
+    Return True if the lead repeated a very similar message 3+ times in
+    ``recent_messages`` (the last N inbound messages from DB, which includes
+    the current message since it is logged before this gate runs).
+
+    Uses a simple normalized-overlap ratio: two messages are considered the
+    same if >70% of their words overlap after lowercasing.
+
+    Threshold is >= 3 because the current message is always present in
+    recent_messages (logged in Step 2 before Step 2b), producing one
+    guaranteed self-match. So 3 matches = 1 self + 2 prior repetitions.
+    """
+    if not recent_messages or len(recent_messages) < 3:
+        return False
+
+    def _tokens(text: str) -> set:
+        return set(re.sub(r"[^\w\s]", "", text.lower()).split())
+
+    current_tokens = _tokens(message)
+    if not current_tokens:
+        return False
+
+    match_count = 0
+    for prev in recent_messages[-5:]:
+        prev_tokens = _tokens(prev)
+        if not prev_tokens:
+            continue
+        overlap = len(current_tokens & prev_tokens) / max(len(current_tokens), len(prev_tokens))
+        if overlap >= 0.70:
+            match_count += 1
+
+    return match_count >= 3  # self-match + 2 prior repetitions = 3 total occurrences
+
+
+def quick_analyze(
+    message: str,
+    recent_inbound_messages: Optional[List[str]] = None,
+) -> QuickAnalysisResult:
+    """
+    Fast pre-pipeline gate called by the chat orchestrator BEFORE the AI responds.
+
+    Checks (in priority order):
+    1. Explicit human request → immediate escalation
+    2. Sensitive topic (legal/money) → high-priority escalation
+    3. Loop detection (same question 3+ times) → escalation
+    4. Standard heuristic sentiment analysis
+
+    Parameters
+    ----------
+    message : str
+        The current inbound message from the lead.
+    recent_inbound_messages : list[str] | None
+        The last N inbound messages (direction='in') from this lead, used for
+        loop detection. Should be pre-filtered to inbound only.
+
+    Returns
+    -------
+    QuickAnalysisResult
+        Contains the standard SentimentResult plus three boolean flags.
+    """
+    # 1. Explicit human request (always escalate regardless of score)
+    explicit_human = any(p.search(message) for p in _EXPLICIT_HUMAN_PATTERNS)
+
+    # 2. Sensitive topic
+    sensitive = any(p.search(message) for p in _SENSITIVE_TOPIC_PATTERNS)
+
+    # 3. Loop detection
+    loop = _detect_loop(message, recent_inbound_messages or [])
+
+    # 4. Off-topic / prompt injection
+    off_topic = any(p.search(message) for p in _OFF_TOPIC_PATTERNS)
+
+    # 5. Standard sentiment
+    sentiment = analyze_heuristics(message)
+
+    return QuickAnalysisResult(
+        sentiment=sentiment,
+        explicit_human_request=explicit_human,
+        sensitive_topic=sensitive,
+        loop_detected=loop,
+        off_topic_detected=off_topic,
+    )

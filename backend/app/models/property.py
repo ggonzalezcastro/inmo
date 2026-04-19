@@ -48,11 +48,23 @@ class Property(Base, IdMixin, TimestampMixin):
 
     # ── Identification ────────────────────────────────────────────────────────
     name = Column(String(255), nullable=True)
-    internal_code = Column(String(50), nullable=True)
+    codigo = Column(String(50), nullable=True)
+    # Identificador de la unidad dentro del proyecto (ej. "Depto 502", "Casa A-12").
+    # Antes se llamaba `internal_code`; renombrado al modelar proyectos.
+    tipologia = Column(String(50), nullable=True)
+    # Tipo de unidad reutilizable dentro de un proyecto (ej. "2D2B", "A1").
     property_type = Column(String(50), nullable=True)
     # 'departamento', 'casa', 'terreno', 'oficina'
     status = Column(String(20), nullable=False, default="available")
     # 'available', 'reserved', 'sold', 'rented'
+
+    # ── Project association (opcional — propiedades sueltas permitidas) ──────
+    project_id = Column(
+        Integer,
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # ── Location ──────────────────────────────────────────────────────────────
     commune = Column(String(100), nullable=True, index=True)
@@ -65,6 +77,12 @@ class Property(Base, IdMixin, TimestampMixin):
     # ── Numeric attributes (SQL-filterable) ───────────────────────────────────
     price_uf = Column(Numeric(12, 2), nullable=True, index=True)
     price_clp = Column(BigInteger, nullable=True)
+    # Pricing extendido — list = precio publicado, offer = precio promocional vigente.
+    list_price_uf = Column(Numeric(12, 2), nullable=True)
+    list_price_clp = Column(BigInteger, nullable=True)
+    offer_price_uf = Column(Numeric(12, 2), nullable=True)
+    offer_price_clp = Column(BigInteger, nullable=True)
+    has_offer = Column(Boolean, nullable=False, default=False)
     bedrooms = Column(Integer, nullable=True, index=True)
     bathrooms = Column(Integer, nullable=True)
     parking_spots = Column(Integer, nullable=True, default=0)
@@ -116,12 +134,26 @@ class Property(Base, IdMixin, TimestampMixin):
 
     # ── Relationships ─────────────────────────────────────────────────────────
     broker = relationship("Broker", foreign_keys=[broker_id])
+    project = relationship(
+        "Project", foreign_keys=[project_id], back_populates="properties"
+    )
 
     __table_args__ = (
         Index(
             "idx_prop_broker_status",
             "broker_id",
             "status",
+        ),
+        Index(
+            "idx_prop_broker_project",
+            "broker_id",
+            "project_id",
+        ),
+        Index(
+            "idx_prop_broker_project_tipologia",
+            "broker_id",
+            "project_id",
+            "tipologia",
         ),
         Index(
             "idx_prop_search",
@@ -148,6 +180,12 @@ class Property(Base, IdMixin, TimestampMixin):
             "latitude",
             "longitude",
             postgresql_where="status = 'available'",
+        ),
+        Index(
+            "idx_prop_offers",
+            "broker_id",
+            "has_offer",
+            postgresql_where="status = 'available' AND has_offer = true",
         ),
         # IVFFlat index created in migration (not declarable via SQLAlchemy easily)
     )

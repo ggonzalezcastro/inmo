@@ -1,90 +1,83 @@
----
-title: AI Lead Agent Pro - Documentación
-version: 1.1.0
-date: 2026-02-22
-author: Equipo Inmo
----
+# Documentación AI Lead Agent Pro
 
-![Status](https://img.shields.io/badge/status-active-brightgreen)
-![Backend](https://img.shields.io/badge/backend-FastAPI-009688)
-![Frontend](https://img.shields.io/badge/frontend-React-61DAFB)
-![Database](https://img.shields.io/badge/database-PostgreSQL-336791)
-![License](https://img.shields.io/badge/license-proprietary-red)
+Sistema CRM de agentes IA para corretaje inmobiliario
 
-# AI Lead Agent Pro
+> Última actualización: 2026-04-18
 
-CRM inmobiliario multi-tenant con inteligencia artificial para calificación de leads, comunicación multicanal (Telegram, WhatsApp, voz), pipeline de ventas automatizado y campañas de marketing.
+## Arquitectura
 
-## Tabla de Contenidos
+- [[arquitectura/overview]] — Visión general del sistema
+- [[arquitectura/multi-agente]] — Sistema multi-agente (Supervisor + agentes)
+- [[arquitectura/handoff-flows]] — Flujos de transferencia entre agentes
+- [[arquitectura/pipeline-states]] — Pipeline de leads y estados
+- [[arquitectura/llm-layer]] — Capa de LLM (Gemini/Claude/OpenAI)
+- [[arquitectura/escalation]] — Sistema de sentiment y escalación
+- [[arquitectura/human-handoff]] — Toma de control por agente humano
+- [[arquitectura/websockets]] — Comunicación en tiempo real
+- [[arquitectura/channels]] — Canales de mensajería (Telegram, WhatsApp, Webchat)
+- [[arquitectura/auth]] — Autenticación y autorización
+- [[arquitectura/broker-config]] — Configuración por broker
+- [[arquitectura/knowledge-base]] — Knowledge Base y RAG
+- [[arquitectura/scoring]] — Sistema de puntaje de leads
+- [[arquitectura/voice]] — Integración de voz (VAPI)
+- [[arquitectura/celery-tasks]] — Tareas asíncronas (Celery)
+- [[arquitectura/observability]] — Observabilidad y monitoring
 
-| Sección | Descripción |
-|---------|-------------|
-| [Arquitectura](architecture/overview.md) | Descripción de la arquitectura general del sistema |
-| [Multi-Agente](architecture/multi_agent.md) | Sistema multi-agente especializado (Qualifier, Scheduler, FollowUp) |
-| [Diagramas](architecture/diagrams.md) | Diagramas de arquitectura, ERD, flujo de datos y componentes |
-| [Decisiones](architecture/decisions.md) | Architecture Decision Records (ADRs) |
-| [Requerimientos Funcionales](requirements/functional.md) | Funcionalidades del sistema |
-| [Requerimientos No Funcionales](requirements/non-functional.md) | Rendimiento, seguridad, escalabilidad |
-| [Casos de Uso](use-cases/overview.md) | Listado y detalle de casos de uso |
-| [API - Overview](api/overview.md) | Descripción general de la API REST |
-| [API - Endpoints](api/endpoints.md) | Documentación detallada de endpoints |
-| [API - Webhooks](api/webhooks.md) | Payloads de webhooks (Telegram, WhatsApp, VAPI) |
-| [Voz (VAPI)](technical/backend/VAPI_IMPLEMENTATION.md) | Referencia técnica canónica: flujos, webhooks, tareas Celery |
-| [VAPI - Inicio rápido](guides/VAPI_QUICKSTART.md) | Guía rápida de configuración Vapi.ai |
-| [Frontend - Referencia](technical/frontend/FRONTEND_QUICK_REFERENCE.md) | Estructura, API client, Zustand, permisos |
-| [Seguridad](security/SECRETS_MANAGEMENT.md) | Gestión de secretos y variables de entorno |
-| [Guía de Inicio](guides/getting-started.md) | Instalación y configuración |
-| [Guía de Desarrollo](guides/development.md) | Guía para desarrolladores |
-| [Guía de Despliegue](guides/deployment.md) | Despliegue en producción |
-| [Estrategia de Testing](testing/strategy.md) | Plan y cobertura de pruebas |
-| [Eval Baseline](testing/eval_baseline.md) | Baselines de calidad del agente IA |
-| [Roadmap](status/ROADMAP_PROGRESS.md) | Estado de sprints y pendientes |
-| [Changelog](changelog/CHANGELOG.md) | Historial de versiones |
+## Base de Datos
 
-## Stack Tecnológico
+- [[arquitectura/database-schema]] — Esquema completo de PostgreSQL
 
-| Capa | Tecnología |
-|------|-----------|
-| Backend | FastAPI (Python 3.11+), async/await |
-| Frontend | React + Vite, Zustand |
-| Base de Datos | PostgreSQL 15 + pgvector + SQLAlchemy 2.0 (async) |
-| Cache | Redis (sesiones, semántico, DLQ, prompt cache) |
-| Colas | Celery + Redis (con Dead Letter Queue) |
-| LLM | Gemini, Claude, OpenAI (Strategy + Router de failover) |
-| Agente IA | Sistema multi-agente: QualifierAgent, SchedulerAgent, FollowUpAgent |
-| Herramientas IA | MCP Server (Model Context Protocol) |
-| RAG | pgvector + Gemini embeddings |
-| Eval | deepeval + métricas deterministas custom |
-| Voz | VAPI, Bland AI (Strategy Pattern) |
-| Chat | Telegram, WhatsApp (Strategy Pattern) |
-| Calendario | Google Calendar API |
-| Tiempo Real | WebSocket por broker |
-| Auth | JWT + bcrypt |
-| Infraestructura | Docker Compose |
+## Agentes
 
-## Arquitectura en Resumen
+- [[agentes/qualifier-agent]] — Agente de calificación
+- [[agentes/scheduler-agent]] — Agente de agendamiento
+- [[agentes/follow-up-agent]] — Agente de seguimiento
 
-El sistema es una aplicación multi-tenant donde cada **Broker** (inmobiliaria) tiene su propia configuración de IA, pipeline de ventas y canales de comunicación. Los **Leads** se califican automáticamente mediante LLM y se mueven a través de un pipeline de ventas con campañas automatizadas.
+## API
 
-```mermaid
-flowchart LR
-    subgraph channels [Canales]
-        TG[Telegram]
-        WA[WhatsApp]
-        VOZ[Voz AI]
-    end
-    subgraph core [Core]
-        API[FastAPI API]
-        LLM[LLM Engine]
-        PIPE[Pipeline]
-    end
-    subgraph data [Data]
-        PG[(PostgreSQL)]
-        RD[(Redis)]
-    end
-    channels --> API
-    API --> LLM
-    API --> PIPE
-    API --> PG
-    API --> RD
-```
+- [[api/endpoints]] — Referencia completa de endpoints REST
+
+## Frontend
+
+- [[frontend/structure]] — Estructura del frontend (React, Zustand, Router)
+
+## Guías
+
+- [[guides/getting-started]] — Guía de inicio rápido para nuevos desarrolladores
+- [[guides/development]] — Workflow de desarrollo
+- [[guides/ENV_VARIABLES]] — Variables de entorno completas
+- [[guides/USAGE_GUIDE]] — Guía de uso del sistema
+- [[guides/GOOGLE_CALENDAR_SETUP]] — Configuración de Google Calendar
+- [[guides/VAPI_QUICKSTART]] — Quickstart de VAPI
+
+## Decisiones Arquitectónicas
+
+- [[decisiones/ADR-001-postgresql-pgvector]] — PostgreSQL + pgvector
+- [[decisiones/ADR-002-gemini-primary]] — Gemini como LLM primario
+- [[decisiones/ADR-003-multi-agente-supervisor]] — Patrón Supervisor
+- [[decisiones/ADR-004-lead-metadata-jsonb]] — lead_metadata JSONB
+- [[decisiones/ADR-005-celery-redis]] — Celery + Redis
+- [[decisiones/ADR-006-zustand]] — Zustand para state management
+- [[decisiones/ADR-007-tool-based-handoffs]] — Handoffs basados en tools
+- [[decisiones/ADR-008-gemini-context-cache]] — Context Caching
+- [[decisiones/ADR-009-sync-sentiment-gate]] — Sentiment gate síncrono
+- [[decisiones/ADR-010-advisory-locks]] — Advisory locks
+
+## Issues
+
+- [[bugs-conocidos]] — Bugs y TODOs conocidos
+
+## Changelog
+
+### 2026-04-18
+
+- Agregada sección de Guías con getting-started, development, ENV_VARIABLES
+- Agregada referencia a arquitectura/observability
+- Actualización de índice con todas las guías disponibles
+
+### 2026-04-17
+
+- Creación del archivo README principal del vault de documentación
+- Organización de la documentación en categorías: Arquitectura, Agentes, API, Frontend, Decisiones Arquitectónicas e Issues
+- Inclusión de referencias a documentos de arquitectura del sistema multi-agente
+- Inclusión de referencias a ADRs (Architecture Decision Records)

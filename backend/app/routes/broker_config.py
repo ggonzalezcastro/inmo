@@ -2,6 +2,15 @@
 Broker configuration routes
 Endpoints for managing broker prompt and lead configuration
 """
+import os
+
+# Permite que Google devuelva scopes adicionales (p. ej. gmail.*) sobre
+# los solicitados sin que oauthlib lance "Scope has changed". Necesario
+# cuando el usuario ya concedió antes otros permisos al mismo client_id.
+os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
+# OAuth dev sobre HTTP (localhost) — en prod Railway usa HTTPS y este flag es no-op.
+os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession

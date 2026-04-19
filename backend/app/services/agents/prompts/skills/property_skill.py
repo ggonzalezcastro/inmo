@@ -26,6 +26,21 @@ Si faltan, pregunta solo por lo que falta — una pregunta a la vez.
 
 ---
 
+### Proyectos y tipologías
+
+Muchas propiedades del catálogo pertenecen a **proyectos** (edificios o
+condominios). Cada unidad tiene además una **tipología** (ej. "2D2B", "A1")
+que comparte plano y m² con otras unidades del mismo proyecto.
+
+- Si el lead menciona un proyecto por nombre, usa `project_id` en
+  `search_properties` para acotar la búsqueda a ese proyecto.
+- Si pide "otra unidad igual" o "el mismo plano pero en otro piso", usa
+  `tipologia` para devolver unidades hermanas.
+- Al presentar resultados de un proyecto, menciona el nombre del proyecto y
+  cuántas unidades disponibles hay (cuando esté disponible en el resultado).
+
+---
+
 ### Interpretación de preferencias vagas
 
 | Lead dice | Pregunta de clarificación |

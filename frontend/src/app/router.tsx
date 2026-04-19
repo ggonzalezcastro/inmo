@@ -62,6 +62,9 @@ const ObservabilityPage = lazy(() =>
 const PropertiesPage = lazy(() =>
   import('@/features/properties').then((m) => ({ default: m.PropertiesPage }))
 )
+const ProjectsPage = lazy(() =>
+  import('@/features/projects').then((m) => ({ default: m.ProjectsPage }))
+)
 
 function SuspenseWrapper({ children }: { children: React.ReactNode }) {
   return (
@@ -123,6 +126,14 @@ export const router = createBrowserRouter([
         element: (
           <RoleGuard allowedRoles={['admin', 'superadmin']}>
             <SuspenseWrapper><PropertiesPage /></SuspenseWrapper>
+          </RoleGuard>
+        ),
+      },
+      {
+        path: '/projects',
+        element: (
+          <RoleGuard allowedRoles={['admin', 'superadmin']}>
+            <SuspenseWrapper><ProjectsPage /></SuspenseWrapper>
           </RoleGuard>
         ),
       },

@@ -1,0 +1,49 @@
+# Render Blueprint — backend only (free tier, no Workers)
+# Celery workers omitted — campaigns/scoring tasks won't run.
+# Core chat, leads, AI, and calendar features work normally.
+#
+# After deploying, add these env vars in the Render dashboard:
+#   GEMINI_API_KEY, ANTHROPIC_API_KEY (or OPENAI_API_KEY), TELEGRAM_TOKEN
+#   ALLOWED_ORIGINS  → https://your-app.up.railway.app  (Railway frontend URL)
+#   WEBHOOK_BASE_URL → https://inmo-backend.onrender.com (your Render service URL)
+
+services:
+  # ── FastAPI Backend ──────────────────────────────────────────────────────────
+  - type: web
+    name: inmo-backend
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: cd backend && pip install -r requirements.txt
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: inmo-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: MCP_TRANSPORT
+        value: stdio
+      - key: REDIS_URL
+        value: ""
+      - key: CELERY_BROKER_URL
+        value: ""
+      - key: SEMANTIC_CACHE_ENABLED
+        value: "false"
+      # Add in Render dashboard: GEMINI_API_KEY, ANTHROPIC_API_KEY,
+      # TELEGRAM_TOKEN, ALLOWED_ORIGINS, WEBHOOK_BASE_URL
+
+databases:
+  - name: inmo-db
+    databaseName: inmo_production
+    user: inmo_user
+    region: oregon
+    plan: free
+    postgresMajorVersion: "15"

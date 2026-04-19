@@ -14,7 +14,10 @@ logger = logging.getLogger(__name__)
 # Score structure (0-100 pts):
 #   Financial health  (0-60) — primary:  income tiers + DICOM status
 #   Key profile       (0-25) — secondary: name (5) + phone (10) + income provided (10)
-#   Engagement bonus  (0-15) — tertiary:  messages, quick response, sessions
+#   Engagement bonus  (0-15) — tertiary:  messages (5) + fast responder (5) + sessions (5)
+#       fast responder: avg bot→lead reply ≤ FAST_RESPONSE_THRESHOLD_SECONDS
+#       across at least FAST_RESPONSE_MIN_REPLIES recorded replies (see
+#       app.services.leads.constants and response_metrics).
 #   Penalties                            blocklist (-30), inactive (-5), bad phone (-10)
 # ---------------------------------------------------------------------------
 
@@ -95,18 +98,17 @@ class ScoringService:
     @staticmethod
     def _calculate_engagement_bonus(messages: list, activities: list) -> int:
         """Engagement bonus (0-15 pts)."""
+        from app.services.leads.response_metrics import compute_response_metrics
+
         pts = 0
         # 5+ messages
         if len(messages) >= 5:
             pts += 5
-        # Quick response (<5 min between first two messages)
-        sorted_msgs = sorted(messages, key=lambda m: m.created_at)
-        if len(sorted_msgs) >= 2:
-            m0, m1 = sorted_msgs[0], sorted_msgs[1]
-            if m0.created_at and m1.created_at:
-                diff = (m1.created_at - m0.created_at).total_seconds()
-                if diff < 300:
-                    pts += 5
+        # Fast responder: real bot→lead turnaround averaged across all replies
+        # (replaces the old "delta between first two messages" heuristic).
+        metrics = compute_response_metrics(messages)
+        if metrics.get("is_fast_responder"):
+            pts += 5
         # Active sessions (3+ activity log entries)
         if len(activities) >= 3:
             pts += 5

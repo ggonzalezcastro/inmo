@@ -8,6 +8,13 @@ Endpoints:
   GET  /api/v1/agents/workload      — workload stats per agent (admin)
 """
 import logging
+import os
+
+# Permite que Google devuelva scopes adicionales sobre los solicitados
+# sin que oauthlib lance "Scope has changed".
+os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
+os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
+
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status

@@ -53,6 +53,7 @@ from app.models.knowledge_base import KnowledgeBase
 from app.models.broker_plan import BrokerPlan
 from app.models.agent_event import AgentEvent
 from app.models.property import Property
+from app.models.project import Project
 from app.models.conversation import Conversation
 from app.models.escalation_brief import EscalationBrief
 from app.models.observability_alert import ObservabilityAlert
@@ -106,6 +107,7 @@ __all__ = [
     "UserRole",
     "AgentEvent",
     "Property",
+    "Project",
     "Conversation",
     "EscalationBrief",
     "ObservabilityAlert",

@@ -1,0 +1,64 @@
+/* Font loaded in index.html with preconnect to avoid blocking first paint */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Frost.pen design tokens */
+    --background: 210 37% 96%;       /* #F0F4F8 */
+    --foreground: 221 39% 11%;       /* #111827 */
+    --card: 0 0% 100%;               /* #FFFFFF */
+    --card-foreground: 221 39% 11%;  /* #111827 */
+    --popover: 0 0% 100%;
+    --popover-foreground: 221 39% 11%;
+    --primary: 221 79% 48%;          /* #1A56DB */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 37% 96%;        /* #F0F4F8 */
+    --secondary-foreground: 221 39% 11%;
+    --muted: 214 29% 90%;            /* ~#E2EAF4 */
+    --muted-foreground: 220 9% 46%;  /* #6B7280 */
+    --accent: 214 100% 96%;          /* #EBF2FF */
+    --accent-foreground: 221 79% 48%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 30% 86%;           /* #D1D9E6 */
+    --input: 217 30% 86%;
+    --ring: 221 79% 48%;
+    --radius: 0.75rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}

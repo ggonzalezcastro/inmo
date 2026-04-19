@@ -73,6 +73,14 @@ SEARCH_PROPERTIES_TOOL = {
                 "type": "boolean",
                 "description": "Solo propiedades con subsidio disponible",
             },
+            "project_id": {
+                "type": "integer",
+                "description": "Filtrar por id de proyecto (cuando el lead pregunta por un proyecto específico).",
+            },
+            "tipologia": {
+                "type": "string",
+                "description": "Tipología de la unidad (ej. '2D2B', 'A1') dentro del proyecto.",
+            },
             # ── Semantic query ───────────────────────────────────────────────
             "semantic_query": {
                 "type": "string",
@@ -196,6 +204,10 @@ async def _structured_search(
         query = query.where(Property.parking_spots > 0)
     if params.get("subsidio_eligible"):
         query = query.where(Property.subsidio_eligible.is_(True))
+    if params.get("project_id") is not None:
+        query = query.where(Property.project_id == params["project_id"])
+    if params.get("tipologia"):
+        query = query.where(Property.tipologia == params["tipologia"])
 
     query = query.order_by(Property.price_uf.asc()).limit(_CANDIDATE_POOL)
     result = await db.execute(query)
@@ -228,6 +240,12 @@ async def _semantic_search(
     if params.get("min_bedrooms") is not None:
         extra_filters.append("AND bedrooms >= :min_beds")
         bind_params["min_beds"] = params["min_bedrooms"]
+    if params.get("project_id") is not None:
+        extra_filters.append("AND project_id = :project_id")
+        bind_params["project_id"] = params["project_id"]
+    if params.get("tipologia"):
+        extra_filters.append("AND tipologia = :tipologia")
+        bind_params["tipologia"] = params["tipologia"]
 
     extra_sql = " ".join(extra_filters)
 
@@ -324,7 +342,9 @@ def _format_property(
     result = {
         "id": prop.id,
         "name": prop.name or f"Propiedad #{prop.id}",
-        "internal_code": prop.internal_code,
+        "codigo": prop.codigo,
+        "tipologia": prop.tipologia,
+        "project_id": prop.project_id,
         "type": prop.property_type,
         "status": prop.status,
         "commune": prop.commune,

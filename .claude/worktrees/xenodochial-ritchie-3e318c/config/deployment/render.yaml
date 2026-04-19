@@ -1,0 +1,81 @@
+# Render Blueprint for easy deployment
+# Visit: https://render.com/docs/blueprint-spec
+
+services:
+  # Backend API
+  - type: web
+    name: inmo-backend
+    env: python
+    region: oregon
+    buildCommand: cd backend && pip install -r requirements.txt
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11
+      - key: DATABASE_URL
+        fromDatabase:
+          name: inmo-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: inmo-redis
+          type: redis
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: False
+      # Add your other environment variables in Render dashboard
+
+  # Celery Worker
+  - type: worker
+    name: inmo-celery-worker
+    env: python
+    region: oregon
+    buildCommand: cd backend && pip install -r requirements.txt
+    startCommand: cd backend && celery -A app.celery_app worker --loglevel=info
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: inmo-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: inmo-redis
+          type: redis
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromService:
+          name: inmo-redis
+          type: redis
+          property: connectionString
+
+  # Celery Beat (Scheduler)
+  - type: worker
+    name: inmo-celery-beat
+    env: python
+    region: oregon
+    buildCommand: cd backend && pip install -r requirements.txt
+    startCommand: cd backend && celery -A app.celery_app beat --loglevel=info
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: inmo-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: inmo-redis
+          type: redis
+          property: connectionString
+
+databases:
+  - name: inmo-db
+    databaseName: inmo_production
+    user: inmo_user
+    region: oregon
+
+  - name: inmo-redis
+    region: oregon
+    plan: starter

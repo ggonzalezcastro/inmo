@@ -1,0 +1,106 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+!frontend/src/**/lib/
+!frontend/src/**/lib/**
+!src/**/lib/
+!src/**/lib/**
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+*.log
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Environment files (COMPREHENSIVE)
+.env
+.env.*
+.env.local
+.env.*.local
+!.env.example
+!.env.production.example
+*.env.bak
+.env.bak
+*.env.backup
+.env.backup
+*.env.old
+.env.old
+.venv
+
+# Secrets and credentials
+credentials.json
+*-credentials.json
+service-account-*.json
+token.pickle
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+secret.*
+secrets.*
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Cache and temporary files
+.cache/
+*.cache
+tmp/
+temp/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+dist/
+dist-ssr/
+*.local
+!frontend/dist/
+!frontend/dist/**
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/agents/backend-architect.md
+

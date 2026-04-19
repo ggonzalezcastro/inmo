@@ -53,6 +53,19 @@ export interface Lead {
   assigned_agent_name?: string | null
   close_reason?: string | null
   close_reason_detail?: string | null
+  response_metrics?: ResponseMetrics | null
+}
+
+export interface ResponseMetrics {
+  reply_count: number
+  avg_response_seconds: number | null
+  median_response_seconds: number | null
+  fast_reply_count: number
+  last_response_seconds: number | null
+  is_fast_responder: boolean
+  threshold_seconds: number
+  min_replies_required: number
+  last_computed_at?: string
 }
 
 export interface CreateLeadDto {

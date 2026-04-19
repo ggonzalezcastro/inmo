@@ -34,7 +34,9 @@ _ADMIN_ROLES = {"ADMIN", "SUPERADMIN"}
 
 class PropertyCreate(BaseModel):
     name: Optional[str] = None
-    internal_code: Optional[str] = None
+    codigo: Optional[str] = None
+    tipologia: Optional[str] = None
+    project_id: Optional[int] = None
     property_type: Optional[str] = None
     status: str = "available"
     commune: Optional[str] = None
@@ -45,6 +47,11 @@ class PropertyCreate(BaseModel):
     longitude: Optional[float] = None
     price_uf: Optional[float] = None
     price_clp: Optional[int] = None
+    list_price_uf: Optional[float] = None
+    list_price_clp: Optional[int] = None
+    offer_price_uf: Optional[float] = None
+    offer_price_clp: Optional[int] = None
+    has_offer: bool = False
     bedrooms: Optional[int] = None
     bathrooms: Optional[int] = None
     parking_spots: Optional[int] = 0
@@ -69,7 +76,9 @@ class PropertyCreate(BaseModel):
 
 class PropertyUpdate(BaseModel):
     name: Optional[str] = None
-    internal_code: Optional[str] = None
+    codigo: Optional[str] = None
+    tipologia: Optional[str] = None
+    project_id: Optional[int] = None
     property_type: Optional[str] = None
     status: Optional[str] = None
     commune: Optional[str] = None
@@ -80,6 +89,11 @@ class PropertyUpdate(BaseModel):
     longitude: Optional[float] = None
     price_uf: Optional[float] = None
     price_clp: Optional[int] = None
+    list_price_uf: Optional[float] = None
+    list_price_clp: Optional[int] = None
+    offer_price_uf: Optional[float] = None
+    offer_price_clp: Optional[int] = None
+    has_offer: Optional[bool] = None
     bedrooms: Optional[int] = None
     bathrooms: Optional[int] = None
     parking_spots: Optional[int] = None
@@ -106,6 +120,8 @@ class PropertySearchRequest(BaseModel):
     commune: Optional[str] = None
     city: Optional[str] = None
     property_type: Optional[str] = None
+    project_id: Optional[int] = None
+    tipologia: Optional[str] = None
     min_bedrooms: Optional[int] = None
     max_bedrooms: Optional[int] = None
     min_bathrooms: Optional[int] = None
@@ -133,11 +149,22 @@ def _get_broker_id(user: dict) -> int:
 
 
 def _format(prop: Property) -> Dict[str, Any]:
+    project_summary = None
+    if prop.project_id is not None and getattr(prop, "project", None) is not None:
+        project_summary = {
+            "id": prop.project.id,
+            "name": prop.project.name,
+            "code": prop.project.code,
+            "commune": prop.project.commune,
+        }
     return {
         "id": prop.id,
         "broker_id": prop.broker_id,
         "name": prop.name,
-        "internal_code": prop.internal_code,
+        "codigo": prop.codigo,
+        "tipologia": prop.tipologia,
+        "project_id": prop.project_id,
+        "project": project_summary,
         "property_type": prop.property_type,
         "status": prop.status,
         "commune": prop.commune,
@@ -148,6 +175,11 @@ def _format(prop: Property) -> Dict[str, Any]:
         "longitude": float(prop.longitude) if prop.longitude else None,
         "price_uf": float(prop.price_uf) if prop.price_uf else None,
         "price_clp": prop.price_clp,
+        "list_price_uf": float(prop.list_price_uf) if prop.list_price_uf else None,
+        "list_price_clp": prop.list_price_clp,
+        "offer_price_uf": float(prop.offer_price_uf) if prop.offer_price_uf else None,
+        "offer_price_clp": prop.offer_price_clp,
+        "has_offer": bool(prop.has_offer),
         "bedrooms": prop.bedrooms,
         "bathrooms": prop.bathrooms,
         "parking_spots": prop.parking_spots,
@@ -184,6 +216,10 @@ async def list_properties(
     min_price_uf: Optional[float] = None,
     max_price_uf: Optional[float] = None,
     min_bedrooms: Optional[int] = None,
+    has_offer: Optional[bool] = None,
+    project_id: Optional[int] = None,
+    tipologia: Optional[str] = None,
+    no_project: Optional[bool] = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     broker_id: Optional[int] = None,
@@ -193,7 +229,12 @@ async def list_properties(
     _require_admin(current_user)
     target_broker = broker_id if current_user.get("role") == "SUPERADMIN" and broker_id else current_user.get("broker_id")
 
-    q = select(Property).where(Property.broker_id == target_broker)
+    from sqlalchemy.orm import selectinload
+    q = (
+        select(Property)
+        .where(Property.broker_id == target_broker)
+        .options(selectinload(Property.project))
+    )
     if status:
         q = q.where(Property.status == status)
     if property_type:
@@ -206,6 +247,14 @@ async def list_properties(
         q = q.where(Property.price_uf <= max_price_uf)
     if min_bedrooms is not None:
         q = q.where(Property.bedrooms >= min_bedrooms)
+    if has_offer is not None:
+        q = q.where(Property.has_offer == has_offer)
+    if project_id is not None:
+        q = q.where(Property.project_id == project_id)
+    if tipologia:
+        q = q.where(Property.tipologia == tipologia)
+    if no_project:
+        q = q.where(Property.project_id.is_(None))
 
     total_q = select(func.count()).select_from(q.subquery())
     total = (await db.execute(total_q)).scalar_one()
@@ -249,12 +298,13 @@ async def get_property(
     current_user: dict = Depends(get_current_user),
 ):
     _require_admin(current_user)
-    result = await db.execute(
-        select(Property).where(
-            Property.id == property_id,
-            Property.broker_id == current_user.get("broker_id") if current_user.get("role") != "SUPERADMIN" else True,
-        )
+    from sqlalchemy.orm import selectinload
+    q = select(Property).options(selectinload(Property.project)).where(
+        Property.id == property_id,
     )
+    if current_user.get("role") != "SUPERADMIN":
+        q = q.where(Property.broker_id == current_user.get("broker_id"))
+    result = await db.execute(q)
     prop = result.scalar_one_or_none()
     if prop is None:
         raise HTTPException(status_code=404, detail="Property not found")
@@ -278,7 +328,10 @@ async def update_property(
         raise HTTPException(status_code=404, detail="Property not found")
 
     update_data = body.model_dump(exclude_unset=True)
-    needs_reembed = any(k in update_data for k in ("description", "highlights", "amenities", "nearby_places"))
+    needs_reembed = any(
+        k in update_data
+        for k in ("description", "highlights", "amenities", "nearby_places", "project_id", "tipologia")
+    )
 
     for k, v in update_data.items():
         setattr(prop, k, v)
@@ -326,6 +379,79 @@ async def search_properties(
     from app.services.properties.search_service import execute_property_search
     results = await execute_property_search(body.model_dump(exclude_none=True), db, target_broker)
     return {"count": len(results), "results": results}
+
+
+@router.post("/generate-sample", status_code=201)
+async def generate_sample_properties(
+    count: int = Query(10, ge=1, le=50),
+    project_count: int = Query(2, ge=0, le=10),
+    broker_id: Optional[int] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Genera N propiedades de prueba con datos chilenos coherentes y embeddings.
+
+    Si `project_count` > 0, también crea ese número de proyectos demo y
+    distribuye las propiedades generadas entre ellos (con tipologías
+    coherentes). Si project_count=0, genera propiedades sueltas como antes.
+
+    Admin only. Pensado para poblar rápido el catálogo de un broker en demos /
+    entornos de desarrollo. Cada propiedad pasa por el pipeline normal de
+    embedding (Gemini text-embedding-004); fallos individuales se loggean
+    pero no abortan el batch.
+    """
+    _require_admin(current_user)
+    target_broker = broker_id if current_user.get("role") == "SUPERADMIN" and broker_id else current_user.get("broker_id")
+    if target_broker is None:
+        raise HTTPException(status_code=400, detail="broker_id requerido")
+
+    from app.services.properties.generator import (
+        generate_random_properties,
+        generate_random_property,
+        generate_random_projects,
+    )
+    from app.services.properties.embedding import embed_and_save_property
+
+    created_project_ids: List[int] = []
+    projects: List = []
+    if project_count > 0:
+        projects = generate_random_projects(target_broker, count=project_count)
+        for proj in projects:
+            db.add(proj)
+        await db.flush()
+        created_project_ids = [p.id for p in projects]
+
+    if projects:
+        # Distribuye las properties entre los proyectos (round-robin).
+        props = [
+            generate_random_property(target_broker, project=projects[i % len(projects)])
+            for i in range(count)
+        ]
+    else:
+        props = generate_random_properties(target_broker, count=count)
+
+    created_ids: List[int] = []
+    embed_failures = 0
+
+    for prop in props:
+        db.add(prop)
+        await db.flush()
+        created_ids.append(prop.id)
+        try:
+            await embed_and_save_property(prop, db)
+        except Exception as exc:
+            embed_failures += 1
+            logger.warning("Embedding falló para propiedad generada %d: %s", prop.id, exc)
+
+    await db.commit()
+    return {
+        "created": len(created_ids),
+        "ids": created_ids,
+        "embed_failures": embed_failures,
+        "projects_created": len(created_project_ids),
+        "project_ids": created_project_ids,
+    }
 
 
 @router.get("/migration-status")

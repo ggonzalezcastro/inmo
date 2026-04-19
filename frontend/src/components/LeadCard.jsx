@@ -197,14 +197,24 @@ export default function LeadCard({ lead, onClick }) {
       {/* Tags (if any) */}
       {lead.tags && lead.tags.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">
-          {lead.tags.slice(0, 2).map((tag, idx) => (
-            <span
-              key={idx}
-              className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700"
-            >
-              {tag}
-            </span>
-          ))}
+          {lead.tags.slice(0, 3).map((tag, idx) => {
+            const isFast = tag === 'respuesta_rapida';
+            return (
+              <span
+                key={idx}
+                title={isFast && lead.response_metrics?.avg_response_seconds != null
+                  ? `Promedio de respuesta: ${Math.round(lead.response_metrics.avg_response_seconds)}s`
+                  : undefined}
+                className={
+                  isFast
+                    ? 'inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800'
+                    : 'inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700'
+                }
+              >
+                {isFast ? '⚡ Respuesta rápida' : tag}
+              </span>
+            );
+          })}
         </div>
       )}
       </div>

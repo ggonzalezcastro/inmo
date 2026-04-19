@@ -1,0 +1,551 @@
+"""
+Voice call service for managing phone calls
+"""
+from datetime import datetime
+from typing import List, Optional, Dict, Any
+import logging
+
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+
+from app.models.lead import Lead
+from app.models.user import User
+from app.models.voice_call import VoiceCall, CallStatus
+from app.services.voice.provider import get_voice_provider
+from app.services.voice.types import WebhookEvent, CallEventType
+
+logger = logging.getLogger(__name__)
+
+
+class ScheduleAppointmentArgs(BaseModel):
+    lead_id: Optional[int] = None
+    date: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class UpdateLeadStageArgs(BaseModel):
+    lead_id: Optional[int] = None
+    stage: Optional[str] = None
+
+
+_CAPTURE_TOOLS = frozenset({
+    "capture_lead_info",
+    "capture_financial_info",
+    "capture_confirmation",
+    "capture_post_visit_feedback",
+    "capture_reactivation_outcome",
+})
+
+
+async def handle_tool_call(
+    tool_name: str,
+    tool_call_id: str,
+    parameters: Dict[str, Any],
+    db: Optional[AsyncSession] = None,
+    external_call_id: Optional[str] = None,
+) -> str:
+    """
+    Handle a single VAPI tool call. Returns a string result for VAPI.
+
+    Capture tools (capture_lead_info, capture_financial_info, etc.) merge
+    their parameters into VoiceCall.call_output when db + external_call_id
+    are provided.
+    """
+    if not tool_name:
+        return "Acción registrada."
+
+    # ── Structured-extraction tools (AI Agent mode) ───────────────────────────
+    if tool_name in _CAPTURE_TOOLS:
+        if db and external_call_id:
+            try:
+                result = await db.execute(
+                    select(VoiceCall).where(
+                        VoiceCall.external_call_id == external_call_id
+                    )
+                )
+                voice_call = result.scalars().first()
+                if voice_call:
+                    existing = dict(voice_call.call_output or {})
+
+                    # Idempotency: skip if this tool_call_id was already processed.
+                    # Protects against VAPI webhook retries duplicating data.
+                    processed_ids: list = existing.get("_processed_tool_calls") or []
+                    if tool_call_id and tool_call_id in processed_ids:
+                        logger.info(
+                            "Skipping duplicate tool_call_id=%s for call %s",
+                            tool_call_id,
+                            external_call_id,
+                        )
+                        return "Información registrada correctamente."
+
+                    # Merge new params, skipping None values from LLM
+                    for k, v in parameters.items():
+                        if v is not None:
+                            existing[k] = v
+
+                    # Track processed IDs
+                    if tool_call_id:
+                        processed_ids.append(tool_call_id)
+                        existing["_processed_tool_calls"] = processed_ids
+
+                    voice_call.call_output = existing
+                    await db.commit()
+                    logger.info(
+                        "Persisted tool_call=%s output to call %s",
+                        tool_name,
+                        external_call_id,
+                    )
+            except Exception as e:
+                logger.error("Error persisting tool call output: %s", e)
+        else:
+            logger.info("Tool call %s params=%s (no db, not persisted)", tool_name, parameters)
+        return "Información registrada correctamente."
+
+    # ── Legacy tools ──────────────────────────────────────────────────────────
+    if tool_name == "schedule_appointment":
+        try:
+            args = ScheduleAppointmentArgs.model_validate(parameters)
+        except Exception as e:
+            logger.warning("Invalid schedule_appointment args: %s", e)
+            return "No se pudo procesar: argumentos inválidos."
+        logger.info(
+            "Tool call schedule_appointment lead_id=%s params=%s",
+            args.lead_id,
+            parameters,
+        )
+        return "Entendido, un asesor te contactará para confirmar el horario."
+
+    if tool_name == "update_lead_stage":
+        try:
+            args = UpdateLeadStageArgs.model_validate(parameters)
+        except Exception as e:
+            logger.warning("Invalid update_lead_stage args: %s", e)
+            return "No se pudo procesar: argumentos inválidos."
+        logger.info("Tool call update_lead_stage params=%s", parameters)
+        return "Información registrada correctamente."
+
+    logger.warning("Unknown tool call: %s params=%s", tool_name, parameters)
+    return "Acción registrada."
+
+
+def _webhook_event_to_legacy(event: WebhookEvent) -> tuple:
+    """Map WebhookEvent to (event_type_str, metadata dict) for legacy handlers."""
+    _map = {
+        CallEventType.CALL_ENDED: "completed",
+        CallEventType.CALL_FAILED: "failed",
+        CallEventType.CALL_RINGING: "ringing",
+        CallEventType.CALL_ANSWERED: "answered",
+        CallEventType.CALL_STARTED: "answered",
+        CallEventType.TRANSCRIPT_UPDATE: "transcript",
+        CallEventType.FUNCTION_CALL: "function-call",
+        CallEventType.END_OF_CALL_REPORT: "completed",
+        CallEventType.TOOL_CALLS: "tool-call",
+        CallEventType.ASSISTANT_REQUEST: "unknown",
+        CallEventType.HANG: "unknown",
+    }
+    event_type_str = _map.get(event.event_type, event.status or "unknown")
+    if event.event_type == CallEventType.STATUS_UPDATE and event.status:
+        event_type_str = {
+            "ended": "completed",
+            "in-progress": "answered",
+            "ringing": "ringing",
+            "queued": "initiated",
+        }.get(event.status, event_type_str)
+    metadata = {
+        "duration": event.duration_seconds,
+        "recording_url": event.recording_url,
+        "transcript": event.transcript,
+        "summary": event.summary,
+        "message_data": (event.raw_data.get("message") or {}),
+    }
+    return event_type_str, metadata
+
+
+async def _resolve_broker_user_id(
+    db: AsyncSession,
+    broker_user_id: Optional[int],
+    lead: Lead,
+    campaign_id: Optional[int],
+) -> int:
+    """
+    Resolve broker user id for VoiceCall (user id of the agent).
+    """
+    user_id = broker_user_id or getattr(lead, "assigned_to", None)
+    if not user_id and campaign_id:
+        from app.models.campaign import Campaign
+        result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+        campaign = result.scalars().first()
+        if campaign:
+            user_id = campaign.broker_id
+    if not user_id:
+        raise ValueError(
+            "No broker_id specified and lead has no assigned_to. "
+            "Pass broker_id (user id) or assign lead to an agent."
+        )
+    return user_id
+
+
+async def _company_broker_id_for_user(db: AsyncSession, user_id: int) -> Optional[int]:
+    """Get Broker (company) id from User id."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalars().first()
+    return getattr(user, "broker_id", None) if user else None
+
+
+class VoiceCallService:
+    """Service for managing voice calls"""
+
+    @staticmethod
+    async def initiate_call(
+        db: AsyncSession,
+        lead_id: int,
+        campaign_id: Optional[int] = None,
+        broker_id: Optional[int] = None,
+        agent_type: Optional[str] = None,
+    ) -> VoiceCall:
+        """
+        Initiate a voice call to a lead.
+        broker_id is the user (agent) id; company broker is resolved for voice config.
+        """
+        lead_result = await db.execute(select(Lead).where(Lead.id == lead_id))
+        lead = lead_result.scalars().first()
+        if not lead:
+            raise ValueError(f"Lead {lead_id} not found")
+        if not lead.phone:
+            raise ValueError(f"Lead {lead_id} has no phone number")
+
+        broker_user_id = await _resolve_broker_user_id(db, broker_id, lead, campaign_id)
+        company_broker_id = await _company_broker_id_for_user(db, broker_user_id)
+        # C4: Fail early with a clear message instead of passing broker_id=0 to provider.
+        if company_broker_id is None:
+            raise ValueError(
+                f"User {broker_user_id} has no broker (company) assigned. "
+                "Assign the user to a broker before initiating voice calls."
+            )
+
+        voice_call = VoiceCall(
+            lead_id=lead_id,
+            campaign_id=campaign_id,
+            phone_number=lead.phone,
+            status=CallStatus.INITIATED,
+            broker_id=broker_user_id,
+            call_mode="outbound",
+        )
+        db.add(voice_call)
+        await db.flush()          # assign ID without committing
+        await db.refresh(voice_call)
+
+        try:
+            provider = get_voice_provider()
+            context = {
+                "db": db,
+                "voice_call_id": voice_call.id,
+                "lead_id": lead_id,
+                "campaign_id": campaign_id,
+                "broker_id": company_broker_id,
+                "agent_type": agent_type,
+            }
+            external_call_id = await provider.make_call(
+                phone=lead.phone,
+                webhook_url="",  # URL now built internally by VapiProvider
+                context=context,
+            )
+
+            # Update voice call with external ID
+            voice_call.external_call_id = external_call_id
+            voice_call.started_at = datetime.now()
+            await db.commit()     # single commit on happy path
+            await db.refresh(voice_call)
+
+            logger.info(f"Voice call {voice_call.id} initiated: {external_call_id}")
+            return voice_call
+
+        except Exception as e:
+            logger.error(f"Error initiating call: {str(e)}", exc_info=True)
+            voice_call.status = CallStatus.FAILED
+            await db.commit()     # commit FAILED status
+            raise
+
+    @staticmethod
+    async def handle_call_webhook(
+        db: AsyncSession,
+        external_call_id: str,
+        event: str,
+        metadata: Dict[str, Any]
+    ) -> VoiceCall:
+        """
+        Handle call webhook from voice provider
+
+        Args:
+            db: Database session
+            external_call_id: External call ID from provider
+            event: Event type (initiated, ringing, answered, completed, failed)
+            metadata: Additional event metadata
+
+        Returns:
+            Updated VoiceCall instance
+        """
+
+        # Find voice call by external ID
+        result = await db.execute(
+            select(VoiceCall).where(VoiceCall.external_call_id == external_call_id)
+        )
+        voice_call = result.scalars().first()
+
+        if not voice_call:
+            logger.warning(f"Voice call not found for external_call_id: {external_call_id}")
+            raise ValueError(f"Voice call not found: {external_call_id}")
+
+        # Update status based on event
+        event_status_map = {
+            "initiated": CallStatus.INITIATED,
+            "ringing": CallStatus.RINGING,
+            "answered": CallStatus.ANSWERED,
+            "completed": CallStatus.COMPLETED,
+            "failed": CallStatus.FAILED,
+            "no-answer": CallStatus.NO_ANSWER,
+            "busy": CallStatus.BUSY,
+            "cancelled": CallStatus.CANCELLED
+        }
+
+        new_status = event_status_map.get(event.lower(), CallStatus.FAILED)
+        voice_call.status = new_status
+
+        # Update timestamps
+        if event.lower() in ["answered", "ringing"] and not voice_call.started_at:
+            voice_call.started_at = datetime.now()
+
+        if event.lower() == "completed":
+            voice_call.completed_at = datetime.now()
+            # Update duration if provided
+            if metadata.get("duration"):
+                voice_call.duration = int(metadata.get("duration"))
+            # Update recording URL if provided
+            if metadata.get("recording_url"):
+                voice_call.recording_url = metadata.get("recording_url")
+
+        await db.commit()
+        await db.refresh(voice_call)
+
+        logger.info(f"Voice call {voice_call.id} status updated to {new_status}")
+        return voice_call
+
+    @staticmethod
+    async def handle_normalized_event(
+        db: AsyncSession,
+        event: WebhookEvent,
+    ) -> Optional[VoiceCall]:
+        """
+        Handle a normalized webhook event from any voice provider.
+        Dispatches to transcript update, function-call, or status update.
+        """
+        logger.info(
+            "Webhook received event=%s call_id=%s broker_id=%s assistant_type=%s",
+            event.event_type,
+            event.external_call_id,
+            event.broker_id,
+            event.assistant_type,
+        )
+        event_type_str, metadata = _webhook_event_to_legacy(event)
+        # Use call_id_from_metadata as fallback when external_call_id isn't linked yet
+        # (can happen in web SDK mode before the browser POSTs the external_call_id).
+        effective_external_id = event.external_call_id
+        if not effective_external_id and event.call_id_from_metadata:
+            # Look up VoiceCall by our internal ID (metadata.call_id injected at start)
+            result = await db.execute(
+                select(VoiceCall).where(VoiceCall.id == event.call_id_from_metadata)
+            )
+            vc = result.scalars().first()
+            if vc:
+                effective_external_id = vc.external_call_id or ""
+
+        if event_type_str == "transcript":
+            await VoiceCallService.handle_transcript_update(
+                db,
+                effective_external_id,
+                metadata.get("message_data", {}),
+            )
+            return None
+        if event_type_str in ("function-call", "tool-call"):
+            return None
+        if not effective_external_id:
+            logger.warning("handle_normalized_event: no external_call_id, dropping event %s", event_type_str)
+            return None
+        return await VoiceCallService.handle_call_webhook(
+            db,
+            effective_external_id,
+            event_type_str,
+            metadata,
+        )
+
+    @staticmethod
+    async def store_transcript_lines(
+        db: AsyncSession,
+        voice_call_id: int,
+        artifact_messages: list,
+        transcript_text: str = "",
+    ) -> int:
+        """
+        Parse Vapi artifact messages into CallTranscript rows.
+
+        Primary source: ``artifact_messages`` — structured list from Vapi's
+        end-of-call-report artifact (each item has ``role``, ``message``,
+        ``secondsFromStart``).
+
+        Fallback: plain-text ``transcript`` string (format: "Bot: ...\\nUser: ...").
+
+        Returns the number of lines stored.
+        """
+        from app.models.voice_call import CallTranscript, SpeakerType
+
+        lines: list = []
+
+        if artifact_messages:
+            for msg in artifact_messages:
+                role = (msg.get("role") or "").lower()
+                text = (msg.get("message") or msg.get("content") or "").strip()
+                # Skip empty messages and non-speaker roles
+                if not text or role in ("tool", "tool_call", "system", "tool_result"):
+                    continue
+                speaker = (
+                    SpeakerType.BOT if role in ("assistant", "bot") else SpeakerType.CUSTOMER
+                )
+                timestamp = float(msg.get("secondsFromStart") or msg.get("time") or 0.0)
+                lines.append(
+                    CallTranscript(
+                        voice_call_id=voice_call_id,
+                        speaker=speaker,
+                        text=text,
+                        timestamp=timestamp,
+                        confidence=None,
+                    )
+                )
+        elif transcript_text:
+            # Fallback: parse "Bot: ...\nUser: ..." plain-text format from Vapi.
+            # No real timestamps available — assign sequential increments.
+            timestamp = 0.0
+            for line in transcript_text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                if line.lower().startswith(("bot:", "assistant:")):
+                    text = line.split(":", 1)[1].strip()
+                    speaker = SpeakerType.BOT
+                elif line.lower().startswith(("user:", "customer:")):
+                    text = line.split(":", 1)[1].strip()
+                    speaker = SpeakerType.CUSTOMER
+                else:
+                    continue
+                if text:
+                    lines.append(
+                        CallTranscript(
+                            voice_call_id=voice_call_id,
+                            speaker=speaker,
+                            text=text,
+                            timestamp=timestamp,
+                            confidence=None,
+                        )
+                    )
+                    timestamp += 1.0
+
+        if lines:
+            db.add_all(lines)
+            await db.flush()
+            logger.info(
+                "Stored %d transcript lines for voice_call_id=%s",
+                len(lines),
+                voice_call_id,
+            )
+        return len(lines)
+
+    @staticmethod
+    async def handle_transcript_update(
+        db: AsyncSession,
+        external_call_id: str,
+        transcript_data: Dict[str, Any],
+    ) -> None:
+        """
+        Handle real-time transcript update from Vapi.
+        Logs the update; full transcript is stored when call completes.
+        """
+        result = await db.execute(
+            select(VoiceCall).where(VoiceCall.external_call_id == external_call_id)
+        )
+        voice_call = result.scalars().first()
+        if not voice_call:
+            logger.debug("Voice call not found for transcript update: %s", external_call_id)
+            return
+        logger.debug("Transcript update for call %s: %s", external_call_id, transcript_data)
+
+    @staticmethod
+    async def get_call_history(
+        db: AsyncSession,
+        lead_id: int,
+        broker_id: Optional[int] = None
+    ) -> List[VoiceCall]:
+        """Get call history for a lead"""
+
+        query = select(VoiceCall).where(VoiceCall.lead_id == lead_id)
+
+        if broker_id:
+            query = query.where(VoiceCall.broker_id == broker_id)
+
+        from sqlalchemy import desc
+        query = query.order_by(desc(VoiceCall.started_at))
+
+        result = await db.execute(query)
+        return result.scalars().all()
+
+    @staticmethod
+    async def update_call_transcript(
+        db: AsyncSession,
+        voice_call_id: int,
+        transcript: str
+    ) -> VoiceCall:
+        """Update call transcript"""
+
+        result = await db.execute(
+            select(VoiceCall).where(VoiceCall.id == voice_call_id)
+        )
+        voice_call = result.scalars().first()
+
+        if not voice_call:
+            raise ValueError(f"Voice call {voice_call_id} not found")
+
+        voice_call.transcript = transcript
+        await db.commit()
+        await db.refresh(voice_call)
+
+        return voice_call
+
+    @staticmethod
+    async def update_call_summary(
+        db: AsyncSession,
+        voice_call_id: int,
+        summary: str,
+        score_delta: Optional[float] = None,
+        stage_after_call: Optional[str] = None
+    ) -> VoiceCall:
+        """Update call summary and results"""
+
+        result = await db.execute(
+            select(VoiceCall).where(VoiceCall.id == voice_call_id)
+        )
+        voice_call = result.scalars().first()
+
+        if not voice_call:
+            raise ValueError(f"Voice call {voice_call_id} not found")
+
+        voice_call.summary = summary
+
+        if score_delta is not None:
+            voice_call.score_delta = score_delta
+
+        if stage_after_call:
+            voice_call.stage_after_call = stage_after_call
+
+        await db.commit()
+        await db.refresh(voice_call)
+
+        return voice_call

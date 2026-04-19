@@ -2,7 +2,7 @@
 Seed script: llena la tabla properties con 25 propiedades ficticias
 para el broker "Inmobiliaria Santiago Centro" (slug: santiago-centro).
 
-Idempotente — omite propiedades que ya tengan el mismo internal_code.
+Idempotente — omite propiedades que ya tengan el mismo codigo.
 
 Uso (dentro de Docker):
     docker compose exec backend python scripts/seed_properties.py
@@ -31,7 +31,7 @@ from app.models.property import Property
 PROPERTIES = [
     # ── Departamentos Santiago Centro ─────────────────────────────────────────
     {
-        "internal_code": "SC-001",
+        "codigo": "SC-001",
         "name": "Departamento Luminoso en Lastarria",
         "property_type": "departamento",
         "status": "available",
@@ -66,7 +66,7 @@ PROPERTIES = [
         "subsidio_eligible": False,
     },
     {
-        "internal_code": "SC-002",
+        "codigo": "SC-002",
         "name": "Estudio Moderno Barrio República",
         "property_type": "departamento",
         "status": "available",
@@ -100,7 +100,7 @@ PROPERTIES = [
         "subsidio_eligible": True,
     },
     {
-        "internal_code": "SC-003",
+        "codigo": "SC-003",
         "name": "Departamento 3D+2B con Terraza Barrio Italia",
         "property_type": "departamento",
         "status": "available",
@@ -135,7 +135,7 @@ PROPERTIES = [
         "subsidio_eligible": False,
     },
     {
-        "internal_code": "SC-004",
+        "codigo": "SC-004",
         "name": "Departamento 2D con Vista Panorámica Las Condes",
         "property_type": "departamento",
         "status": "available",
@@ -170,7 +170,7 @@ PROPERTIES = [
         "subsidio_eligible": False,
     },
     {
-        "internal_code": "SC-005",
+        "codigo": "SC-005",
         "name": "Departamento Económico Subsidio Pudahuel",
         "property_type": "departamento",
         "status": "available",
@@ -205,7 +205,7 @@ PROPERTIES = [
     },
     # ── Casas ─────────────────────────────────────────────────────────────────
     {
-        "internal_code": "SC-006",
+        "codigo": "SC-006",
         "name": "Casa Moderna con Piscina La Florida",
         "property_type": "casa",
         "status": "available",
@@ -240,7 +240,7 @@ PROPERTIES = [
         "subsidio_eligible": False,
     },
     {
-        "internal_code": "SC-007",
+        "codigo": "SC-007",
         "name": "Casa Familiar Ñuñoa 3 Dormitorios",
         "property_type": "casa",
         "status": "available",
@@ -275,7 +275,7 @@ PROPERTIES = [
         "subsidio_eligible": False,
     },
     {
-        "internal_code": "SC-008",
+        "codigo": "SC-008",
         "name": "Casa con Subsidio DS19 Maipú",
         "property_type": "casa",
         "status": "available",
@@ -309,7 +309,7 @@ PROPERTIES = [
         "subsidio_eligible": True,
     },
     {
-        "internal_code": "SC-009",
+        "codigo": "SC-009",
         "name": "Casa de Lujo con Vista Cordillera Lo Barnechea",
         "property_type": "casa",
         "status": "available",
@@ -343,7 +343,7 @@ PROPERTIES = [
         "subsidio_eligible": False,
     },
     {
-        "internal_code": "SC-010",
+        "codigo": "SC-010",
         "name": "Casa Pareada Pudahuel Norte",
         "property_type": "casa",
         "status": "available",
@@ -378,7 +378,7 @@ PROPERTIES = [
     },
     # ── Más departamentos variados ─────────────────────────────────────────────
     {
-        "internal_code": "SC-011",
+        "codigo": "SC-011",
         "name": "Departamento 1D+1B Estación Central",
         "property_type": "departamento",
         "status": "available",
@@ -412,7 +412,7 @@ PROPERTIES = [
         "subsidio_eligible": True,
     },
     {
-        "internal_code": "SC-012",
+        "codigo": "SC-012",
         "name": "Departamento 2D Vista al Mar Viña del Mar",
         "property_type": "departamento",
         "status": "available",
@@ -446,7 +446,7 @@ PROPERTIES = [
         "subsidio_eligible": False,
     },
     {
-        "internal_code": "SC-013",
+        "codigo": "SC-013",
         "name": "Departamento Penthouse Vitacura",
         "property_type": "departamento",
         "status": "available",
@@ -480,7 +480,7 @@ PROPERTIES = [
         "subsidio_eligible": False,
     },
     {
-        "internal_code": "SC-014",
+        "codigo": "SC-014",
         "name": "Departamento 3D Peñalolén con Estacionamiento",
         "property_type": "departamento",
         "status": "available",
@@ -514,7 +514,7 @@ PROPERTIES = [
         "subsidio_eligible": False,
     },
     {
-        "internal_code": "SC-015",
+        "codigo": "SC-015",
         "name": "Departamento Subsidio DS49 Quilicura",
         "property_type": "departamento",
         "status": "available",
@@ -549,7 +549,7 @@ PROPERTIES = [
     },
     # ── Oficinas ──────────────────────────────────────────────────────────────
     {
-        "internal_code": "SC-016",
+        "codigo": "SC-016",
         "name": "Oficina Providencia 80 m²",
         "property_type": "oficina",
         "status": "available",
@@ -583,7 +583,7 @@ PROPERTIES = [
         "subsidio_eligible": False,
     },
     {
-        "internal_code": "SC-017",
+        "codigo": "SC-017",
         "name": "Oficina Pequeña Las Condes 30 m²",
         "property_type": "oficina",
         "status": "available",
@@ -618,7 +618,7 @@ PROPERTIES = [
     },
     # ── Terrenos ──────────────────────────────────────────────────────────────
     {
-        "internal_code": "SC-018",
+        "codigo": "SC-018",
         "name": "Terreno 500 m² Buin con Urbanización",
         "property_type": "terreno",
         "status": "available",
@@ -652,7 +652,7 @@ PROPERTIES = [
         "subsidio_eligible": True,
     },
     {
-        "internal_code": "SC-019",
+        "codigo": "SC-019",
         "name": "Terreno 1000 m² Colina Vista Cordillera",
         "property_type": "terreno",
         "status": "available",
@@ -687,7 +687,7 @@ PROPERTIES = [
     },
     # ── Propiedades reservadas / vendidas (para variedad de estado) ───────────
     {
-        "internal_code": "SC-020",
+        "codigo": "SC-020",
         "name": "Departamento 2D Reservado San Miguel",
         "property_type": "departamento",
         "status": "reserved",
@@ -720,7 +720,7 @@ PROPERTIES = [
         "subsidio_eligible": False,
     },
     {
-        "internal_code": "SC-021",
+        "codigo": "SC-021",
         "name": "Departamento 2D+2B Macul Orientación Norte",
         "property_type": "departamento",
         "status": "available",
@@ -754,7 +754,7 @@ PROPERTIES = [
         "subsidio_eligible": False,
     },
     {
-        "internal_code": "SC-022",
+        "codigo": "SC-022",
         "name": "Casa Adosada 3D Condominio Cerrillos",
         "property_type": "casa",
         "status": "available",
@@ -788,7 +788,7 @@ PROPERTIES = [
         "subsidio_eligible": False,
     },
     {
-        "internal_code": "SC-023",
+        "codigo": "SC-023",
         "name": "Departamento 2D Recoleta Barrio Patronato",
         "property_type": "departamento",
         "status": "available",
@@ -822,7 +822,7 @@ PROPERTIES = [
         "subsidio_eligible": False,
     },
     {
-        "internal_code": "SC-024",
+        "codigo": "SC-024",
         "name": "Departamento 1D Inversión Quilín",
         "property_type": "departamento",
         "status": "available",
@@ -856,7 +856,7 @@ PROPERTIES = [
         "subsidio_eligible": False,
     },
     {
-        "internal_code": "SC-025",
+        "codigo": "SC-025",
         "name": "Casa en Condominio Santiago Poniente",
         "property_type": "casa",
         "status": "available",
@@ -914,14 +914,14 @@ async def main() -> None:
 
         # Fetch already-seeded internal codes to stay idempotent
         existing_result = await session.execute(
-            select(Property.internal_code).where(Property.broker_id == broker.id)
+            select(Property.codigo).where(Property.broker_id == broker.id)
         )
         existing_codes = {row for row in existing_result.scalars().all()}
 
         created = 0
         skipped = 0
         for data in PROPERTIES:
-            if data["internal_code"] in existing_codes:
+            if data["codigo"] in existing_codes:
                 skipped += 1
                 continue
 

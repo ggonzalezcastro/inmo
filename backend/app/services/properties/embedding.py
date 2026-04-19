@@ -19,10 +19,35 @@ def _build_property_text(prop: Any) -> str:
     """
     Concatenate the rich-text fields that form the semantic document
     for a property. Mirrors what we store in the embedding column.
+
+    Si la property pertenece a un Project, prependea contexto del proyecto
+    (nombre, developer, descripción, amenities comunes, highlights) para
+    enriquecer el embedding y que la búsqueda semántica considere atributos
+    heredados (ej. "edificio con piscina y gimnasio en Ñuñoa").
     """
     parts = []
+
+    project = getattr(prop, "project", None)
+    if project is not None:
+        if getattr(project, "name", None):
+            parts.append(f"Proyecto {project.name}")
+        if getattr(project, "developer", None):
+            parts.append(f"de {project.developer}")
+        if getattr(project, "description", None):
+            parts.append(project.description)
+        if getattr(project, "highlights", None):
+            parts.append(project.highlights)
+        common = getattr(project, "common_amenities", None)
+        if common:
+            if isinstance(common, list):
+                parts.append("Amenities: " + ", ".join(str(a) for a in common))
+            else:
+                parts.append(f"Amenities: {common}")
+
     if prop.name:
         parts.append(prop.name)
+    if getattr(prop, "tipologia", None):
+        parts.append(f"tipología {prop.tipologia}")
     if prop.property_type:
         parts.append(prop.property_type)
     if prop.commune:
@@ -42,7 +67,7 @@ def _build_property_text(prop: Any) -> str:
                 f"{p.get('name', '')} {p.get('type', '')}" for p in prop.nearby_places
             )
             parts.append(nearby_str)
-    return " ".join(p for p in parts if p.strip())
+    return " ".join(p for p in parts if p and str(p).strip())
 
 
 async def generate_property_embedding(prop: Any) -> Optional[List[float]]:
@@ -78,7 +103,20 @@ async def embed_and_save_property(prop: Any, db: Any) -> bool:
     """
     Generate an embedding for a property and persist it.
     Returns True on success, False if embedding generation failed.
+
+    Si la property tiene `project_id` pero el relationship no está hidratado
+    (caso típico al crear/actualizar), lo carga sincrónicamente para que el
+    embedding incluya el contexto del proyecto.
     """
+    if prop.project_id is not None and getattr(prop, "project", None) is None:
+        try:
+            from app.models.project import Project
+            from sqlalchemy import select as _select
+            res = await db.execute(_select(Project).where(Project.id == prop.project_id))
+            prop.project = res.scalar_one_or_none()
+        except Exception as exc:
+            logger.warning("No se pudo cargar el proyecto %s para embedding: %s", prop.project_id, exc)
+
     embedding = await generate_property_embedding(prop)
     if embedding is None:
         return False
