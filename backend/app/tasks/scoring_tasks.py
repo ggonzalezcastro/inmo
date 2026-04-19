@@ -158,19 +158,14 @@ def recalculate_all_lead_scores(self):
                 # Persist response_metrics atomically per-lead (jsonb_set) so we
                 # don't clobber concurrent writes to other lead_metadata keys.
                 if metrics_to_persist:
-                    import json as _json_rm
-                    from sqlalchemy import text as _sa_text_rm
+                    from app.services.leads.response_metrics import (
+                        update_lead_response_metrics,
+                    )
                     for item in metrics_to_persist:
                         try:
-                            await db.execute(
-                                _sa_text_rm(
-                                    "UPDATE leads SET metadata = "
-                                    "jsonb_set(COALESCE(metadata, '{}'::jsonb), "
-                                    "ARRAY['response_metrics'], CAST(:m AS jsonb), true) "
-                                    "WHERE id = :lid"
-                                ),
-                                {"m": _json_rm.dumps(item["metrics"]), "lid": item["lead_id"]},
-                            )
+                            # Re-run via the shared helper so prod uses the same
+                            # atomic jsonb_set path as the orchestrator hook.
+                            await update_lead_response_metrics(db, item["lead_id"])
                         except Exception as _persist_exc:
                             logger.error(
                                 "Error persisting response_metrics for lead %s: %s",

@@ -59,8 +59,16 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
         connect_args={"check_same_thread": False},
         echo=False,
     )
+    # Only create the subset of tables this test needs. Avoids a pre-existing
+    # model issue where ``agent_model_configs`` declares the same index twice
+    # (column index=True AND explicit Index in __table_args__).
+    needed = [
+        Broker.__table__,
+        Lead.__table__,
+        TelegramMessage.__table__,
+    ]
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=needed))
 
     Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with Session() as session:
