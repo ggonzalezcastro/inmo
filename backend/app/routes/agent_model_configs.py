@@ -43,6 +43,8 @@ def _check_provider_availability(provider_name: str) -> bool:
         return bool(getattr(settings, "ANTHROPIC_API_KEY", ""))
     if name == "openai":
         return bool(getattr(settings, "OPENAI_API_KEY", ""))
+    if name == "openrouter":
+        return bool(getattr(settings, "OPENROUTER_API_KEY", ""))
     return False
 
 
@@ -54,6 +56,8 @@ def _default_model_for_provider(provider_name: str) -> str:
         return getattr(settings, "CLAUDE_MODEL", "claude-sonnet-4-20250514")
     if name == "openai":
         return getattr(settings, "OPENAI_MODEL", "gpt-4o")
+    if name == "openrouter":
+        return getattr(settings, "OPENROUTER_MODEL", "google/gemini-2.5-flash-lite")
     return ""
 
 

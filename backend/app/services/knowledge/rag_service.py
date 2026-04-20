@@ -32,31 +32,36 @@ MIN_SIMILARITY = 0.60
 
 
 async def _embed_text(text_input: str) -> Optional[List[float]]:
-    """Return a 768-dim embedding vector for ``text_input`` using Gemini."""
+    """Return a 768-dim embedding vector via OpenRouter (google/gemini-embedding-001)."""
     try:
+        import httpx
         from app.config import settings
-        from google import genai
-        from google.genai import types as genai_types
 
-        if not settings.GEMINI_API_KEY:
+        api_key = getattr(settings, "OPENROUTER_API_KEY", "")
+        if not api_key:
+            logger.warning("[RAG] OPENROUTER_API_KEY not set — embeddings disabled")
             return None
 
-        client = genai.Client(api_key=settings.GEMINI_API_KEY)
-
-        def _sync_embed() -> List[float]:
-            resp = client.models.embed_content(
-                model="gemini-embedding-001",
-                contents=text_input,
-                config=genai_types.EmbedContentConfig(output_dimensionality=768),
+        payload = {
+            "model": "google/gemini-embedding-001",
+            "input": text_input,
+            "dimensions": 768,
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "HTTP-Referer": "https://captame.cl",
+            "X-Title": "Captame Inmo",
+            "Content-Type": "application/json",
+        }
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                "https://openrouter.ai/api/v1/embeddings",
+                json=payload,
+                headers=headers,
             )
-            # Depending on SDK version the embedding may be nested
-            if hasattr(resp, "embeddings") and resp.embeddings:
-                return resp.embeddings[0].values
-            if hasattr(resp, "embedding"):
-                return resp.embedding.values
-            return []
-
-        return await asyncio.to_thread(_sync_embed)
+            resp.raise_for_status()
+            data = resp.json()
+            return data["data"][0]["embedding"]
 
     except Exception as exc:
         logger.warning("[RAG] Embedding failed: %s", exc)

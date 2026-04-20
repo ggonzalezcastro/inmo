@@ -83,8 +83,24 @@ export interface CreateProjectDto {
 export type UpdateProjectDto = Partial<CreateProjectDto>
 
 export interface ProjectFilters {
+  // Project-level
   status?: ProjectStatus | ''
   commune?: string
+  name?: string
+  developer?: string
+  // Unit-level (project must have ≥1 matching unit)
+  unit_status?: string
+  property_type?: string
+  bedrooms?: number | ''
+  bathrooms?: number | ''
+  min_price_uf?: number | ''
+  max_price_uf?: number | ''
+  min_sqm?: number | ''
+  max_sqm?: number | ''
+  orientation?: string
+  min_floor?: number | ''
+  max_floor?: number | ''
+  // Pagination / tenant
   broker_id?: number | null
   offset?: number
   limit?: number

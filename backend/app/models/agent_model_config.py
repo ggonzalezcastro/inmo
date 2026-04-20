@@ -12,7 +12,7 @@ from app.models.base import Base, IdMixin, TimestampMixin
 
 # Valid values — kept in sync with AgentType enum and factory provider names
 VALID_AGENT_TYPES = {"qualifier", "property", "scheduler", "follow_up"}
-VALID_PROVIDERS = {"gemini", "claude", "openai"}
+VALID_PROVIDERS = {"gemini", "claude", "openai", "openrouter"}
 
 
 class AgentModelConfig(Base, IdMixin, TimestampMixin):

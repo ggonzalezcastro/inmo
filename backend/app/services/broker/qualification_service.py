@@ -56,6 +56,10 @@ async def calcular_calificacion_financiera(
     else:
         metadata = {}
 
+    # Decrypt sensitive fields — they are stored encrypted in the DB
+    from app.core.encryption import decrypt_metadata_fields
+    metadata = decrypt_metadata_fields(dict(metadata)) or {}
+
     monthly_income = metadata.get("monthly_income", 0)
     dicom_status = metadata.get("dicom_status", "unknown")
     debt_amount = metadata.get("morosidad_amount", 0)

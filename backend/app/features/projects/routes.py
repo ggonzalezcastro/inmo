@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import case, func, select
+from sqlalchemy import case, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -185,6 +185,20 @@ def _empty_aggregates() -> Dict[str, Any]:
 async def list_projects(
     status: Optional[str] = None,
     commune: Optional[str] = None,
+    name: Optional[str] = None,
+    developer: Optional[str] = None,
+    # Unit-level filters (project must have ≥1 matching unit)
+    unit_status: Optional[str] = None,
+    property_type: Optional[str] = None,
+    bedrooms: Optional[int] = None,
+    bathrooms: Optional[int] = None,
+    min_price_uf: Optional[float] = None,
+    max_price_uf: Optional[float] = None,
+    min_sqm: Optional[float] = None,
+    max_sqm: Optional[float] = None,
+    orientation: Optional[str] = None,
+    min_floor: Optional[int] = None,
+    max_floor: Optional[int] = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     broker_id: Optional[int] = None,
@@ -199,6 +213,43 @@ async def list_projects(
         base = base.where(Project.status == status)
     if commune:
         base = base.where(Project.commune.ilike(f"%{commune}%"))
+    if name:
+        base = base.where(Project.name.ilike(f"%{name}%"))
+    if developer:
+        base = base.where(Project.developer.ilike(f"%{developer}%"))
+
+    # Build unit-level EXISTS subquery if any unit filter is active
+    _unit_filters = [unit_status, property_type, bedrooms, bathrooms,
+                     min_price_uf, max_price_uf, min_sqm, max_sqm,
+                     orientation, min_floor, max_floor]
+    if any(f is not None for f in _unit_filters):
+        unit_sub = select(Property.id).where(
+            Property.project_id == Project.id,
+            Property.broker_id == target_broker,
+        )
+        if unit_status:
+            unit_sub = unit_sub.where(Property.status == unit_status)
+        if property_type:
+            unit_sub = unit_sub.where(Property.property_type == property_type)
+        if bedrooms is not None:
+            unit_sub = unit_sub.where(Property.bedrooms == bedrooms)
+        if bathrooms is not None:
+            unit_sub = unit_sub.where(Property.bathrooms == bathrooms)
+        if min_price_uf is not None:
+            unit_sub = unit_sub.where(Property.price_uf >= min_price_uf)
+        if max_price_uf is not None:
+            unit_sub = unit_sub.where(Property.price_uf <= max_price_uf)
+        if min_sqm is not None:
+            unit_sub = unit_sub.where(Property.square_meters_useful >= min_sqm)
+        if max_sqm is not None:
+            unit_sub = unit_sub.where(Property.square_meters_useful <= max_sqm)
+        if orientation:
+            unit_sub = unit_sub.where(Property.orientation == orientation)
+        if min_floor is not None:
+            unit_sub = unit_sub.where(Property.floor_number >= min_floor)
+        if max_floor is not None:
+            unit_sub = unit_sub.where(Property.floor_number <= max_floor)
+        base = base.where(exists(unit_sub))
 
     total_q = select(func.count()).select_from(base.subquery())
     total = (await db.execute(total_q)).scalar_one()

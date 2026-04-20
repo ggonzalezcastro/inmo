@@ -308,6 +308,25 @@ def build_provider_from_config(
     return provider
 
 
+def _get_env_agent_override(agent_type: str) -> Optional[Tuple[str, str]]:
+    """
+    Check for env-var based per-agent model override.
+
+    Env var format:
+      {AGENT_TYPE_UPPER}_LLM_PROVIDER   e.g. PROPERTY_LLM_PROVIDER=openrouter
+      {AGENT_TYPE_UPPER}_LLM_MODEL      e.g. PROPERTY_LLM_MODEL=google/gemini-2.5-pro
+
+    Returns (provider, model) tuple or None if not configured.
+    """
+    import os
+    prefix = agent_type.upper().replace("-", "_")
+    provider = os.getenv(f"{prefix}_LLM_PROVIDER", "").strip()
+    model = os.getenv(f"{prefix}_LLM_MODEL", "").strip()
+    if provider and model:
+        return (provider, model)
+    return None
+
+
 async def resolve_provider_for_agent(
     agent_type: str,
     broker_id: int,
@@ -318,7 +337,8 @@ async def resolve_provider_for_agent(
 
     Resolution order:
     1. Per-broker, per-agent config in DB (via Redis cache) — if active
-    2. Global provider singleton (env-var configured)
+    2. Env-var override: {AGENT_TYPE}_LLM_PROVIDER + {AGENT_TYPE}_LLM_MODEL
+    3. Global provider singleton (env-var configured)
 
     Falls back to global if:
     - No config exists for this agent/broker
@@ -335,6 +355,18 @@ async def resolve_provider_for_agent(
         return get_llm_provider()
 
     if not config or not config.get("is_active"):
+        # Check env-var per-agent override before falling back to global
+        env_override = _get_env_agent_override(agent_type)
+        if env_override:
+            provider_name, model = env_override
+            logger.debug(
+                "[factory] Env-var agent override: agent=%s provider=%s model=%s",
+                agent_type, provider_name, model,
+            )
+            try:
+                return build_provider_from_config(provider_name=provider_name, model=model)
+            except Exception as exc:
+                logger.warning("[factory] Env-var agent override failed: %s", exc)
         return get_llm_provider()
 
     provider_name = config.get("llm_provider", "")

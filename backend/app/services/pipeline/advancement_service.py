@@ -286,8 +286,10 @@ async def actualizar_pipeline_stage(
                 "Auto: Score >= 40 con datos básicos",
             )
 
-    monthly_income = metadata.get("monthly_income")
-    dicom_status = metadata.get("dicom_status")
+    from app.core.encryption import decrypt_metadata_fields
+    decrypted_meta = decrypt_metadata_fields(dict(metadata)) or {}
+    monthly_income = decrypted_meta.get("monthly_income")
+    dicom_status = decrypted_meta.get("dicom_status")
     if monthly_income and dicom_status and current_stage == "calificacion_financiera":
         broker_id = lead.broker_id
         calificacion = await BrokerConfigService.calcular_calificacion_financiera(

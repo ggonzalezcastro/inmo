@@ -815,6 +815,20 @@ class ChatOrchestratorService:
             # Degrade gracefully: AI response was already generated.
             # Next request will rebuild context from the last committed state.
 
+        # 8a-post: When scheduler created an appointment, advance to agendado directly.
+        # Step 6 runs before Step 7 so the appointment doesn't exist yet during the
+        # normal advancement check — we must re-check here regardless of current stage.
+        if agent_result.context_updates and agent_result.context_updates.get("appointment_pending"):
+            _terminal_stages = {"agendado", "ganado", "perdido", "seguimiento", "referidos"}
+            if lead.pipeline_stage not in _terminal_stages:
+                try:
+                    from app.services.pipeline.advancement_service import move_lead_to_stage
+                    await move_lead_to_stage(db, lead.id, "agendado", "Auto: cita confirmada por agente")
+                    await db.refresh(lead)
+                    logger.info("[Orchestrator] Step 8a-post — advanced to agendado (stage was %s)", lead.pipeline_stage)
+                except Exception as _post_adv_exc:
+                    logger.warning("[Orchestrator] Step 8a-post advancement failed: %s", _post_adv_exc)
+
         # 8b. Update Conversation stats (message count, last_message_at, agent state)
         if _conversation:
             try:
