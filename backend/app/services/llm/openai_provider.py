@@ -259,20 +259,16 @@ class OpenAIProvider(BaseLLMProvider):
         """Generate structured JSON response. Returns (result, usage)."""
         if not self.is_configured:
             return {}, None
-        
+
         try:
             messages = [{"role": "user", "content": prompt}]
-            
             kwargs = {
                 "model": self.model,
                 "max_tokens": self.max_tokens,
-                "messages": messages
+                "messages": messages,
+                "response_format": {"type": "json_object"},
             }
-            
-            # Use JSON mode if available
-            if self.model.startswith("gpt-4"):
-                kwargs["response_format"] = {"type": "json_object"}
-            
+
             response = await self._client.chat.completions.create(**kwargs)
 
             usage = None
@@ -281,16 +277,28 @@ class OpenAIProvider(BaseLLMProvider):
                     "input_tokens": response.usage.prompt_tokens or 0,
                     "output_tokens": response.usage.completion_tokens or 0,
                 }
-            
+
             text = response.choices[0].message.content.strip()
-            return json.loads(text), usage
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"[OpenAI] JSON parse error: {e}")
-            return {}, None
+            return self._parse_json(text), usage
+
         except Exception as e:
             logger.error(f"[OpenAI] Error in generate_json: {e}", exc_info=True)
             return {}, None
+
+    @staticmethod
+    def _parse_json(text: str) -> Dict[str, Any]:
+        """Parse JSON from model output, stripping markdown code blocks if present."""
+        import re
+        text = text.strip()
+        # Strip ```json ... ``` or ``` ... ```
+        match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
+        if match:
+            text = match.group(1).strip()
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            logger.error("[OpenAI] JSON parse error on: %s", text[:200])
+            return {}
     
     def _convert_messages_to_native(self, messages: List[LLMMessage]) -> List[Dict]:
         """Convert unified messages to OpenAI format"""

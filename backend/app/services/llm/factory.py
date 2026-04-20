@@ -162,31 +162,51 @@ def get_fast_llm_provider(force_new: bool = False) -> BaseLLMProvider:
     """
     Return a lightweight provider for fast/cheap tasks (e.g. data extraction).
 
-    Uses GEMMA_MODEL (flash-lite) via the Gemini API — same key, much lower latency.
-    Falls back to the main provider if Gemma is not configured.
+    Resolution order:
+    1. FAST_LLM_PROVIDER + FAST_LLM_MODEL env vars (explicit override)
+    2. OpenRouter gemini-2.5-flash-lite (if OPENROUTER_API_KEY set)
+    3. Gemma via Gemini API (legacy)
+    4. Main provider fallback
     """
     global _fast_provider_instance
     if _fast_provider_instance is not None and not force_new:
         return _fast_provider_instance
 
-    gemma_model = getattr(settings, "GEMMA_MODEL", "")
-    if gemma_model and getattr(settings, "GEMINI_API_KEY", ""):
+    import os
+
+    # 1. Explicit env-var override
+    fast_provider_name = os.getenv("FAST_LLM_PROVIDER", "").strip()
+    fast_model = os.getenv("FAST_LLM_MODEL", "").strip()
+    if fast_provider_name and fast_model:
         try:
-            from app.services.llm.gemini_provider import GeminiProvider
-            provider = GeminiProvider(
-                api_key=settings.GEMINI_API_KEY,
-                model=gemma_model,
+            provider = build_provider_from_config(fast_provider_name, fast_model, temperature=0.3, max_tokens=1024)
+            if provider.is_configured:
+                _fast_provider_instance = provider
+                logger.info("Fast LLM provider ready (env override): %s/%s", fast_provider_name, fast_model)
+                return _fast_provider_instance
+        except Exception as exc:
+            logger.warning("Could not build fast provider from env override: %s", exc)
+
+    # 2. OpenRouter flash-lite (cheap + fast JSON extraction)
+    openrouter_key = getattr(settings, "OPENROUTER_API_KEY", "")
+    if openrouter_key:
+        try:
+            from app.services.llm.openai_provider import OpenAIProvider
+            provider = OpenAIProvider(
+                api_key=openrouter_key,
+                model="google/gemini-2.5-flash-lite",
                 max_tokens=1024,
                 temperature=0.3,
+                base_url="https://openrouter.ai/api/v1",
             )
             if provider.is_configured:
                 _fast_provider_instance = provider
-                logger.info("Fast LLM provider ready: %s", gemma_model)
+                logger.info("Fast LLM provider ready: openrouter/gemini-2.5-flash-lite")
                 return _fast_provider_instance
         except Exception as exc:
-            logger.warning("Could not build fast provider (%s): %s", gemma_model, exc)
+            logger.warning("Could not build OpenRouter fast provider: %s", exc)
 
-    # Fallback: use the main provider
+    # 3. Fallback: use the main provider
     _fast_provider_instance = get_llm_provider()
     return _fast_provider_instance
 
