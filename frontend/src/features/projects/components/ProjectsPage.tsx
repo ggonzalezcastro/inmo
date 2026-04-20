@@ -48,7 +48,7 @@ export function ProjectsPage() {
 
   const handleAddUnit = (projectId: number | null) => {
     setEditProperty(null)
-    setPendingProjectId(projectId)
+    setPendingProjectId(projectId === 0 ? null : projectId)
     setPropertyDialogOpen(true)
   }
 

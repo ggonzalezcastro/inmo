@@ -65,8 +65,18 @@ def _build_provider(provider_name: str) -> BaseLLMProvider:
             temperature=settings.GEMINI_TEMPERATURE,
         )
 
+    if name == "openrouter":
+        from app.services.llm.openai_provider import OpenAIProvider
+        return OpenAIProvider(
+            api_key=getattr(settings, "OPENROUTER_API_KEY", ""),
+            model=getattr(settings, "OPENROUTER_MODEL", "google/gemini-2.5-flash-lite"),
+            max_tokens=getattr(settings, "OPENROUTER_MAX_TOKENS", 2048),
+            temperature=getattr(settings, "OPENROUTER_TEMPERATURE", 0.7),
+            base_url="https://openrouter.ai/api/v1",
+        )
+
     raise ValueError(
-        f"Unknown LLM provider: '{provider_name}'. Valid options: gemini, claude, openai, gemma"
+        f"Unknown LLM provider: '{provider_name}'. Valid options: gemini, claude, openai, gemma, openrouter"
     )
 
 
@@ -209,6 +219,11 @@ def _get_provider_defaults(provider_name: str) -> Tuple[float, int]:
             float(getattr(settings, "OPENAI_TEMPERATURE", 0.7)),
             int(getattr(settings, "OPENAI_MAX_TOKENS", 2048)),
         )
+    if name == "openrouter":
+        return (
+            float(getattr(settings, "OPENROUTER_TEMPERATURE", 0.7)),
+            int(getattr(settings, "OPENROUTER_MAX_TOKENS", 2048)),
+        )
     return (0.7, 1500)
 
 
@@ -260,6 +275,15 @@ def build_provider_from_config(
             model=model,
             max_tokens=eff_max_tokens,
             temperature=eff_temperature,
+        )
+    elif name == "openrouter":
+        from app.services.llm.openai_provider import OpenAIProvider
+        primary = OpenAIProvider(
+            api_key=getattr(settings, "OPENROUTER_API_KEY", ""),
+            model=model,
+            max_tokens=eff_max_tokens,
+            temperature=eff_temperature,
+            base_url="https://openrouter.ai/api/v1",
         )
     else:
         raise ValueError(f"Unknown provider for agent config: '{provider_name}'")
@@ -366,3 +390,8 @@ def is_claude() -> bool:
 def is_openai() -> bool:
     """Check if primary provider is OpenAI."""
     return getattr(settings, "LLM_PROVIDER", "gemini").lower() == "openai"
+
+
+def is_openrouter() -> bool:
+    """Check if primary provider is OpenRouter."""
+    return getattr(settings, "LLM_PROVIDER", "gemini").lower() == "openrouter"

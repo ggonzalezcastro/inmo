@@ -30,27 +30,38 @@ class OpenAIProvider(BaseLLMProvider):
     """
     
     def __init__(
-        self, 
-        api_key: str = None, 
+        self,
+        api_key: str = None,
         model: str = None,
         max_tokens: int = 1024,
         temperature: float = 0.7,
+        base_url: str = None,
         **kwargs
     ):
         api_key = api_key or settings.OPENAI_API_KEY
         model = model or getattr(settings, 'OPENAI_MODEL', 'gpt-4o')
         super().__init__(api_key, model, **kwargs)
-        
+
         self.max_tokens = max_tokens
         self.temperature = temperature
-        
+
         # Initialize client (lazy import)
         if self.api_key:
             try:
                 from openai import AsyncOpenAI
-                base_url = getattr(settings, 'OPENAI_BASE_URL', '') or None
-                self._client = AsyncOpenAI(api_key=self.api_key, base_url=base_url)
-                logger.info(f"OpenAIProvider initialized with model: {self.model}" + (f" @ {base_url}" if base_url else ""))
+                effective_base_url = base_url or getattr(settings, 'OPENAI_BASE_URL', '') or None
+                extra_headers = {}
+                if effective_base_url and "openrouter.ai" in effective_base_url:
+                    extra_headers = {
+                        "HTTP-Referer": "https://captame.cl",
+                        "X-Title": "Captame Inmo",
+                    }
+                self._client = AsyncOpenAI(
+                    api_key=self.api_key,
+                    base_url=effective_base_url,
+                    default_headers=extra_headers or None,
+                )
+                logger.info(f"OpenAIProvider initialized with model: {self.model}" + (f" @ {effective_base_url}" if effective_base_url else ""))
             except ImportError:
                 logger.error("OpenAIProvider requires 'openai' package. Install with: pip install openai")
                 self._client = None

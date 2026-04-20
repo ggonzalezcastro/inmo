@@ -328,6 +328,9 @@ async def update_property(
         raise HTTPException(status_code=404, detail="Property not found")
 
     update_data = body.model_dump(exclude_unset=True)
+    # project_id=0 is a frontend sentinel for "no project" — treat as NULL
+    if update_data.get("project_id") == 0:
+        update_data["project_id"] = None
     needs_reembed = any(
         k in update_data
         for k in ("description", "highlights", "amenities", "nearby_places", "project_id", "tipologia")

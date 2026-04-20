@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     OPENAI_TEMPERATURE: float = float(os.getenv("OPENAI_TEMPERATURE", "0.7"))
     OPENAI_BASE_URL: str = os.getenv("OPENAI_BASE_URL", "")  # override for OpenAI-compatible APIs (MiniMax, etc.)
 
+    # OpenRouter (OpenAI-compatible, routes to any model)
+    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
+    OPENROUTER_MODEL: str = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash-lite")
+    OPENROUTER_MAX_TOKENS: int = int(os.getenv("OPENROUTER_MAX_TOKENS", "2048"))
+    OPENROUTER_TEMPERATURE: float = float(os.getenv("OPENROUTER_TEMPERATURE", "0.7"))
+
     # MCP Server transport: "http" (recommended for production) or "stdio" (dev fallback)
     MCP_TRANSPORT: str = os.getenv("MCP_TRANSPORT", "http")
     MCP_SERVER_URL: str = os.getenv("MCP_SERVER_URL", "http://localhost:8001")

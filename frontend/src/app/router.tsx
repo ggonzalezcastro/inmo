@@ -121,14 +121,15 @@ export const router = createBrowserRouter([
           </RoleGuard>
         ),
       },
-      {
-        path: '/properties',
-        element: (
-          <RoleGuard allowedRoles={['admin', 'superadmin']}>
-            <SuspenseWrapper><PropertiesPage /></SuspenseWrapper>
-          </RoleGuard>
-        ),
-      },
+      // /properties oculto — usar /projects (Inventario)
+      // {
+      //   path: '/properties',
+      //   element: (
+      //     <RoleGuard allowedRoles={['admin', 'superadmin']}>
+      //       <SuspenseWrapper><PropertiesPage /></SuspenseWrapper>
+      //     </RoleGuard>
+      //   ),
+      // },
       {
         path: '/projects',
         element: (
