@@ -37,7 +37,7 @@ aiohttp>=3.9.0
 # AI/ML - LLM Providers (pinned so pip resolves fast)
 google-genai
 anthropic>=0.40.0
-openai==1.12.0
+openai>=1.52.0
 
 # MCP - Model Context Protocol (server + client)
 mcp==1.2.0
