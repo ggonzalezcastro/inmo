@@ -296,7 +296,7 @@ class OpenAIProvider(BaseLLMProvider):
         """Convert unified messages to OpenAI format"""
         native_messages = []
         for msg in messages:
-            role = msg.role.value  # system, user, assistant, tool
+            role = msg.role.value if hasattr(msg.role, "value") else str(msg.role)
             native_messages.append({
                 "role": role,
                 "content": msg.content
