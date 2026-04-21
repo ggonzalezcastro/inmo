@@ -1,0 +1,12 @@
+[
+  {"filename": "cedula_identidad_frente.jpg", "mime_type": "image/jpeg", "expected_slot": "ci_anverso"},
+  {"filename": "CI_reverso_maria.png", "mime_type": "image/png", "expected_slot": "ci_reverso"},
+  {"filename": "liquidacion_sueldo_marzo2024.pdf", "mime_type": "application/pdf", "expected_slot": "liquidacion_sueldo"},
+  {"filename": "afp_cotizaciones_24meses.pdf", "mime_type": "application/pdf", "expected_slot": "afp_cotizaciones"},
+  {"filename": "deuda_CMF_abril2024.pdf", "mime_type": "application/pdf", "expected_slot": "cmf_deuda"},
+  {"filename": "cert_matrimonio_2024.pdf", "mime_type": "application/pdf", "expected_slot": "cert_matrimonio"},
+  {"filename": "antiguedad_laboral_empresa.pdf", "mime_type": "application/pdf", "expected_slot": "antiguedad_laboral"},
+  {"filename": "comprobante_pago_reserva.jpg", "mime_type": "image/jpeg", "expected_slot": "comprobante_transferencia"},
+  {"filename": "pre_aprobacion_banco_bci.pdf", "mime_type": "application/pdf", "expected_slot": "aprobacion_banco"},
+  {"filename": "promesa_compraventa_firmada.pdf", "mime_type": "application/pdf", "expected_slot": "promesa_firmada"}
+]
