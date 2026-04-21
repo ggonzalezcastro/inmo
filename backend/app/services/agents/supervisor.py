@@ -313,18 +313,15 @@ class AgentSupervisor:
         Deterministic stage lookup: map pipeline_stage → agent type via
         _STAGE_TO_AGENT.  Falls back to QualifierAgent for unknown stages.
         """
-        # Sticky: if already in an agent, keep it (agent exits via handoff tool)
-        if context.current_agent is not None:
-            agent = get_agent(context.current_agent)
-            if agent:
-                return agent
-
-        # Use intent from pre_analysis (set by orchestrator) for direct routing —
-        # avoids an unnecessary hop when the lead's intent is clear.
+        # Use intent from pre_analysis for direct routing — evaluated before sticky
+        # so that a clear property_search intent always reaches PropertyAgent even
+        # when QualifierAgent was sticky from the previous turn.
         intent = (context.pre_analysis or {}).get("intent", "general_chat")
         logger.info(
-            "[Supervisor] Intent=%s stage=%s (lead=%s)",
-            intent, context.pipeline_stage, context.lead_id,
+            "[Supervisor] Intent=%s stage=%s current_agent=%s (lead=%s)",
+            intent, context.pipeline_stage,
+            context.current_agent.value if context.current_agent else None,
+            context.lead_id,
         )
         if intent == "property_search":
             prop_agent = get_agent(AgentType.PROPERTY)
@@ -337,6 +334,12 @@ class AgentSupervisor:
         elif intent == "financing_question":
             # Financing questions go directly to Qualifier regardless of stage
             return _get_qualifier()
+
+        # Sticky: if already in an agent, keep it (agent exits via handoff tool)
+        if context.current_agent is not None:
+            agent = get_agent(context.current_agent)
+            if agent:
+                return agent
 
         # Deterministic stage lookup
         target_type = _STAGE_TO_AGENT.get(context.pipeline_stage, AgentType.QUALIFIER)

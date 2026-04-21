@@ -524,7 +524,8 @@ class ChatOrchestratorService:
         # G5: Skip the expensive LLM qualification analysis for leads that are
         # already past the qualification stages — saves ~4-5 s and tokens per message.
         _QUALIFICATION_STAGES = {"entrada", "perfilamiento", "calificacion_financiera", "potencial"}
-        if lead.pipeline_stage in _QUALIFICATION_STAGES:
+        _effective_stage = lead.pipeline_stage or "entrada"
+        if _effective_stage in _QUALIFICATION_STAGES:
             logger.info("[Orchestrator] Step 3b — calling analyze_lead_qualification")
             try:
                 analysis = await LLMServiceFacade.analyze_lead_qualification(
