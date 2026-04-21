@@ -35,6 +35,9 @@ from app.services.properties.search_service import (
 
 logger = logging.getLogger(__name__)
 
+# google/gemini-embedding-001 pricing via OpenRouter (USD per 1M tokens)
+_EMBED_COST_PER_1M = 0.025
+
 # Handoff tools — LLM calls these when it decides a transfer is warranted.
 _HANDOFF_TOOLS = [
     make_handoff_tool(
@@ -248,8 +251,9 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
 
             start = _now_ms()
             try:
-                results = await execute_property_search(tool_args, db, context.broker_id)
+                results, embed_tokens = await execute_property_search(tool_args, db, context.broker_id)
                 latency = _now_ms() - start
+                embed_cost = round(embed_tokens / 1_000_000 * _EMBED_COST_PER_1M, 8)
                 tool_results.append({
                     "params": tool_args,
                     "count": len(results),
@@ -263,6 +267,9 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
                     strategy=tool_args.get("strategy", "hybrid"),
                     results_count=len(results),
                     top_result_ids=[r["id"] for r in results[:5]],
+                    embedding_tokens=embed_tokens,
+                    embedding_cost_usd=embed_cost,
+                    latency_ms=latency,
                 )
                 await event_logger.log_tool_call(
                     lead_id=context.lead_id,

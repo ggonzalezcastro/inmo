@@ -21,6 +21,18 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _openrouter_cost(response) -> Optional[float]:
+    """Extract actual cost USD from OpenRouter response (model_extra["cost"])."""
+    try:
+        extra = getattr(response.usage, "model_extra", None) or {}
+        cost = extra.get("cost")
+        if cost is not None:
+            return float(cost)
+    except Exception:
+        pass
+    return None
+
+
 class OpenAIProvider(BaseLLMProvider):
     """
     OpenAI GPT LLM Provider implementation.
@@ -128,14 +140,20 @@ class OpenAIProvider(BaseLLMProvider):
             text = choice.message.content or ""
             logger.info(f"[OpenAI] Messages response time: {elapsed:.2f}s, temp={effective_temp}")
             
+            _usage = None
+            if response.usage:
+                _usage = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens,
+                }
+                _cost = _openrouter_cost(response)
+                if _cost is not None:
+                    _usage["actual_cost_usd"] = _cost
             return LLMResponse(
                 content=self._clean_response(text),
                 finish_reason=choice.finish_reason or "stop",
-                usage={
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens,
-                    "total_tokens": response.usage.total_tokens
-                } if response.usage else None
+                usage=_usage,
             )
             
         except Exception as e:
@@ -166,10 +184,11 @@ class OpenAIProvider(BaseLLMProvider):
             max_iterations = 5
             total_input_tokens = 0
             total_output_tokens = 0
+            total_actual_cost: Optional[float] = None
 
             for iteration in range(max_iterations):
                 logger.info(f"[OpenAI] Tool calling iteration {iteration + 1}/{max_iterations}")
-                
+
                 start_time = time.time()
                 response = await self._client.chat.completions.create(
                     model=self.model,
@@ -184,6 +203,9 @@ class OpenAIProvider(BaseLLMProvider):
                 if getattr(response, "usage", None):
                     total_input_tokens += response.usage.prompt_tokens or 0
                     total_output_tokens += response.usage.completion_tokens or 0
+                    _iter_cost = _openrouter_cost(response)
+                    if _iter_cost is not None:
+                        total_actual_cost = (total_actual_cost or 0.0) + _iter_cost
                 
                 choice = response.choices[0]
                 message = choice.message
@@ -192,6 +214,8 @@ class OpenAIProvider(BaseLLMProvider):
                 if not message.tool_calls:
                     # No tool calls, return text
                     usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
+                    if usage and total_actual_cost is not None:
+                        usage["actual_cost_usd"] = round(total_actual_cost, 8)
                     return self._clean_response(message.content or ""), function_calls_executed, usage, None
                 
                 # Add assistant message with tool calls
@@ -238,13 +262,17 @@ class OpenAIProvider(BaseLLMProvider):
                 else:
                     # No executor, return info
                     usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
+                    if usage and total_actual_cost is not None:
+                        usage["actual_cost_usd"] = round(total_actual_cost, 8)
                     return message.content or self.FALLBACK_RESPONSE, [
                         {"name": tc.function.name, "args": json.loads(tc.function.arguments)}
                         for tc in message.tool_calls
                     ], usage, None
-            
+
             logger.warning("[OpenAI] Max iterations reached")
             usage = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens} if (total_input_tokens or total_output_tokens) else None
+            if usage and total_actual_cost is not None:
+                usage["actual_cost_usd"] = round(total_actual_cost, 8)
             return self.FALLBACK_RESPONSE, function_calls_executed, usage, None
             
         except Exception as e:
@@ -277,6 +305,9 @@ class OpenAIProvider(BaseLLMProvider):
                     "input_tokens": response.usage.prompt_tokens or 0,
                     "output_tokens": response.usage.completion_tokens or 0,
                 }
+                _cost = _openrouter_cost(response)
+                if _cost is not None:
+                    usage["actual_cost_usd"] = _cost
 
             text = response.choices[0].message.content.strip()
             return self._parse_json(text), usage

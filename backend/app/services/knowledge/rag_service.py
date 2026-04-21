@@ -31,8 +31,8 @@ DEFAULT_TOP_K = 3
 MIN_SIMILARITY = 0.60
 
 
-async def _embed_text(text_input: str) -> Optional[List[float]]:
-    """Return a 768-dim embedding vector via OpenRouter (google/gemini-embedding-001)."""
+async def _embed_text(text_input: str) -> tuple[Optional[List[float]], int]:
+    """Return (embedding_vector, prompt_tokens) via OpenRouter (google/gemini-embedding-001)."""
     try:
         import httpx
         from app.config import settings
@@ -40,7 +40,7 @@ async def _embed_text(text_input: str) -> Optional[List[float]]:
         api_key = getattr(settings, "OPENROUTER_API_KEY", "")
         if not api_key:
             logger.warning("[RAG] OPENROUTER_API_KEY not set — embeddings disabled")
-            return None
+            return None, 0
 
         payload = {
             "model": "google/gemini-embedding-001",
@@ -61,11 +61,12 @@ async def _embed_text(text_input: str) -> Optional[List[float]]:
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["data"][0]["embedding"]
+            tokens = (data.get("usage") or {}).get("prompt_tokens", 0)
+            return data["data"][0]["embedding"], tokens
 
     except Exception as exc:
         logger.warning("[RAG] Embedding failed: %s", exc)
-        return None
+        return None, 0
 
 
 class RAGService:
@@ -86,7 +87,7 @@ class RAGService:
 
         Each result dict: {id, title, content, source_type, similarity, metadata}
         """
-        query_embedding = await _embed_text(query)
+        query_embedding, _ = await _embed_text(query)
         if not query_embedding:
             logger.debug("[RAG] No embedding for query — skipping KB search")
             return []
@@ -165,7 +166,7 @@ class RAGService:
 
         Returns the persisted KnowledgeBase row.
         """
-        embedding = await _embed_text(content)
+        embedding, _ = await _embed_text(content)
 
         entry = KnowledgeBase(
             broker_id=broker_id,
@@ -205,7 +206,7 @@ class RAGService:
             return None
 
         if "content" in fields and fields["content"] != entry.content:
-            embedding = await _embed_text(fields["content"])
+            embedding, _ = await _embed_text(fields["content"])
             if embedding:
                 entry.embedding = embedding
 

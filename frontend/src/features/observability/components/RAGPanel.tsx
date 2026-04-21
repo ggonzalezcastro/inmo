@@ -20,9 +20,9 @@ export function RAGPanel() {
 
       {isLoadingRAG && !ragEffectiveness ? (
         <div className="space-y-4">
-          <div className="flex gap-4">
-            {Array.from({ length: 2 }).map((_, i) => (
-              <div key={i} className="flex-1 h-24 bg-slate-100 animate-pulse rounded-xl" />
+          <div className="flex gap-4 flex-wrap">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="flex-1 min-w-[120px] h-24 bg-slate-100 animate-pulse rounded-xl" />
             ))}
           </div>
           <div className="h-40 bg-slate-100 animate-pulse rounded-xl" />
@@ -36,20 +36,34 @@ export function RAGPanel() {
       ) : (
         <>
           {/* Summary cards */}
-          <div className="flex gap-4">
-            <div className="rounded-xl border border-slate-200 p-4 bg-white flex-1">
+          <div className="flex gap-4 flex-wrap">
+            <div className="rounded-xl border border-slate-200 p-4 bg-white flex-1 min-w-[120px]">
               <p className="text-xs text-slate-500 mb-1">Total de búsquedas</p>
               <p className="text-2xl font-bold text-slate-900">
                 {ragEffectiveness.total_searches.toLocaleString()}
               </p>
               <p className="text-xs text-slate-400 mt-0.5">en el período</p>
             </div>
-            <div className="rounded-xl border border-slate-200 p-4 bg-white flex-1">
+            <div className="rounded-xl border border-slate-200 p-4 bg-white flex-1 min-w-[120px]">
               <p className="text-xs text-slate-500 mb-1">Resultados promedio</p>
               <p className="text-2xl font-bold text-slate-900">
                 {ragEffectiveness.avg_results_per_search.toFixed(1)}
               </p>
               <p className="text-xs text-slate-400 mt-0.5">por búsqueda</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-4 bg-white flex-1 min-w-[120px]">
+              <p className="text-xs text-slate-500 mb-1">Costo embeddings</p>
+              <p className="text-2xl font-bold text-slate-900">
+                ${ragEffectiveness.total_embedding_cost_usd.toFixed(4)}
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">USD total período</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-4 bg-white flex-1 min-w-[120px]">
+              <p className="text-xs text-slate-500 mb-1">Costo por búsqueda</p>
+              <p className="text-2xl font-bold text-slate-900">
+                ${(ragEffectiveness.avg_embedding_cost_per_search_usd * 1000).toFixed(4)}
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">USD × 1000 búsquedas</p>
             </div>
           </div>
 
@@ -74,6 +88,9 @@ export function RAGPanel() {
                     <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">
                       Latencia prom.
                     </th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                      Costo total
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -93,6 +110,9 @@ export function RAGPanel() {
                       </td>
                       <td className="px-4 py-3 text-right text-slate-500">
                         {s.avg_latency_ms != null ? `${s.avg_latency_ms.toFixed(0)} ms` : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-500">
+                        {s.total_cost_usd != null ? `$${s.total_cost_usd.toFixed(4)}` : '—'}
                       </td>
                     </tr>
                   ))}

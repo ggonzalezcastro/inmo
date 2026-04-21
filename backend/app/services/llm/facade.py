@@ -140,6 +140,7 @@ async def _fire_log(
     lead_id: Optional[int] = None,
     input_tokens: Optional[int] = None,
     output_tokens: Optional[int] = None,
+    actual_cost_usd: Optional[float] = None,
     error: Optional[str] = None,
     agent_type: Optional[str] = None,
     raw_response_snippet: Optional[str] = None,
@@ -167,6 +168,7 @@ async def _fire_log(
                         lead_id=lead_id,
                         used_fallback=used_fallback,
                         error=error,
+                        actual_cost_usd=actual_cost_usd,
                     ),
                     timeout=5.0,
                 )
@@ -182,7 +184,7 @@ async def _fire_log(
         try:
             from app.services.llm.call_logger import _estimate_cost
             from app.services.observability.event_logger import event_logger
-            cost = _estimate_cost(model, input_tokens or 0, output_tokens or 0) or 0.0
+            cost = actual_cost_usd if actual_cost_usd is not None else (_estimate_cost(model, input_tokens or 0, output_tokens or 0) or 0.0)
             async def _fire_event_log() -> None:
                 try:
                     await event_logger.log_llm_call(
@@ -364,6 +366,7 @@ Para "intent" (usa el que mejor describe la NECESIDAD PRINCIPAL del mensaje):
             # Use real token counts from API; fall back to char-length estimate if unavailable
             _in_tok = (_usage.get("input_tokens") if _usage else None) or len(analysis_prompt) // 4
             _out_tok = (_usage.get("output_tokens") if _usage else None) or len(str(result)) // 4
+            _actual_cost = _usage.get("actual_cost_usd") if _usage else None
             await _fire_log(
                 provider_name=pname,
                 model=model,
@@ -374,6 +377,7 @@ Para "intent" (usa el que mejor describe la NECESIDAD PRINCIPAL del mensaje):
                 lead_id=lead_id,
                 input_tokens=_in_tok,
                 output_tokens=_out_tok,
+                actual_cost_usd=_actual_cost,
                 agent_type="qualifier",
                 raw_response_snippet=str(result)[:500],
             )
@@ -566,9 +570,11 @@ Para "intent" (usa el que mejor describe la NECESIDAD PRINCIPAL del mensaje):
             thinking_content = result[3] if len(result) >= 4 else None
             input_tokens = None
             output_tokens = None
+            actual_cost_usd = None
             if usage:
                 input_tokens = usage.get("input_tokens") or usage.get("prompt_tokens")
                 output_tokens = usage.get("output_tokens") or usage.get("completion_tokens")
+                actual_cost_usd = usage.get("actual_cost_usd")
             _response_text = result[0] or ""
             await _fire_log(
                 provider_name=pname,
@@ -580,6 +586,7 @@ Para "intent" (usa el que mejor describe la NECESIDAD PRINCIPAL del mensaje):
                 lead_id=lead_id,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
+                actual_cost_usd=actual_cost_usd,
                 error=None,
                 agent_type=agent_type,
                 raw_response_snippet=_response_text[:500],

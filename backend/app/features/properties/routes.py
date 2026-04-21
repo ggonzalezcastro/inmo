@@ -380,7 +380,7 @@ async def search_properties(
     """Hybrid property search endpoint — usable by all authenticated users."""
     target_broker = broker_id if current_user.get("role") == "SUPERADMIN" and broker_id else current_user.get("broker_id")
     from app.services.properties.search_service import execute_property_search
-    results = await execute_property_search(body.model_dump(exclude_none=True), db, target_broker)
+    results, _ = await execute_property_search(body.model_dump(exclude_none=True), db, target_broker)
     return {"count": len(results), "results": results}
 
 

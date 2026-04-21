@@ -79,24 +79,25 @@ async def generate_property_embedding(prop: Any) -> Optional[List[float]]:
     if not text.strip():
         logger.warning("Property %s has no text to embed", getattr(prop, "id", "?"))
         return None
-    return await _embed(text)
+    embedding, _ = await _embed(text)
+    return embedding
 
 
-async def generate_property_query_embedding(query: str) -> List[float]:
+async def generate_property_query_embedding(query: str) -> tuple[List[float], int]:
     """
     Generate an embedding for a natural-language search query.
-    Raises on failure so the caller can fall back to structured search.
+    Returns (embedding, prompt_tokens). Raises on failure so caller can fall back.
     """
     return await _embed(query)
 
 
-async def _embed(text: str) -> List[float]:
-    """Embed a string using Gemini text-embedding-004 (same as knowledge_base)."""
+async def _embed(text: str) -> tuple[List[float], int]:
+    """Returns (embedding_vector, prompt_tokens) using Gemini text-embedding-004."""
     from app.services.knowledge.rag_service import _embed_text
-    result = await _embed_text(text)
+    result, tokens = await _embed_text(text)
     if result is None:
-        raise RuntimeError("Embedding returned None — check GEMINI_API_KEY and connectivity")
-    return result
+        raise RuntimeError("Embedding returned None — check OPENROUTER_API_KEY and connectivity")
+    return result, tokens
 
 
 async def embed_and_save_property(prop: Any, db: Any) -> bool:

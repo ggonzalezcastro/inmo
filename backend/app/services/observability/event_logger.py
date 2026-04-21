@@ -279,6 +279,9 @@ class AgentEventLogger:
         results_count: int,
         top_result_ids: Optional[List[int]] = None,
         rrf_scores: Optional[Dict] = None,
+        embedding_tokens: int = 0,
+        embedding_cost_usd: float = 0.0,
+        latency_ms: Optional[int] = None,
         message_id: Optional[int] = None,
         conversation_id: Optional[int] = None,
     ) -> None:
@@ -291,10 +294,13 @@ class AgentEventLogger:
             conversation_id=conversation_id,
             search_strategy=strategy,
             search_results_count=results_count,
+            tool_latency_ms=latency_ms,
             event_metadata={
                 "search_params": search_params,
                 "top_result_ids": top_result_ids or [],
                 "rrf_scores": rrf_scores or {},
+                "embedding_tokens": embedding_tokens,
+                "embedding_cost_usd": embedding_cost_usd,
             },
         )
 

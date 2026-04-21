@@ -115,7 +115,7 @@ async def execute_property_search(
     params: Dict[str, Any],
     db: AsyncSession,
     broker_id: int,
-) -> List[Dict[str, Any]]:
+) -> tuple[List[Dict[str, Any]], int]:
     """
     Execute a property search and return ranked results.
 
@@ -132,6 +132,7 @@ async def execute_property_search(
 
     sql_results: List[Property] = []
     semantic_results: List[tuple] = []  # (Property, distance)
+    embed_tokens: int = 0
 
     # ── STEP 1: Structured SQL search ────────────────────────────────────────
     if strategy in ("structured", "hybrid"):
@@ -140,7 +141,7 @@ async def execute_property_search(
     # ── STEP 2: Semantic embedding search ────────────────────────────────────
     if strategy in ("semantic", "hybrid") and params.get("semantic_query"):
         try:
-            query_embedding = await generate_property_query_embedding(
+            query_embedding, embed_tokens = await generate_property_query_embedding(
                 params["semantic_query"]
             )
             semantic_results = await _semantic_search(
@@ -155,18 +156,18 @@ async def execute_property_search(
 
     # ── STEP 3: RRF merge ────────────────────────────────────────────────────
     if strategy == "hybrid" and sql_results and semantic_results:
-        return await _rrf_merge(sql_results, semantic_results, limit, db)
+        return await _rrf_merge(sql_results, semantic_results, limit, db), embed_tokens
 
     if strategy == "structured" or (strategy == "hybrid" and not semantic_results):
-        return [_format_property(p) for p in sql_results[:limit]]
+        return [_format_property(p) for p in sql_results[:limit]], embed_tokens
 
     if strategy == "semantic":
         return [
             _format_property(prop, semantic_distance=dist)
             for prop, dist in semantic_results[:limit]
-        ]
+        ], embed_tokens
 
-    return []
+    return [], embed_tokens
 
 
 async def _structured_search(

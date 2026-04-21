@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select, text, and_
+from sqlalchemy import func, select, text, and_, Float, cast, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -882,6 +882,10 @@ async def property_search_effectiveness(
         func.count().label("total_searches"),
         func.avg(AgentEvent.search_results_count).label("avg_results"),
         func.sum(AgentEvent.search_results_count).label("total_results"),
+        func.sum(
+            cast(func.coalesce(AgentEvent.event_metadata["embedding_cost_usd"].astext, "0"), Float)
+        ).label("total_embedding_cost"),
+        func.avg(AgentEvent.tool_latency_ms).label("avg_latency_ms"),
     ).where(
         AgentEvent.event_type == "property_search",
         AgentEvent.created_at >= since,
@@ -893,7 +897,15 @@ async def property_search_effectiveness(
 
     strategy_q = select(
         AgentEvent.search_strategy,
-        func.count().label("count"),
+        func.count().label("search_count"),
+        func.avg(AgentEvent.search_results_count).label("avg_results"),
+        func.avg(AgentEvent.tool_latency_ms).label("avg_latency_ms"),
+        func.sum(
+            func.cast(
+                func.coalesce(AgentEvent.event_metadata["embedding_cost_usd"].astext, "0"),
+                type_=__import__("sqlalchemy").Float,
+            )
+        ).label("total_cost"),
     ).where(
         AgentEvent.event_type == "property_search",
         AgentEvent.created_at >= since,
@@ -903,10 +915,26 @@ async def property_search_effectiveness(
     strategy_q = strategy_q.group_by(AgentEvent.search_strategy)
     strategy_rows = (await db.execute(strategy_q)).all()
 
+    total_searches = row[0] or 0
+    total_cost = float(row[3] or 0)
+
     return {
         "period": period,
-        "total_searches": row[0] or 0,
+        "total_searches": total_searches,
         "avg_results_per_search": round(float(row[1] or 0), 1),
         "total_results_shown": row[2] or 0,
-        "by_strategy": {r[0]: r[1] for r in strategy_rows if r[0]},
+        "total_embedding_cost_usd": round(total_cost, 6),
+        "avg_embedding_cost_per_search_usd": round(total_cost / total_searches, 8) if total_searches else 0,
+        "avg_latency_ms": round(float(row[4] or 0), 0) if row[4] else None,
+        "by_strategy": [
+            {
+                "strategy": r[0],
+                "search_count": r[1],
+                "avg_results": round(float(r[2] or 0), 1),
+                "avg_latency_ms": round(float(r[3]), 0) if r[3] else None,
+                "total_cost_usd": round(float(r[4] or 0), 6),
+            }
+            for r in strategy_rows
+            if r[0]
+        ],
     }

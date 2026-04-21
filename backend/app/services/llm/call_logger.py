@@ -68,6 +68,7 @@ async def log_llm_call(
     lead_id: Optional[int] = None,
     used_fallback: bool = False,
     error: Optional[str] = None,
+    actual_cost_usd: Optional[float] = None,
 ) -> None:
     """
     Persist one LLMCall row.  Errors are silently swallowed so that
@@ -79,9 +80,12 @@ async def log_llm_call(
         from app.config import settings
         from app.models.llm_call import LLMCall
 
-        estimated_cost = None
-        if input_tokens is not None and output_tokens is not None:
+        if actual_cost_usd is not None:
+            estimated_cost = actual_cost_usd
+        elif input_tokens is not None and output_tokens is not None:
             estimated_cost = _estimate_cost(model, input_tokens, output_tokens)
+        else:
+            estimated_cost = None
 
         row = LLMCall(
             broker_id=broker_id,

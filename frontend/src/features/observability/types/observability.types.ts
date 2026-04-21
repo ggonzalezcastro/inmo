@@ -301,12 +301,16 @@ export interface RAGStrategyStats {
   search_count: number
   avg_results: number
   avg_latency_ms?: number
+  total_cost_usd?: number
 }
 
 export interface RAGEffectivenessData {
   period: string
   total_searches: number
   avg_results_per_search: number
+  total_embedding_cost_usd: number
+  avg_embedding_cost_per_search_usd: number
+  avg_latency_ms?: number
   by_strategy: RAGStrategyStats[]
 }
 
