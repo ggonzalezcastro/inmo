@@ -14,6 +14,7 @@ or back to QualifierAgent for financial/DICOM questions.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -363,6 +364,18 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
             else:
                 _transition = "Para encontrar la propiedad ideal para ti, necesito conocerte un poco mejor. 😊"
 
+            # Capture the search params that produced 0 results, so qualifier (and
+            # downstream agents) can censor any reference to that location/type in
+            # responses. Without this, the LLM may fill the deflection template
+            # ("eso lo revisamos con el ejecutivo") with the lead's zone, implying
+            # we have stock there ("opciones en Lomas Turbas") when we don't.
+            _last_params = tool_results[-1]["params"] if tool_results else {}
+            _no_stock_for = {
+                "city": _last_params.get("city"),
+                "location": _last_params.get("location") or _last_params.get("commune"),
+                "property_type": _last_params.get("property_type"),
+            }
+
             return AgentResponse(
                 message=_transition,
                 agent_type=AgentType.PROPERTY,
@@ -372,9 +385,12 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
                     context_updates={
                         "_zero_results_handoff": True,
                         "_property_transition_said": _transition,
+                        "_no_stock_for": _no_stock_for,
                         "last_property_search": {
                             "results_count": 0,
                             "strategy": tool_results[0]["strategy"] if tool_results else "unknown",
+                            "params": _last_params,
+                            "ts": time.time(),
                         },
                     },
                 ),
@@ -407,6 +423,7 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
                 "last_property_search": {
                     "results_count": sum(r["count"] for r in tool_results),
                     "strategy": tool_results[0]["strategy"] if tool_results else "unknown",
+                    "ts": time.time(),
                 },
             },
             handoff=handoff,
@@ -431,13 +448,20 @@ def _extract_property_interest(tool_results: List[Dict]) -> Dict[str, Any]:
 
 
 def _build_messages(history: list, new_message: str) -> list:
-    """Convert message history + new message to LLMMessage format."""
+    """Convert message history + new message to LLMMessage format.
+
+    Dedupe guard (same as qualifier._build_messages): the orchestrator persists
+    the inbound message before fetching history, so naive append would duplicate
+    the last user turn.
+    """
     from app.services.llm.base_provider import LLMMessage
     messages = [
         LLMMessage(role=m.get("role", "user"), content=m.get("content", ""))
         for m in (history[-10:] if history else [])
     ]
-    messages.append(LLMMessage(role="user", content=new_message))
+    last = messages[-1] if messages else None
+    if not (last and last.role == "user" and last.content == new_message):
+        messages.append(LLMMessage(role="user", content=new_message))
     return messages
 
 

@@ -171,6 +171,31 @@ class SchedulerAgent(BaseAgent):
                 ),
             )
 
+        # G2: Pre-check — never schedule a visit when last property search returned
+        # 0 results AND no concrete property was selected. The lead has no inventory
+        # to visit and no specific property of interest. Asking clarification is the
+        # right move; without this guard the LLM may confidently confirm a phantom visit.
+        # Only enforce when the search is RECENT (≤10 min) — otherwise stale data from
+        # an abandoned conversation would block legitimate reschedules.
+        import time as _time
+        _last_search = context.lead_data.get("last_property_search") or {}
+        _prop_interest = context.lead_data.get("property_interest") or {}
+        _search_ts = _last_search.get("ts") or 0
+        _is_recent = (_time.time() - _search_ts) < 600 if _search_ts else False
+        if (
+            _is_recent
+            and _last_search.get("results_count") == 0
+            and not _prop_interest.get("property_id")
+        ):
+            self._log("PRE-CHECK: no stock + no property_interest — asking clarification", lead_id=context.lead_id)
+            return AgentResponse(
+                message=(
+                    "Para coordinar la visita necesito saber qué propiedad concreta te interesa. "
+                    "¿Has visto alguna en particular o quieres que te muestre alternativas en otras zonas?"
+                ),
+                agent_type=self.agent_type,
+            )
+
         # Fetch broker timezone from config
         broker_timezone = "America/Santiago"
         try:
@@ -257,6 +282,32 @@ class SchedulerAgent(BaseAgent):
                     _confirmation_text.append("\n".join(lines))
                     return {"status": "ok"}
                 try:
+                    # Guard: never schedule a visit when the property search returned
+                    # 0 results AND no specific property was selected. Otherwise the
+                    # scheduler would confirm a phantom visit (no inventory matches
+                    # the lead's request and no concrete property to visit).
+                    if tool_name == "create_appointment":
+                        _ls = context.lead_data.get("last_property_search") or {}
+                        _pi = context.lead_data.get("property_interest") or {}
+                        _ts = _ls.get("ts") or 0
+                        _recent = (_time.time() - _ts) < 600 if _ts else False
+                        if (
+                            _recent
+                            and _ls.get("results_count") == 0
+                            and not _pi.get("property_id")
+                        ):
+                            self._log(
+                                "Blocking create_appointment — no stock + no property_interest",
+                                lead_id=context.lead_id,
+                            )
+                            return {
+                                "success": False,
+                                "error": (
+                                    "No se puede agendar: no hay propiedades disponibles "
+                                    "para los criterios del lead y no hay una propiedad concreta seleccionada. "
+                                    "Pregunta al lead si quiere explorar otras zonas/tipos antes de agendar."
+                                ),
+                            }
                     result = await AgentToolsService.execute_tool(
                         db=db,
                         tool_name=tool_name,

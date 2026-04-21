@@ -204,22 +204,70 @@ class QualifierAgent(BaseAgent):
 
         # Re-enforce financial prohibition here (end of prompt = highest recency priority)
         # This prevents the LLM from violating it even after a handoff instruction.
-        base_prompt += (
-            "\n\n## ⚠️ RECORDATORIO FINAL — REGLA INQUEBRANTABLE\n"
-            "Si el lead pregunta por pie, financiamiento, cuotas, proceso de compra o montos: "
-            "responde ÚNICAMENTE: 'Eso lo revisamos en detalle con nuestro ejecutivo en la reunión. "
-            "¿Te agendamos una videollamada para orientarte?' — NADA MÁS. Sin porcentajes, sin rangos, sin estimaciones.\n"
-            "NUNCA digas que el lead 'cumple el perfil', 'califica', 'está aprobado' ni ninguna variante.\n"
-        )
+        # When property search returned 0 stock, swap the deflection script for a
+        # neutral one that does NOT invite the LLM to fill in the lead's zone/type
+        # (which would imply we have stock there). Only apply when this turn was
+        # actually triggered by a property handoff — otherwise stale `_no_stock_for`
+        # from a prior turn would wrongly poison the prompt.
+        _no_stock = lead_data.get("_no_stock_for") or {}
+        _zero_handoff = lead_data.get("_zero_results_handoff")
+        _from_property = lead_data.get("_handoff_from") == "property"
+        if _from_property and (_zero_handoff or _no_stock.get("location") or _no_stock.get("city")):
+            base_prompt += (
+                "\n\n## ⚠️ RECORDATORIO FINAL — REGLA INQUEBRANTABLE\n"
+                "Si el lead pregunta por pie, financiamiento, cuotas, proceso de compra o montos: "
+                "responde ÚNICAMENTE: 'Para esos detalles te conectamos directamente con nuestro ejecutivo, "
+                "quien podrá orientarte sobre las alternativas que tenemos.' — NADA MÁS. "
+                "Sin porcentajes, sin rangos, sin estimaciones.\n"
+                "NUNCA digas que el lead 'cumple el perfil', 'califica', 'está aprobado' ni ninguna variante.\n"
+                "NUNCA menciones nombre de zona/sector/comuna ni tipo de propiedad solicitado por el lead "
+                "en frases que impliquen disponibilidad ('opciones en X', 'te mostramos propiedades en X', "
+                "'tenemos terrenos/casas/departamentos en X').\n"
+            )
+        else:
+            base_prompt += (
+                "\n\n## ⚠️ RECORDATORIO FINAL — REGLA INQUEBRANTABLE\n"
+                "Si el lead pregunta por pie, financiamiento, cuotas, proceso de compra o montos: "
+                "responde ÚNICAMENTE: 'Eso lo revisamos en detalle con nuestro ejecutivo en la reunión. "
+                "¿Te agendamos una videollamada para orientarte?' — NADA MÁS. Sin porcentajes, sin rangos, sin estimaciones.\n"
+                "NUNCA digas que el lead 'cumple el perfil', 'califica', 'está aprobado' ni ninguna variante.\n"
+            )
 
         # When routed from PropertyAgent (no properties found), tell LLM to pivot
         # to qualification instead of trying to show properties.
-        if lead_data.get("_handoff_from") == "property":
+        if _from_property:
             _transition_said = lead_data.get("_property_transition_said", "")
             _no_repeat = (
                 f"El agente anterior ya dijo al lead: \"{_transition_said}\" — "
                 "NO repitas esa frase ni uses palabras similares. Continúa directamente con la siguiente pregunta."
                 if _transition_said else ""
+            )
+            # Sanitize user-derived strings before injecting into the system prompt
+            # to neutralise prompt-injection attempts via location/city names.
+            def _safe(v: str, n: int = 80) -> str:
+                if not isinstance(v, str):
+                    return ""
+                # Strip control chars + collapse quotes that could break out of the
+                # surrounding f-string-quoted token in the prompt.
+                cleaned = "".join(ch for ch in v if ch.isprintable() and ch not in "\"\\\n\r")
+                return cleaned[:n].strip()
+
+            _forbidden_parts = []
+            _loc = _safe(_no_stock.get("location") or "")
+            _city = _safe(_no_stock.get("city") or "")
+            _ptype = _safe(_no_stock.get("property_type") or "", n=40)
+            if _loc:
+                _forbidden_parts.append(f"sector \"{_loc}\"")
+            if _city:
+                _forbidden_parts.append(f"ciudad \"{_city}\"")
+            if _ptype:
+                _forbidden_parts.append(f"tipo \"{_ptype}\"")
+            _forbidden_str = ", ".join(_forbidden_parts) if _forbidden_parts else ""
+            _zone_ban = (
+                f"PROHIBIDO mencionar {_forbidden_str} en frases que impliquen disponibilidad "
+                f"(p.ej. 'tenemos opciones en …', 'precios y opciones de … en …', "
+                f"'te mostramos propiedades en …'). Lenguaje neutro obligatorio."
+                if _forbidden_str else ""
             )
             base_prompt += (
                 "\n\n## CONTEXTO DEL TRASPASO\n"
@@ -227,8 +275,28 @@ class QualifierAgent(BaseAgent):
                 "Tu objetivo ahora es recopilar sus datos de calificación (nombre, teléfono, email, ubicación, renta). "
                 "NO intentes buscar propiedades ni uses handoff_to_property. "
                 f"{_no_repeat}\n"
+                f"{_zone_ban}\n"
                 "Continúa con una pregunta natural para avanzar en la calificación.\n"
             )
+
+        # Defence-in-depth: respect "ya te lo dije" so the lead doesn't have to
+        # repeat data multiple times when the LLM extraction missed it.
+        # CRITICAL: do NOT verbally confirm a value the LLM only saw in history —
+        # the extraction pipeline runs only on the current message, so the value
+        # would never reach `lead_data` and the agent would loop asking again.
+        base_prompt += (
+            "\n\n## SI EL LEAD INDICA QUE YA DIO LA INFORMACIÓN\n"
+            "Si el lead dice frases como 'ya te lo dije', 'te lo dije antes', "
+            "'te lo dije más arriba', 'te dije X', o reclama por preguntar lo mismo:\n"
+            "1. PRIMERO discúlpate brevemente ('Disculpa la confusión 🙏').\n"
+            "2. NO confirmes un valor verbalmente ('Anotado: 3 millones ✓') — eso crea "
+            "falsa sensación de progreso si el sistema no lo capturó.\n"
+            "3. En su lugar, pídele que repita SOLO ese dato concreto en el siguiente mensaje, "
+            "explicando que lo necesitas para registrarlo correctamente: "
+            "'¿Me lo puedes repetir una vez más para anotarlo bien?'.\n"
+            "4. UN solo campo a la vez. Nunca preguntes 'no fue mencionado' cuando el lead "
+            "afirma haberlo dado — siempre asume que sí lo dio y pide repetirlo.\n"
+        )
 
         skill_ext = context.lead_data.get("_skill_qualifier_extension")
         has_custom = bool(context.lead_data.get("_custom_qualifier_prompt"))
@@ -471,11 +539,20 @@ class QualifierAgent(BaseAgent):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _build_messages(history: list, new_message: str) -> list:
-    """Convert message history + new message to LLMMessage format."""
+    """Convert message history + new message to LLMMessage format.
+
+    Dedupe guard: the orchestrator persists the inbound message to DB before
+    fetching message_history (which then includes it). If we naively appended
+    `new_message` again we would send two identical user turns to the LLM,
+    confusing the model. Skip the append when the last history entry is
+    already the same user message.
+    """
     from app.services.llm.base_provider import LLMMessage
     messages = [
         LLMMessage(role=m.get("role", "user"), content=m.get("content", ""))
         for m in (history or [])
     ]
-    messages.append(LLMMessage(role="user", content=new_message))
+    last = messages[-1] if messages else None
+    if not (last and last.role == "user" and last.content == new_message):
+        messages.append(LLMMessage(role="user", content=new_message))
     return messages

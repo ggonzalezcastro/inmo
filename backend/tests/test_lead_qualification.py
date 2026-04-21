@@ -24,7 +24,9 @@ REQUIRED_KEYS = {
 def _mock_provider_with_json(json_result: dict):
     provider = MagicMock()
     provider.is_configured = True
-    provider.generate_json = AsyncMock(return_value=json_result)
+    provider.name = "mock"
+    # Real signature: returns (result_dict, usage_dict)
+    provider.generate_json = AsyncMock(return_value=(json_result, {"input_tokens": 0, "output_tokens": 0}))
     return provider
 
 
@@ -47,7 +49,7 @@ async def test_all_required_fields_present_on_success():
         "score_delta": 10,
         "key_points": ["Renta alta"],
     })
-    with patch("app.services.llm.facade.get_llm_provider", return_value=provider):
+    with patch("app.services.llm.facade.get_fast_llm_provider", return_value=provider):
         result = await LLMServiceFacade.analyze_lead_qualification("Mi sueldo es 2M")
 
     assert REQUIRED_KEYS.issubset(result.keys()), f"Missing keys: {REQUIRED_KEYS - result.keys()}"
@@ -58,7 +60,7 @@ async def test_all_required_fields_present_on_llm_failure():
     from app.services.llm.facade import LLMServiceFacade
 
     provider = _mock_provider_failing()
-    with patch("app.services.llm.facade.get_llm_provider", return_value=provider):
+    with patch("app.services.llm.facade.get_fast_llm_provider", return_value=provider):
         result = await LLMServiceFacade.analyze_lead_qualification("mensaje")
 
     assert REQUIRED_KEYS.issubset(result.keys())
@@ -71,7 +73,7 @@ async def test_all_required_fields_present_on_partial_llm_response():
     from app.services.llm.facade import LLMServiceFacade
 
     provider = _mock_provider_with_json({"qualified": "no", "interest_level": 2})
-    with patch("app.services.llm.facade.get_llm_provider", return_value=provider):
+    with patch("app.services.llm.facade.get_fast_llm_provider", return_value=provider):
         result = await LLMServiceFacade.analyze_lead_qualification("No me interesa")
 
     assert REQUIRED_KEYS.issubset(result.keys())
@@ -87,7 +89,7 @@ async def test_returns_defaults_when_provider_not_configured():
 
     provider = MagicMock()
     provider.is_configured = False
-    with patch("app.services.llm.facade.get_llm_provider", return_value=provider):
+    with patch("app.services.llm.facade.get_fast_llm_provider", return_value=provider):
         result = await LLMServiceFacade.analyze_lead_qualification("Hola")
 
     assert result["qualified"] == "maybe"
@@ -107,7 +109,7 @@ async def test_dicom_clean_extracted():
         "score_delta": 15,
         "key_points": [],
     })
-    with patch("app.services.llm.facade.get_llm_provider", return_value=provider):
+    with patch("app.services.llm.facade.get_fast_llm_provider", return_value=provider):
         result = await LLMServiceFacade.analyze_lead_qualification(
             "No tengo DICOM", lead_context={"message_history": []}
         )
@@ -127,7 +129,7 @@ async def test_dicom_has_debt_extracted():
         "score_delta": -15,
         "key_points": [],
     })
-    with patch("app.services.llm.facade.get_llm_provider", return_value=provider):
+    with patch("app.services.llm.facade.get_fast_llm_provider", return_value=provider):
         result = await LLMServiceFacade.analyze_lead_qualification(
             "Tengo una deuda de 500k", lead_context={}
         )
@@ -148,7 +150,7 @@ async def test_score_delta_preserved():
         "score_delta": 20,
         "key_points": [],
     })
-    with patch("app.services.llm.facade.get_llm_provider", return_value=provider):
+    with patch("app.services.llm.facade.get_fast_llm_provider", return_value=provider):
         result = await LLMServiceFacade.analyze_lead_qualification("Quiero comprar ya")
 
     assert result["score_delta"] == 20
@@ -164,7 +166,7 @@ async def test_score_delta_negative_preserved():
         "score_delta": -20,
         "key_points": [],
     })
-    with patch("app.services.llm.facade.get_llm_provider", return_value=provider):
+    with patch("app.services.llm.facade.get_fast_llm_provider", return_value=provider):
         result = await LLMServiceFacade.analyze_lead_qualification("No me interesa")
 
     assert result["score_delta"] == -20
@@ -178,7 +180,7 @@ async def test_key_points_is_always_a_list():
 
     # LLM returns no key_points field
     provider = _mock_provider_with_json({"qualified": "maybe", "interest_level": 5, "score_delta": 0})
-    with patch("app.services.llm.facade.get_llm_provider", return_value=provider):
+    with patch("app.services.llm.facade.get_fast_llm_provider", return_value=provider):
         result = await LLMServiceFacade.analyze_lead_qualification("Mensaje")
 
     assert isinstance(result["key_points"], list)

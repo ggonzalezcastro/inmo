@@ -42,6 +42,20 @@ _GREETING_WORDS = frozenset({
     "si", "no", "ok", "bien", "claro", "dale", "ya",
 })
 
+# ── Observability hints ──────────────────────────────────────────────────────
+# These are NOT used for extraction — only to detect when the LLM probably
+# missed an obvious salary/DICOM signal in the user's message. Chilean Spanish
+# is too varied for regex extraction to be safe ("3 lucas", "3 palos", "estoy
+# entero", "le debo a la caja"); a wide hint regex is fine for *detection*
+# because false positives only produce log noise, not bad data.
+_MONEY_HINT_RE = re.compile(
+    r"(?i)\b(gano|sueldo|sueld\w+|renta|ingres\w+|mill|millon\w*|luca|lucas|palo|palos|gan\w+|cobr\w+|pag\w+)\b"
+    r"|\$\s*\d|\b\d+(?:[.,]\d+)?\s*(?:m|k|mil|mill)\b"
+)
+_DICOM_HINT_RE = re.compile(
+    r"(?i)\b(dicom|deud\w+|moros\w+|limpio|al d[ií]a|debo|sin deudas|entero)\b"
+)
+
 
 def _regex_extract_fields(message: str) -> Dict[str, Any]:
     """Best-effort regex extraction of name, phone, and email from a message.
@@ -251,14 +265,14 @@ class LLMServiceFacade:
         1. Per-broker qualifier config (if broker_id and db provided)
         2. Fast/lightweight provider (GEMMA_MODEL) for lower latency
         """
-        if db and broker_id:
-            try:
-                provider = await resolve_provider_for_agent("qualifier", broker_id, db)
-            except Exception as _exc:
-                logger.debug("[LLM-facade] resolve_provider_for_agent failed for qualifier: %s", _exc)
-                provider = get_fast_llm_provider()
-        else:
-            provider = get_fast_llm_provider()
+        # Always use the fast provider for structured extraction.
+        # Per-broker model overrides (resolve_provider_for_agent) are intentionally
+        # NOT used here: extraction needs reliable JSON mode, and some broker-configured
+        # models (e.g. Claude Haiku via OpenRouter) don't honour response_format reliably,
+        # silently returning "{}". The per-agent model config still applies to response
+        # generation in generate_response_with_function_calling — only extraction is forced
+        # onto the fast/JSON-capable provider.
+        provider = get_fast_llm_provider()
 
         if not provider.is_configured:
             logger.warning("[LLMService] Provider not configured, returning defaults")
@@ -417,6 +431,24 @@ Para "intent" (usa el que mejor describe la NECESIDAD PRINCIPAL del mensaje):
                 if not result.get(_fk):
                     result[_fk] = _fv
                     logger.info("[LLM-facade] regex fallback filled %s=%r", _fk, _fv)
+
+            # Observability — detect possible salary/DICOM extraction misses without
+            # adding fragile regex extraction to the pipeline. Chilean Spanish is too
+            # varied ("3 lucas", "3 palos", "estoy entero", "le debo a la caja") for
+            # regex to capture reliably; if the LLM consistently misses these, fix the
+            # extraction prompt with few-shot examples instead of hand-rolled patterns.
+            if _MONEY_HINT_RE.search(message) and not result.get("salary"):
+                logger.warning(
+                    "[LLM-facade] possible salary extraction miss "
+                    "lead_id=%s provider=%s model=%s msg=%r",
+                    lead_id, pname, model, message[:160],
+                )
+            if _DICOM_HINT_RE.search(message) and not result.get("dicom_status"):
+                logger.warning(
+                    "[LLM-facade] possible DICOM extraction miss "
+                    "lead_id=%s provider=%s model=%s msg=%r",
+                    lead_id, pname, model, message[:160],
+                )
 
             return result
 

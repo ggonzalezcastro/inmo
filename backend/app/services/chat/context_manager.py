@@ -35,8 +35,11 @@ logger = logging.getLogger(__name__)
 #: Trigger summarisation when message count reaches this value
 SUMMARIZE_THRESHOLD: int = 10
 
-#: Keep this many recent messages uncompressed for immediate context
-KEEP_RECENT: int = 4
+#: Keep this many recent messages uncompressed for immediate context.
+#: Bumped from 4 → 8 (defence-in-depth): when the LLM extraction misses a field
+#: (e.g. salary "3 mill", DICOM "no tengo deudas"), a wider recent window keeps
+#: the original message visible to the qualifier so it doesn't re-ask.
+KEEP_RECENT: int = 8
 
 #: Tokens budget for the summary LLM call
 _SUMMARY_MAX_TOKENS: int = 300
