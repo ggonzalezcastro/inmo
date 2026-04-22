@@ -6,3 +6,4 @@ export { DealDocumentsBoard } from './components/DealDocumentsBoard';
 export { RejectDocumentModal } from './components/RejectDocumentModal';
 export { NegociosPage } from './pages/NegociosPage';
 export { NegocioDealPage } from './pages/NegocioDealPage';
+export { VentasStatsPage } from './pages/VentasStatsPage';

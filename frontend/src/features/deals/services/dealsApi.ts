@@ -1,4 +1,15 @@
 import { apiClient } from '@/shared/lib/api-client';
+
+export interface DealMetrics {
+  deals_by_stage: Record<string, number>
+  uf_en_pipeline: number
+  uf_cerradas: number
+  total_active_deals: number
+  deals_closed: number
+  bank_approval_rate: number
+  uf_trend: { week: string; week_start: string; uf: number }[]
+}
+
 import type {
   Deal,
   DealDetail,
@@ -70,4 +81,16 @@ export const dealsApi = {
     deliveryType?: string,
   ): Promise<{ slots: SlotRequirement[]; delivery_type: string }> =>
     apiClient.get('/api/deals/slots-meta', { params: { delivery_type: deliveryType } }),
+
+  getMetrics: (params?: {
+    broker_id?: number | null
+    date_from?: string
+    date_to?: string
+  }): Promise<DealMetrics> => {
+    const p: Record<string, unknown> = {}
+    if (params?.broker_id) p.broker_id = params.broker_id
+    if (params?.date_from) p.date_from = params.date_from
+    if (params?.date_to) p.date_to = params.date_to
+    return apiClient.get('/api/deals/metrics', { params: Object.keys(p).length ? p : undefined })
+  },
 };

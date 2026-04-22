@@ -13,7 +13,7 @@ Endpoints:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -47,6 +47,7 @@ from app.services.deals.exceptions import DealError
 from app.services.deals.service import DealService
 from app.services.deals.slots import get_all_required_slots_for_promesa
 from app.services.deals.state_machine import transition
+from app.services.deals.metrics_service import get_deal_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,21 @@ async def _enrich(db: AsyncSession, deal_read: DealRead, deal: Deal) -> DealRead
         deal_read.property_label = " ".join(label_parts) if label_parts else None
 
     return deal_read
+
+
+# ── GET /api/deals/metrics — Aggregate stats ─────────────────────────────────
+
+@router.get("/metrics")
+async def get_metrics(
+    broker_id: Optional[int] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    role = current_user.get("role", "")
+    effective_broker_id = broker_id if role == "SUPERADMIN" else current_user.get("broker_id")
+    return await get_deal_metrics(db, broker_id=effective_broker_id, date_from=date_from, date_to=date_to)
 
 
 # ── POST /api/deals — Create deal ────────────────────────────────────────────
