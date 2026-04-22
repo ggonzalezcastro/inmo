@@ -67,7 +67,6 @@ const NAV_ITEMS: NavItem[] = [
 const VENTAS_ITEMS: NavItem[] = [
   { path: '/projects', label: 'Inventario', icon: Building2, roles: ['admin', 'superadmin'] },
   { path: '/negocios', label: 'Negocios', icon: Handshake, roles: ['admin', 'superadmin'] },
-  { path: '/ventas', label: 'Estadísticas', icon: BarChart2, roles: ['admin', 'superadmin'] },
   { path: '/campaigns', label: 'Campañas', icon: Megaphone, roles: ['admin', 'superadmin'] },
 ]
 
