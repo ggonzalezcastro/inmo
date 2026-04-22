@@ -1,4 +1,4 @@
-import { Pencil } from 'lucide-react'
+import { Pencil, BookmarkPlus } from 'lucide-react'
 import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
 import type { ProjectUnitSummary } from '../types'
@@ -14,9 +14,10 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
 interface ProjectUnitsTableProps {
   units: ProjectUnitSummary[]
   onEditUnit: (id: number) => void
+  onReserveUnit?: (unit: ProjectUnitSummary) => void
 }
 
-export function ProjectUnitsTable({ units, onEditUnit }: ProjectUnitsTableProps) {
+export function ProjectUnitsTable({ units, onEditUnit, onReserveUnit }: ProjectUnitsTableProps) {
   if (units.length === 0) {
     return (
       <div className="text-center text-sm text-muted-foreground py-8">
@@ -84,15 +85,28 @@ export function ProjectUnitsTable({ units, onEditUnit }: ProjectUnitsTableProps)
                   </Badge>
                 </td>
                 <td className="px-2 py-2 text-right">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={() => onEditUnit(u.id)}
-                    title="Editar unidad"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
+                  <div className="flex items-center justify-end gap-1">
+                    {onReserveUnit && u.status === 'available' && (
+                      <Button
+                        size="sm"
+                        className="h-7 px-2 text-xs gap-1 bg-blue-600 hover:bg-blue-700 text-white"
+                        onClick={() => onReserveUnit(u)}
+                        title="Reservar unidad"
+                      >
+                        <BookmarkPlus className="h-3.5 w-3.5" />
+                        Reservar
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => onEditUnit(u.id)}
+                      title="Editar unidad"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </td>
               </tr>
             )

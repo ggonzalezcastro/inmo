@@ -13,6 +13,8 @@ export type WSEventType =
   | 'lead_frustrated'
   | 'call_transcript'
   | 'call_status'
+  | 'deal_stage_changed'
+  | 'deal_document_changed'
 
 export interface WSEvent<T = unknown> {
   type: WSEventType

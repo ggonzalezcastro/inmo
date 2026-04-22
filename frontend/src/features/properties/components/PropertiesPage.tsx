@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Sparkles, Loader2 } from 'lucide-react'
+import { Plus, Sparkles, Loader2, LayoutGrid, List } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/shared/components/ui/button'
 import { PageHeader } from '@/shared/components/common/PageHeader'
@@ -10,10 +10,14 @@ import { propertiesService } from '../services/properties.service'
 import { getErrorMessage } from '@/shared/types/api'
 import { PropertyFiltersBar } from './PropertyFiltersBar'
 import { PropertiesTable } from './PropertiesTable'
+import { PropertyGrid } from './PropertyGrid'
 import { PropertyFormDialog } from './PropertyFormDialog'
 import { PropertyDetail } from './PropertyDetail'
+import { ReservePropertyModal } from './ReservePropertyModal'
 import { BrokerFilterBar, type SelectedBroker } from '@/shared/components/filters/BrokerFilterBar'
 import type { Property } from '../types'
+
+type ViewMode = 'table' | 'grid'
 
 export function PropertiesPage() {
   const { isAdmin, isSuperAdmin } = usePermissions()
@@ -23,7 +27,9 @@ export function PropertiesPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [editTarget, setEditTarget] = useState<Property | null>(null)
   const [viewTarget, setViewTarget] = useState<Property | null>(null)
+  const [reserveTarget, setReserveTarget] = useState<Property | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [viewMode, setViewMode] = useState<ViewMode>('table')
 
   const page = Math.floor((filters.offset ?? 0) / (filters.limit ?? 20)) + 1
   const limit = filters.limit ?? 20
@@ -84,6 +90,27 @@ export function PropertiesPage() {
                   label="Broker"
                 />
               )}
+              {/* View mode toggle */}
+              <div className="flex items-center border rounded-md overflow-hidden">
+                <Button
+                  size="sm"
+                  variant={viewMode === 'table' ? 'default' : 'ghost'}
+                  className="rounded-none h-8 px-2"
+                  onClick={() => setViewMode('table')}
+                  title="Vista tabla"
+                >
+                  <List className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant={viewMode === 'grid' ? 'default' : 'ghost'}
+                  className="rounded-none h-8 px-2"
+                  onClick={() => setViewMode('grid')}
+                  title="Vista tarjetas"
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </Button>
+              </div>
               {isAdmin && (
                 <>
                   <Button
@@ -118,17 +145,27 @@ export function PropertiesPage() {
           />
         </div>
 
-        <PropertiesTable
-          properties={properties}
-          total={total}
-          isLoading={isLoading}
-          page={page}
-          limit={limit}
-          onPageChange={handlePageChange}
-          onEdit={setEditTarget}
-          onView={setViewTarget}
-          onDeleted={removeProperty}
-        />
+        {viewMode === 'grid' ? (
+          <PropertyGrid
+            properties={properties}
+            onView={setViewTarget}
+            onEdit={setEditTarget}
+            onReserve={setReserveTarget}
+          />
+        ) : (
+          <PropertiesTable
+            properties={properties}
+            total={total}
+            isLoading={isLoading}
+            page={page}
+            limit={limit}
+            onPageChange={handlePageChange}
+            onEdit={setEditTarget}
+            onView={setViewTarget}
+            onDeleted={removeProperty}
+            onReserve={setReserveTarget}
+          />
+        )}
       </div>
 
       {/* Side panel */}
@@ -165,6 +202,19 @@ export function PropertiesPage() {
         }}
         brokerIdOverride={filters.broker_id ?? undefined}
       />
+
+      {/* Reserve modal */}
+      {reserveTarget && (
+        <ReservePropertyModal
+          property={reserveTarget}
+          open={!!reserveTarget}
+          onOpenChange={(open) => !open && setReserveTarget(null)}
+          onSuccess={() => {
+            refetch()
+            setReserveTarget(null)
+          }}
+        />
+      )}
     </div>
   )
 }

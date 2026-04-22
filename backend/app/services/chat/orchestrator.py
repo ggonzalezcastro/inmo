@@ -54,6 +54,11 @@ class ChatOrchestratorService:
         lead_id: Optional[int] = None,
         provider_name: str = "webchat",
         skip_inbound_log: bool = False,
+        # File attachment — populated by Telegram/WhatsApp callers when the
+        # incoming message contains a photo, document, or other media.
+        attachment_bytes: Optional[bytes] = None,
+        attachment_filename: Optional[str] = None,
+        attachment_mime_type: Optional[str] = None,
     ) -> ChatResult:
         """
         Process one chat message: get/create lead, analyze, update score/metadata,
@@ -90,6 +95,38 @@ class ChatOrchestratorService:
             lead = await LeadService.create_lead(db, lead_data, broker_id=broker_id)
         current_lead_id = lead.id
         logger.info("[Orchestrator] Step 1 done — lead_id=%s stage=%s", lead.id, lead.pipeline_stage)
+
+        # 1b-ai: Process file attachment if present (fire-and-forget, non-blocking).
+        # Telegram/WhatsApp callers pass attachment_bytes when the message includes
+        # a photo or document.  We process it here — after lead resolution but before
+        # the advisory lock — so document intake doesn't interfere with the AI flow.
+        if attachment_bytes and attachment_filename and broker_id:
+            try:
+                from app.models.broker import BrokerLeadConfig as _BrokerLeadConfig
+                from sqlalchemy.future import select as _sel_blc
+                from app.services.deals.intake import process_ai_file_attachment
+
+                _blc_res = await db.execute(
+                    _sel_blc(_BrokerLeadConfig).where(_BrokerLeadConfig.broker_id == broker_id)
+                )
+                _broker_lead_cfg = _blc_res.scalar_one_or_none()
+                await process_ai_file_attachment(
+                    db=db,
+                    broker_id=broker_id,
+                    lead_id=current_lead_id,
+                    file_bytes=attachment_bytes,
+                    filename=attachment_filename,
+                    mime_type=attachment_mime_type or "application/octet-stream",
+                    broker_lead_config=_broker_lead_cfg,
+                )
+                await db.commit()
+            except Exception as _intake_exc:
+                logger.warning("[Orchestrator] AI file intake error (non-fatal): %s", _intake_exc)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+
 
         # G7: Acquire a session-level PostgreSQL advisory lock to serialize concurrent
         # message processing for the same lead.  Use pg_try_advisory_lock to avoid

@@ -41,6 +41,50 @@ logger = logging.getLogger(__name__)
 
 _MAX_HANDOFFS = 3  # safety guard against routing loops
 
+# Keys persisted internally by the supervisor/agents — not useful in context snapshots.
+_INTERNAL_CTX_KEYS = frozenset({
+    "_handoff_reason", "_handoff_from", "_handoff_at", "_last_consumed_handoff_at",
+    "_zero_results_handoff", "_property_transition_said", "_no_stock_for",
+    "_custom_qualifier_prompt", "_custom_scheduler_prompt",
+    "_custom_follow_up_prompt", "_custom_property_prompt",
+    "_skill_qualifier_extension", "_skill_scheduler_extension",
+    "_skill_follow_up_extension", "_skill_property_extension",
+})
+
+
+def _ctx_snapshot(context: "AgentContext") -> Dict[str, Any]:
+    """Extract observable AgentContext fields for logging."""
+    _PLACEHOLDER_PHONES = frozenset({"web_chat_pending", "whatsapp_pending"})
+    phone = context.lead_data.get("phone", "") or ""
+    phone_clean = (
+        phone
+        if phone and str(phone) not in _PLACEHOLDER_PHONES
+        and not str(phone).startswith(("web_chat_", "whatsapp_"))
+        else None
+    )
+    known = {
+        k: v for k, v in {
+            "name": context.lead_data.get("name"),
+            "phone": phone_clean,
+            "email": context.lead_data.get("email"),
+            "location": context.lead_data.get("location"),
+            "salary": context.lead_data.get("salary"),
+            "dicom_status": context.lead_data.get("dicom_status"),
+        }.items() if v is not None
+    }
+    snap: Dict[str, Any] = {
+        "stage": context.pipeline_stage,
+        "current_agent": context.current_agent.value if context.current_agent else None,
+        "intent": (context.pre_analysis or {}).get("intent"),
+        "known": known,
+    }
+    if context.property_preferences:
+        snap["property_preferences"] = context.property_preferences
+    pi = context.lead_data.get("property_interest")
+    if pi:
+        snap["property_interest"] = pi
+    return snap
+
 # Deterministic stage → agent mapping.
 # Agents exit their own stage via handoff tool calls; the supervisor uses this
 # table only for initial routing (first message) and when no current_agent is set.
@@ -168,6 +212,7 @@ class AgentSupervisor:
             )
 
             logger.info("[Supervisor] Calling agent.process: %s", agent.name)
+            _snap_before = _ctx_snapshot(current_context)
             # G2: catch exceptions from agent.process() so a single agent failure
             # doesn't crash the entire request — return a graceful error response.
             try:
@@ -193,6 +238,29 @@ class AgentSupervisor:
             logger.info(
                 "[Supervisor] agent.process done: %s — response=%r",
                 agent.name, (response.message or "")[:80],
+            )
+
+            # Log context snapshot for observability timeline
+            _public_updates = {
+                k: v for k, v in (response.context_updates or {}).items()
+                if k not in _INTERNAL_CTX_KEYS
+            }
+            _handoff_snap = None
+            if response.handoff:
+                _handoff_snap = {
+                    "to": response.handoff.target_agent.value,
+                    "reason": response.handoff.reason,
+                }
+            await event_logger.log_context_snapshot(
+                lead_id=context.lead_id,
+                broker_id=context.broker_id,
+                agent_type=agent.agent_type.value,
+                hop=hops,
+                context_before=_snap_before,
+                context_updates=_public_updates,
+                handoff=_handoff_snap,
+                message_id=message_id,
+                conversation_id=conversation_id,
             )
 
             # H5: accumulate context_updates from every hop

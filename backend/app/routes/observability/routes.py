@@ -440,6 +440,20 @@ def _build_timeline(events, include_prompts: bool = False) -> List[Dict]:
                 "reason": m.get("reason"),
             })
 
+        elif ev.event_type == "context_update":
+            m = ev.event_metadata or {}
+            item: Dict[str, Any] = {
+                **base,
+                "type": "context_update",
+                "agent": ev.agent_type,
+                "hop": m.get("hop", 0),
+                "context_before": m.get("context_before", {}),
+                "context_updates": m.get("context_updates", {}),
+            }
+            if m.get("handoff"):
+                item["handoff"] = m["handoff"]
+            items.append(item)
+
         # skip: appointment_created, property_search, llm_response, tool_result
         # (they're covered by the events above or not useful in the UI)
 

@@ -127,6 +127,12 @@ class Lead(Base, IdMixin, TimestampMixin):
     assigned_agent = relationship("User", foreign_keys=[assigned_to])
     human_agent = relationship("User", foreign_keys=[human_assigned_to])
     broker = relationship("Broker", foreign_keys=[broker_id])
+    deals = relationship(
+        "Deal",
+        back_populates="lead",
+        cascade="save-update, merge",
+        passive_deletes=True,
+    )
     
     # Indices
     __table_args__ = (

@@ -5,6 +5,8 @@ import { Menu } from 'lucide-react'
 import { Sidebar } from './Sidebar'
 import { ImpersonationBanner } from './ImpersonationBanner'
 import { useWebSocketEvent } from '@/shared/context/WebSocketContext'
+import { useAuthStore } from '@/features/auth'
+import { useDealsLive } from '@/features/deals/hooks/useDealsLive'
 
 function GlobalAlerts() {
   const navigate = useNavigate()
@@ -48,6 +50,8 @@ function GlobalAlerts() {
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const user = useAuthStore((s) => s.user)
+  useDealsLive(user?.broker_id)
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">

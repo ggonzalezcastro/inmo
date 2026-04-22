@@ -20,6 +20,7 @@ import {
   Cpu,
   ShieldCheck,
   Activity,
+  Handshake,
 } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
 import { useAuthStore } from '@/features/auth'
@@ -42,13 +43,16 @@ interface NavItem {
   dividerBefore?: boolean
 }
 
+interface NavGroup {
+  label?: string
+  items: NavItem[]
+}
+
 const NAV_ITEMS: NavItem[] = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/leads', label: 'Leads', icon: Users },
   { path: '/pipeline', label: 'Pipeline', icon: GitBranch, excludeRoles: ['superadmin'] },
-  { path: '/projects', label: 'Inventario', icon: Building2, roles: ['admin', 'superadmin'] },
   { path: '/conversations', label: 'Conversaciones', icon: Inbox, excludeRoles: ['superadmin'] },
-  { path: '/campaigns', label: 'Campañas', icon: Megaphone, roles: ['admin'] },
   { path: '/appointments', label: 'Citas', icon: Calendar, excludeRoles: ['superadmin'] },
   { path: '/chat', label: 'Chat IA', icon: MessageSquare, excludeRoles: ['superadmin'] },
   { path: '/costs', label: 'Costos LLM', icon: DollarSign, roles: ['admin', 'superadmin'] },
@@ -57,6 +61,12 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/brokers', label: 'Brokers', icon: Building2, roles: ['superadmin'], dividerBefore: true },
   { path: '/super-admin', label: 'Super Admin', icon: ShieldCheck, roles: ['superadmin'] },
   { path: '/admin/observability', label: 'Observabilidad', icon: Activity, roles: ['superadmin', 'admin'] },
+]
+
+const VENTAS_ITEMS: NavItem[] = [
+  { path: '/projects', label: 'Inventario', icon: Building2, roles: ['admin', 'superadmin'] },
+  { path: '/negocios', label: 'Negocios', icon: Handshake, roles: ['admin', 'superadmin'] },
+  { path: '/campaigns', label: 'Campañas', icon: Megaphone, roles: ['admin', 'superadmin'] },
 ]
 
 const STATUS_COLORS: Record<SofiaStatus, { dot: string; bg: string; text: string; detail: string }> = {
@@ -75,6 +85,11 @@ export function Sidebar({ collapsed, onToggle, onMobileClose }: SidebarProps) {
 
   const visibleItems = NAV_ITEMS.filter((item) => {
     if (item.excludeRoles && role && item.excludeRoles.includes(role as 'admin' | 'agent' | 'superadmin')) return false
+    if (!item.roles) return true
+    return role && item.roles.includes(role as 'admin' | 'agent' | 'superadmin')
+  })
+
+  const visibleVentasItems = VENTAS_ITEMS.filter((item) => {
     if (!item.roles) return true
     return role && item.roles.includes(role as 'admin' | 'agent' | 'superadmin')
   })
@@ -151,6 +166,45 @@ export function Sidebar({ collapsed, onToggle, onMobileClose }: SidebarProps) {
             </NavLink>
           </div>
         ))}
+
+        {/* Ventas group */}
+        {visibleVentasItems.length > 0 && (
+          <>
+            <div className={cn('h-px bg-[#E2EAF4] my-2', collapsed ? '' : 'mx-1')} />
+            {!collapsed && (
+              <span className="px-3 text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                Ventas
+              </span>
+            )}
+            {visibleVentasItems.map((item) => (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                title={collapsed ? item.label : undefined}
+                onClick={onMobileClose}
+                className={({ isActive }) =>
+                  cn(
+                    'flex items-center rounded-lg text-[13px] font-medium transition-all',
+                    collapsed ? 'justify-center h-9 w-9 mx-auto' : 'gap-[10px] h-[36px] px-3',
+                    isActive
+                      ? 'bg-[#EBF2FF] text-[#1A56DB] font-semibold'
+                      : 'text-[#6B7280] hover:bg-[#F5F8FF] hover:text-[#374151]'
+                  )
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <item.icon
+                      size={15}
+                      className={cn('shrink-0 transition-colors', isActive ? 'text-[#1A56DB]' : 'text-[#9CA3AF]')}
+                    />
+                    {!collapsed && <span>{item.label}</span>}
+                  </>
+                )}
+              </NavLink>
+            ))}
+          </>
+        )}
       </nav>
 
       {/* Bottom section */}

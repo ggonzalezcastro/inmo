@@ -10,12 +10,14 @@ import {
 } from '@/shared/components/ui/dropdown-menu'
 import { Button } from '@/shared/components/ui/button'
 import type { Lead, PipelineStage } from '@/features/leads/types'
+import type { IncomeTier } from '@/features/settings/services/settings.service'
 
 interface KanbanColumnProps {
   stage: PipelineStage
   leads: Lead[]
   inactiveIds: Set<number>
   isLoading: boolean
+  incomeTiers?: IncomeTier[]
   onMoveStage: (lead: Lead, stage: string) => void
   onSelectLead: (lead: Lead) => void
 }
@@ -25,6 +27,7 @@ export function KanbanColumn({
   leads,
   inactiveIds,
   isLoading,
+  incomeTiers,
   onMoveStage,
   onSelectLead,
 }: KanbanColumnProps) {
@@ -59,6 +62,7 @@ export function KanbanColumn({
               <KanbanCard
                 lead={lead}
                 isInactive={inactiveIds.has(lead.id)}
+                incomeTiers={incomeTiers}
                 onClick={() => onSelectLead(lead)}
               />
               {/* Move stage button — visible on hover, doesn't trigger card click */}

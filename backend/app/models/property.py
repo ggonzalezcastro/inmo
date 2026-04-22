@@ -137,6 +137,12 @@ class Property(Base, IdMixin, TimestampMixin):
     project = relationship(
         "Project", foreign_keys=[project_id], back_populates="properties"
     )
+    deals = relationship(
+        "Deal",
+        back_populates="property",
+        cascade="save-update, merge",
+        passive_deletes=True,
+    )
 
     __table_args__ = (
         Index(

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { type ColumnDef } from '@tanstack/react-table'
-import { MoreHorizontal, Pencil, Trash2, Eye } from 'lucide-react'
+import { MoreHorizontal, Pencil, Trash2, Eye, BookmarkPlus } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
@@ -27,6 +27,7 @@ interface PropertiesTableProps {
   onEdit: (property: Property) => void
   onView: (property: Property) => void
   onDeleted: (id: number) => void
+  onReserve?: (property: Property) => void
 }
 
 const STATUS_CONFIG: Record<PropertyStatus, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive'; className: string }> = {
@@ -63,6 +64,7 @@ export function PropertiesTable({
   onEdit,
   onView,
   onDeleted,
+  onReserve,
 }: PropertiesTableProps) {
   const [deleteTarget, setDeleteTarget] = useState<Property | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -174,6 +176,15 @@ export function PropertiesTable({
                 <Pencil className="mr-2 h-3.5 w-3.5" />
                 Editar
               </DropdownMenuItem>
+              {onReserve && p.status === 'available' && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => onReserve(p)} className="text-blue-700 focus:text-blue-700">
+                    <BookmarkPlus className="mr-2 h-3.5 w-3.5" />
+                    Reservar
+                  </DropdownMenuItem>
+                </>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => setDeleteTarget(p)}

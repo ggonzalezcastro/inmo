@@ -81,6 +81,9 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./backend/app:/app/app
+      - deal_docs_data:/data/deals
     develop:
       watch:
         - action: sync
@@ -132,6 +135,10 @@ services:
       - MCP_SERVER_URL=http://mcp-server:8001
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:5173}
       - WEBHOOK_BASE_URL=${WEBHOOK_BASE_URL:-http://localhost:8000}
+      # File storage — local volume for dev; set STORAGE_DRIVER=railway_volume + mount /data in prod
+      - STORAGE_DRIVER=local
+      - STORAGE_LOCAL_PATH=/data/deals
+      - STORAGE_SIGNING_SECRET=${SECRET_KEY}
       - SEMANTIC_CACHE_ENABLED=${SEMANTIC_CACHE_ENABLED:-true}
       - SEMANTIC_CACHE_THRESHOLD=${SEMANTIC_CACHE_THRESHOLD:-0.92}
       - VOICE_PROVIDER=${VOICE_PROVIDER:-vapi}
@@ -250,4 +257,5 @@ services:
 volumes:
   postgres_data:
   redis_data_v2:
+  deal_docs_data:
 

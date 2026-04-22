@@ -88,3 +88,11 @@ pytz==2023.3
 
 # Error monitoring
 sentry-sdk[fastapi]>=2.0.0
+
+# Observability
+prometheus_client>=0.20.0
+
+# File storage
+aiofiles>=23.2.1
+python-magic-bin>=0.4.14; sys_platform == "win32"
+python-magic>=0.4.27; sys_platform != "win32"

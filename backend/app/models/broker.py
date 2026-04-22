@@ -155,6 +155,9 @@ class BrokerLeadConfig(Base, IdMixin, TimestampMixin):
     # Configuración del score por tramos de sueldo y DICOM (ver migración add_scoring_config)
     scoring_config = Column(JSONB, nullable=True)
     
+    # AI document upload permission
+    ai_can_upload_deal_files = Column(Boolean, nullable=False, default=False, server_default="false")
+
     # Alertas
     alert_on_hot_lead = Column(Boolean, default=True, nullable=False)
     alert_score_threshold = Column(Integer, default=70, nullable=False)

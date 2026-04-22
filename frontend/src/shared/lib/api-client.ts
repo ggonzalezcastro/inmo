@@ -63,4 +63,13 @@ export const apiClient = {
       .post<T>(url, formData, { headers: { 'Content-Type': 'multipart/form-data' } })
       .then(extractData)
   },
+  /** Fetch a URL as a Blob (auth header included). Use for file previews. */
+  fetchBlob(url: string): Promise<{ blob: Blob; contentType: string }> {
+    return instance
+      .get<Blob>(url, { responseType: 'blob' })
+      .then((res) => ({
+        blob: res.data,
+        contentType: res.headers['content-type'] as string ?? '',
+      }))
+  },
 }

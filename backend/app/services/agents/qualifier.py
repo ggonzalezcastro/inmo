@@ -168,6 +168,20 @@ class QualifierAgent(BaseAgent):
                     "Ejemplo: '¿En qué te puedo ayudar? ¿Estás buscando alguna propiedad?'"
                 )
             else:
+                # If lead already chose a specific property, location is resolved — don't re-ask.
+                _property_interest = _merged.get("property_interest") or {}
+                _has_specific_property = bool(_property_interest.get("property_id") or _property_interest.get("property_name"))
+
+                if _has_specific_property:
+                    _pname = _property_interest.get("property_name", "la propiedad seleccionada")
+                    _pcommune = _property_interest.get("commune", "")
+                    base_prompt += (
+                        f"\n\n## PROPIEDAD YA SELECCIONADA\n"
+                        f"El lead ya eligió: **{_pname}**{f' en {_pcommune}' if _pcommune else ''}.\n"
+                        "NO preguntes por ubicación ni zona — ya está definida.\n"
+                        "Enfócate en completar los datos financieros (renta, DICOM) para calificar al lead."
+                    )
+
                 pending_fields = []
                 if not _merged.get("name"):
                     pending_fields.append("nombre completo")
@@ -175,7 +189,7 @@ class QualifierAgent(BaseAgent):
                     pending_fields.append("teléfono")
                 if not _merged.get("email"):
                     pending_fields.append("email")
-                if not _merged.get("location"):
+                if not _merged.get("location") and not _has_specific_property:
                     pending_fields.append("ubicación (comuna/sector)")
                 if not (_merged.get("salary") or _merged.get("budget")):
                     pending_fields.append("renta mensual")

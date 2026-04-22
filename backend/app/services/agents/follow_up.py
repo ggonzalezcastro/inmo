@@ -101,6 +101,24 @@ class FollowUpAgent(BaseAgent):
                 "es proponer una fecha concreta para la reunión con un asesor. Sé directo/a y entusiasta."
             )
 
+        # Inject confirmed appointment details so the LLM shows the Meet link directly.
+        confirmed_apt = lead_data.get("confirmed_appointment") or {}
+        if confirmed_apt.get("meet_url"):
+            apt_start = confirmed_apt.get("start_time", "próximamente")
+            apt_meet = confirmed_apt["meet_url"]
+            apt_agent = confirmed_apt.get("agent_name") or "tu ejecutiva"
+            lead_email = lead_data.get("email") or ""
+            base_prompt += (
+                f"\n\n## CITA CONFIRMADA\n"
+                f"📅 Fecha/hora: {apt_start}\n"
+                f"📹 Link Google Meet: {apt_meet}\n"
+                f"👤 Ejecutivo/a: {apt_agent}\n"
+                f"{'📩 Email del lead: ' + lead_email if lead_email else ''}\n\n"
+                "INSTRUCCIÓN CRÍTICA: Muestra el link de Google Meet DIRECTAMENTE en tu mensaje. "
+                "NUNCA digas 'te llegará el link' ni 'recibirás la invitación' — el lead necesita el link ahora. "
+                "Formato: '📹 Link Meet: [URL]'"
+            )
+
         base_prompt += (
             "\n\n## HERRAMIENTAS DE TRASPASO\n"
             "- handoff_to_scheduler: Úsala si el lead quiere reagendar o agendar una nueva cita."

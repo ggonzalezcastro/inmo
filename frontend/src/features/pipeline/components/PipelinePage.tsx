@@ -5,6 +5,8 @@ import { Button } from '@/shared/components/ui/button'
 import { PageHeader } from '@/shared/components/common/PageHeader'
 import { PIPELINE_STAGES } from '@/shared/lib/constants'
 import { pipelineService } from '../services/pipeline.service'
+import { settingsService, DEFAULT_SCORING_CONFIG } from '@/features/settings/services/settings.service'
+import type { IncomeTier } from '@/features/settings/services/settings.service'
 import { KanbanColumn } from './KanbanColumn'
 import { LeadDrawer } from './LeadDrawer'
 import { CloseReasonDialog } from './CloseReasonDialog'
@@ -41,6 +43,7 @@ function filtersToParams(f: PipelineFilterValues): Record<string, unknown> {
 export function PipelinePage() {
   const [leadsByStage, setLeadsByStage] = useState<LeadsByStage>({})
   const [inactiveIds, setInactiveIds] = useState<Set<number>>(new Set())
+  const [incomeTiers, setIncomeTiers] = useState<IncomeTier[]>(DEFAULT_SCORING_CONFIG.income_tiers)
   const [isLoading, setIsLoading] = useState(true)
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [pendingClose, setPendingClose] = useState<PendingMove | null>(null)
@@ -89,6 +92,14 @@ export function PipelinePage() {
   useEffect(() => {
     fetchAllStages(debouncedFilters)
   }, [debouncedFilters]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    settingsService.getConfig().then((cfg) => {
+      if (cfg.scoring_config?.income_tiers?.length) {
+        setIncomeTiers(cfg.scoring_config.income_tiers)
+      }
+    }).catch(() => { /* fallback to DEFAULT_SCORING_CONFIG already set */ })
+  }, [])
 
   const executeMove = useCallback(async (
     lead: Lead,
@@ -167,6 +178,7 @@ export function PipelinePage() {
               leads={leadsByStage[s.key] ?? []}
               inactiveIds={inactiveIds}
               isLoading={isLoading}
+              incomeTiers={incomeTiers}
               onMoveStage={handleMoveStage}
               onSelectLead={setSelectedLead}
             />

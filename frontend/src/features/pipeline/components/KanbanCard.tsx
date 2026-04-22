@@ -1,25 +1,45 @@
 import { useState } from 'react'
-import { Clock, User, Bot, AlertTriangle, CalendarCheck } from 'lucide-react'
+import { Clock, User, Bot, AlertTriangle, CalendarCheck, CheckCircle2 } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
 import { StatusBadge } from '@/shared/components/common/StatusBadge'
 import { ScoreBadge } from '@/shared/components/common/ScoreBadge'
 import { QualificationBadge } from '@/shared/components/common/QualificationBadge'
 import { formatRelativeTime } from '@/shared/lib/utils'
 import type { Lead } from '@/features/leads/types'
+import type { IncomeTier } from '@/features/settings/services/settings.service'
 import { conversationService } from '@/features/conversations/services/conversation.service'
 
 interface KanbanCardProps {
   lead: Lead
   isInactive?: boolean
+  incomeTiers?: IncomeTier[]
   onClick?: () => void
 }
 
-export function KanbanCard({ lead, isInactive, onClick }: KanbanCardProps) {
+function getIncomeTierLabel(income: number | undefined, tiers: IncomeTier[]): string | null {
+  if (!income || !tiers.length) return null
+  const sorted = [...tiers].sort((a, b) => b.min - a.min)
+  for (const tier of sorted) {
+    if (income >= tier.min && tier.points > 0) return tier.label
+  }
+  return null
+}
+
+export function KanbanCard({ lead, isInactive, incomeTiers, onClick }: KanbanCardProps) {
   // Pipeline API returns "metadata", leads API returns "lead_metadata" — handle both
   const meta = (lead as any).metadata ?? lead.lead_metadata ?? {}
   const isHotFastTrack = Boolean(meta.hot_fast_track)
   const isFrustrated = Boolean(meta.sentiment?.escalated)
   const [humanMode, setHumanMode] = useState(Boolean(meta.human_mode))
+
+  const highlights: string[] = []
+  if (meta.dicom_status === 'clean') highlights.push('Sin DICOM')
+  if (meta.response_metrics?.is_fast_responder === true) highlights.push('Responde rápido')
+  const tierLabel = incomeTiers ? getIncomeTierLabel(meta.monthly_income, incomeTiers) : null
+  if (tierLabel) highlights.push(tierLabel)
+  const showHighlights =
+    highlights.length > 0 &&
+    (meta.calificacion === 'CALIFICADO' || (lead.lead_score ?? 0) >= 65)
   const [toggling, setToggling] = useState(false)
 
   async function handleToggle(e: React.MouseEvent) {
@@ -107,6 +127,20 @@ export function KanbanCard({ lead, isInactive, onClick }: KanbanCardProps) {
           </span>
         )}
       </div>
+
+      {/* Qualification highlights */}
+      {showHighlights && (
+        <div className="flex flex-wrap gap-1">
+          {highlights.map((h) => (
+            <span
+              key={h}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"
+            >
+              <CheckCircle2 className="h-2.5 w-2.5" /> {h}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Next appointment badge for agendado leads */}
       {lead.next_appointment && (lead.next_appointment.status === 'scheduled' || lead.next_appointment.status === 'confirmed') && (

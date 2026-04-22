@@ -18,6 +18,7 @@ import { usePermissions } from '@/shared/hooks/usePermissions'
 import type { Lead } from '../types'
 import { useVapiCall, StartCallDialog, ActiveCallOverlay } from '@/features/voice'
 import type { CallMode, CallPurpose } from '@/features/voice'
+import { DealPanel } from '@/features/deals/components/DealPanel'
 
 interface LeadDetailProps {
   lead: Lead

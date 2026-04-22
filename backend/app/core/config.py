@@ -172,6 +172,14 @@ class Settings(BaseSettings):
     SENTRY_ORG: str = os.getenv("SENTRY_ORG", "")
     SENTRY_PROJECT: str = os.getenv("SENTRY_PROJECT", "")
 
+    # Storage
+    STORAGE_DRIVER: str = "railway_volume"  # "railway_volume" | "local" | "s3" (future)
+    STORAGE_VOLUME_PATH: str = "/data/deals"
+    STORAGE_LOCAL_PATH: str = "./.local-storage"  # only for driver=local
+    STORAGE_SIGNING_SECRET: str = ""  # HMAC secret; falls back to SECRET_KEY if empty
+    STORAGE_PRESIGN_TTL_SEC: int = 600
+    STORAGE_MAX_FILE_MB: int = 15
+
     # Environment
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")

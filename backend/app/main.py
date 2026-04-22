@@ -8,10 +8,17 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 import logging
 
+from pathlib import Path
+
 from app.core.logging_config import setup_logging
 from app.core.telemetry import setup_tracing
 from app.database import init_db, close_db
 from app.config import settings
+
+
+def _ensure_storage_dir():
+    path = Path(settings.STORAGE_VOLUME_PATH if settings.STORAGE_DRIVER == "railway_volume" else settings.STORAGE_LOCAL_PATH)
+    path.mkdir(parents=True, exist_ok=True)
 
 # ── Logging must be configured before any other module logs anything ──────────
 _log_level = "DEBUG" if settings.DEBUG else ("ERROR" if settings.ENVIRONMENT == "production" else "INFO")
@@ -47,6 +54,10 @@ from app.routes.observability.routes import router as observability_router
 from app.routes.observability.health import health_router as observability_health_router
 from app.routes.observability.live_tail import live_router as observability_live_router
 from app.routes.agent_model_configs import router as agent_model_configs_router
+from app.features.deals.routes_meta import router as deals_meta_router
+from app.features.deals.routes import router as deals_router
+from app.features.deals.routes_documents import router as deal_documents_router
+from app.features.files.routes import router as files_router
 from app.celery_app import celery_app
 
 
@@ -76,6 +87,7 @@ if settings.SENTRY_DSN:
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting up application...")
+    _ensure_storage_dir()
     await init_db()
 
     # Validate voice provider credentials (non-blocking — only warns on failure)
@@ -377,6 +389,10 @@ app.include_router(observability_router, prefix="/api/v1/admin", tags=["observab
 app.include_router(observability_health_router, prefix="/api/v1/admin", tags=["observability"])
 app.include_router(observability_live_router)  # WS route — no prefix needed
 app.include_router(agent_model_configs_router, prefix="/api/v1/admin/agent-models", tags=["agent-model-configs"])
+app.include_router(deals_meta_router)
+app.include_router(deals_router)
+app.include_router(deal_documents_router)
+app.include_router(files_router)
 
 
 if __name__ == "__main__":

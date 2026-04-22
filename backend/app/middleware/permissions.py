@@ -61,6 +61,19 @@ class Permissions:
         return True
     
     @staticmethod
+    async def require_write_access(
+        current_user: dict = Depends(get_current_user)
+    ) -> dict:
+        """Require write-capable role (SUPERADMIN, ADMIN, AGENT). Denies read-only roles."""
+        role = current_user.get("role", "").upper()
+        if role not in ["SUPERADMIN", "ADMIN", "AGENT"]:
+            raise HTTPException(
+                status_code=403,
+                detail="Permiso insuficiente para esta acción."
+            )
+        return current_user
+
+    @staticmethod
     async def get_user_broker_id(
         current_user: dict = Depends(get_current_user)
     ) -> Optional[int]:

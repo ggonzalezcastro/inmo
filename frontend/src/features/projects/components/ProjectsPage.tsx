@@ -17,8 +17,9 @@ import {
 } from './ProjectAccordionRow'
 import { ProjectFormDialog } from './ProjectFormDialog'
 import { PropertyFormDialog } from '@/features/properties/components/PropertyFormDialog'
+import { ReservePropertyModal } from '@/features/properties/components/ReservePropertyModal'
 import { ORPHAN_PROJECT_ID } from '../hooks/useProjectUnits'
-import type { Project } from '../types'
+import type { Project, ProjectUnitSummary } from '../types'
 import type { Property } from '@/features/properties/types'
 
 export function ProjectsPage() {
@@ -39,6 +40,8 @@ export function ProjectsPage() {
   const [propertyDialogOpen, setPropertyDialogOpen] = useState(false)
   const [editProperty, setEditProperty] = useState<Property | null>(null)
   const [pendingProjectId, setPendingProjectId] = useState<number | null>(null)
+
+  const [reserveUnit, setReserveUnit] = useState<ProjectUnitSummary | null>(null)
 
   const [isGenerating, setIsGenerating] = useState(false)
 
@@ -184,6 +187,7 @@ export function ProjectsPage() {
                 onEditProject={setEditProject}
                 onDeleteProject={handleDeleteProject}
                 onEditUnit={handleEditUnit}
+                onReserveUnit={setReserveUnit}
               />
             ))}
             {orphanUnits && orphanUnits.units_count > 0 && (
@@ -194,6 +198,7 @@ export function ProjectsPage() {
                 brokerIdOverride={filters.broker_id ?? undefined}
                 onAddUnit={handleAddUnit}
                 onEditUnit={handleEditUnit}
+                onReserveUnit={setReserveUnit}
               />
             )}
           </div>
@@ -248,6 +253,19 @@ export function ProjectsPage() {
           refetch()
         }}
       />
+      {/* Reserve unit modal */}
+      {reserveUnit && (
+        <ReservePropertyModal
+          property={{ ...reserveUnit, status: reserveUnit.status as 'available' } as unknown as Property}
+          open={!!reserveUnit}
+          onOpenChange={(open) => !open && setReserveUnit(null)}
+          onSuccess={() => {
+            // Invalidate units cache so status badge updates
+            refetch()
+            setReserveUnit(null)
+          }}
+        />
+      )}
     </div>
   )
 }

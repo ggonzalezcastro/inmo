@@ -55,6 +55,11 @@ celery_app.conf.beat_schedule = {
         "task": "observability.evaluate_alerts",
         "schedule": crontab(minute="*/5"),
     },
+    # ── Deal file retention: purge files from deals cancelled >180 days ago ─
+    "cleanup-cancelled-deal-files": {
+        "task": "app.tasks.deal_cleanup_tasks.cleanup_cancelled_deal_files",
+        "schedule": crontab(hour=2, minute=0),  # 2 AM UTC daily
+    },
 }
 
 

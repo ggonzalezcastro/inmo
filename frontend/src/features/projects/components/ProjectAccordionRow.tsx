@@ -4,7 +4,7 @@ import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
 import { useProjectUnits, ORPHAN_PROJECT_ID } from '../hooks/useProjectUnits'
 import { ProjectUnitsTable } from './ProjectUnitsTable'
-import type { Project, OrphanUnitsAggregate } from '../types'
+import type { Project, OrphanUnitsAggregate, ProjectUnitSummary } from '../types'
 
 const STATUS_CONFIG: Record<
   string,
@@ -26,6 +26,7 @@ interface BaseProps {
   onEditProject?: (project: Project) => void
   onDeleteProject?: (project: Project) => void
   onEditUnit: (unitId: number) => void
+  onReserveUnit?: (unit: ProjectUnitSummary) => void
 }
 
 interface ProjectRowProps extends BaseProps {
@@ -56,6 +57,7 @@ export function ProjectAccordionRow({
   onEditProject,
   onDeleteProject,
   onEditUnit,
+  onReserveUnit,
 }: ProjectRowProps) {
   const { units, isLoading, load } = useProjectUnits(project.id, brokerIdOverride)
   const cfg = STATUS_CONFIG[project.status] ?? { label: project.status, className: 'bg-slate-100' }
@@ -155,7 +157,7 @@ export function ProjectAccordionRow({
                 Cargando unidades…
               </div>
             ) : (
-              <ProjectUnitsTable units={units ?? []} onEditUnit={onEditUnit} />
+              <ProjectUnitsTable units={units ?? []} onEditUnit={onEditUnit} onReserveUnit={onReserveUnit} />
             )}
           </div>
         </div>
@@ -171,6 +173,7 @@ export function OrphanUnitsAccordionRow({
   brokerIdOverride,
   onAddUnit,
   onEditUnit,
+  onReserveUnit,
 }: OrphanRowProps) {
   const { units, isLoading, load } = useProjectUnits(ORPHAN_PROJECT_ID, brokerIdOverride)
 
@@ -231,7 +234,7 @@ export function OrphanUnitsAccordionRow({
                 Cargando…
               </div>
             ) : (
-              <ProjectUnitsTable units={units ?? []} onEditUnit={onEditUnit} />
+              <ProjectUnitsTable units={units ?? []} onEditUnit={onEditUnit} onReserveUnit={onReserveUnit} />
             )}
           </div>
         </div>

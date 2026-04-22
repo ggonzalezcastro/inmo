@@ -58,6 +58,8 @@ from app.models.conversation import Conversation
 from app.models.escalation_brief import EscalationBrief
 from app.models.observability_alert import ObservabilityAlert
 from app.models.agent_model_config import AgentModelConfig
+from app.models.deal import Deal, DEAL_STAGES, DELIVERY_TYPES
+from app.models.deal_document import DealDocument, DOCUMENT_STATUSES
 
 __all__ = [
     "Base",
@@ -115,5 +117,10 @@ __all__ = [
     "AgentVoiceTemplate",
     "AgentVoiceProfile",
     "CallPurpose",
+    "Deal",
+    "DEAL_STAGES",
+    "DELIVERY_TYPES",
+    "DealDocument",
+    "DOCUMENT_STATUSES",
 ]
 

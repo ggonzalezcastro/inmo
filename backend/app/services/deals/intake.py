@@ -102,8 +102,8 @@ def _infer_slot_from_filename(filename: str, mime_type: str) -> str:
     filename_lower = filename.lower()
 
     hints = {
-        "ci_anverso": ["cedula", "cédula", "dni", " ci ", "ci_", "_ci", "anverso"],
         "ci_reverso": ["reverso"],
+        "ci_anverso": ["cedula", "cédula", "dni", " ci ", "ci_", "_ci", "anverso"],
         "cmf_deuda": ["cmf", "deuda_cmf", "boletin_cmf"],
         "liquidacion_sueldo": ["liquidacion", "liquidación", "sueldo", "remuneracion"],
         "afp_cotizaciones": ["afp", "cotizacion", "cotización"],

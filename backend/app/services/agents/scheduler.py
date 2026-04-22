@@ -377,6 +377,13 @@ class SchedulerAgent(BaseAgent):
         if _handoff_intent.get("target"):
             self._log("Tool-based handoff → follow_up", lead_id=context.lead_id)
             updates["appointment_pending"] = True
+            # Pass appointment details so FollowUpAgent can show the Meet link directly.
+            if _last_appointment_result:
+                updates["confirmed_appointment"] = {
+                    "start_time": _last_appointment_result.get("start_time"),
+                    "meet_url": _last_appointment_result.get("meet_url"),
+                    "agent_name": _last_appointment_result.get("agent_name"),
+                }
             handoff = HandoffSignal(
                 target_agent=_handoff_intent["target"],
                 reason=_handoff_intent["reason"],

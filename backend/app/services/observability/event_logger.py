@@ -373,6 +373,33 @@ class AgentEventLogger:
             },
         )
 
+    async def log_context_snapshot(
+        self,
+        lead_id: int,
+        broker_id: int,
+        agent_type: str,
+        hop: int,
+        context_before: Dict[str, Any],
+        context_updates: Dict[str, Any],
+        handoff: Optional[Dict[str, Any]] = None,
+        message_id: Optional[int] = None,
+        conversation_id: Optional[int] = None,
+    ) -> None:
+        await self._log(
+            event_type="context_update",
+            lead_id=lead_id,
+            broker_id=broker_id,
+            agent_type=agent_type,
+            message_id=message_id,
+            conversation_id=conversation_id,
+            event_metadata={
+                "hop": hop,
+                "context_before": context_before,
+                "context_updates": context_updates,
+                "handoff": handoff,
+            },
+        )
+
     # ── Internal ──────────────────────────────────────────────────────────────
 
     async def _log(self, event_type: str, **kwargs: Any) -> None:

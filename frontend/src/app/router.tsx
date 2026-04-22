@@ -66,6 +66,14 @@ const ProjectsPage = lazy(() =>
   import('@/features/projects').then((m) => ({ default: m.ProjectsPage }))
 )
 
+const NegociosPage = lazy(() =>
+  import('@/features/deals').then((m) => ({ default: m.NegociosPage }))
+)
+
+const NegocioDealPage = lazy(() =>
+  import('@/features/deals').then((m) => ({ default: m.NegocioDealPage }))
+)
+
 function SuspenseWrapper({ children }: { children: React.ReactNode }) {
   return (
     <Suspense
@@ -135,6 +143,22 @@ export const router = createBrowserRouter([
         element: (
           <RoleGuard allowedRoles={['admin', 'superadmin']}>
             <SuspenseWrapper><ProjectsPage /></SuspenseWrapper>
+          </RoleGuard>
+        ),
+      },
+      {
+        path: '/negocios',
+        element: (
+          <RoleGuard allowedRoles={['admin', 'superadmin']}>
+            <SuspenseWrapper><NegociosPage /></SuspenseWrapper>
+          </RoleGuard>
+        ),
+      },
+      {
+        path: '/negocios/:dealId',
+        element: (
+          <RoleGuard allowedRoles={['admin', 'superadmin']}>
+            <SuspenseWrapper><NegocioDealPage /></SuspenseWrapper>
           </RoleGuard>
         ),
       },
