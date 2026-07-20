@@ -1,0 +1,24 @@
+# Ruff — lint config (Fase 1 auditoría: empezar con reglas de error, ampliar gradualmente)
+# Run: ruff check app/  |  Format: ruff format app/
+line-length = 120
+target-version = "py313"
+
+[lint]
+# E4/E7/E9 (errores pycodestyle) + F (pyflakes). Ampliar a I (isort), B (bugbear),
+# UP (pyupgrade) cuando el codebase esté limpio con el set base.
+select = ["E4", "E7", "E9", "F"]
+ignore = [
+    "E731",  # lambda assignment — usado intencionalmente en providers
+    "E711",  # == None — requerido por SQLAlchemy en filtros
+    "E712",  # == True/False — requerido por SQLAlchemy en filtros
+    "E402",  # imports tardíos — patrón existente del codebase (imports locales diferidos)
+    "E741",  # nombres ambiguos (l) — limpiar gradualmente
+]
+
+[lint.per-file-ignores]
+"migrations/versions/*" = ["E501", "F401"]
+"tests/*" = ["F841"]
+# app/features/* son re-exports delgados de app/routes/* — F401 es el patrón intencional
+"app/features/*" = ["F401"]
+"app/models/__init__.py" = ["F401"]
+"app/**/__init__.py" = ["F401"]

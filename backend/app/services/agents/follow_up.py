@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.agents.base import BaseAgent
 from app.services.agents.prompts.follow_up_prompt import FOLLOW_UP_SYSTEM_PROMPT
-from app.services.agents.prompts.skills import FOLLOW_UP_SKILL
+from app.services.agents.prompts.skills import FOLLOW_UP_SKILL, FOLLOW_UP_VOICE_SKILL
 from app.services.agents.types import (
     AgentContext,
     AgentResponse,
@@ -54,6 +54,8 @@ class FollowUpAgent(BaseAgent):
 
     agent_type = AgentType.FOLLOW_UP
     name = "FollowUpAgent"
+    CHAT_SKILL = FOLLOW_UP_SKILL
+    VOICE_SKILL = FOLLOW_UP_VOICE_SKILL
 
     def get_system_prompt(self, context: AgentContext) -> str:
         lead_data = context.lead_data
@@ -127,9 +129,10 @@ class FollowUpAgent(BaseAgent):
         skill_ext = context.lead_data.get("_skill_follow_up_extension")
         has_custom = bool(context.lead_data.get("_custom_follow_up_prompt"))
         base_prompt = self._inject_skill(
-            base_prompt, "" if has_custom else FOLLOW_UP_SKILL, skill_ext
+            base_prompt, "" if has_custom else self._get_skill_for_channel(context), skill_ext
         )
         base_prompt = self._inject_handoff_context(base_prompt, context)
+        base_prompt = self._inject_call_purpose(base_prompt, context)
         return self._inject_human_release_note(self._inject_tone_hint(base_prompt, context), context)
 
     async def should_handle(self, context: AgentContext) -> bool:

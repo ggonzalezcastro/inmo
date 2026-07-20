@@ -15,6 +15,13 @@ export type WSEventType =
   | 'call_status'
   | 'deal_stage_changed'
   | 'deal_document_changed'
+  | 'call_started'
+  | 'call_answered'
+  | 'call_transcript_line'
+  | 'call_ai_note'
+  | 'call_coaching_suggestion'
+  | 'call_handoff'
+  | 'call_ended'
 
 export interface WSEvent<T = unknown> {
   type: WSEventType

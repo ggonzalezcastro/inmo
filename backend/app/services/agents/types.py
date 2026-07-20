@@ -70,6 +70,8 @@ class AgentContext:
     last_agent_note: Optional[str] = None       # last internal note from previous agent turn
     current_frustration: float = 0.0            # 0.0–1.0, from sentiment service
     tone_hint: Optional[str] = None             # "empathetic", "professional", "concise"
+    channel: str = "chat"                        # "chat" | "voice" — selects skill variant
+    call_purpose: Optional[str] = None           # CallPurpose value — objective of a voice call
 
     @property
     def recent_messages(self) -> List[Dict]:

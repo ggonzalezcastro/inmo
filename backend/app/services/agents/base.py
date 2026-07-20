@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,6 +36,21 @@ class BaseAgent(ABC):
 
     agent_type: AgentType
     name: str
+
+    # Skill documents injected into the system prompt — override in each agent.
+    # If VOICE_SKILL is empty, falls back to CHAT_SKILL with a warning.
+    CHAT_SKILL: ClassVar[str] = ""
+    VOICE_SKILL: ClassVar[str] = ""
+
+    def _get_skill_for_channel(self, context: AgentContext) -> str:
+        """Return the correct skill document based on context.channel."""
+        if context.channel == "voice":
+            if self.VOICE_SKILL:
+                return self.VOICE_SKILL
+            logger.warning(
+                "[%s] VOICE_SKILL not defined, falling back to CHAT_SKILL", self.name
+            )
+        return self.CHAT_SKILL
 
     @abstractmethod
     def get_system_prompt(self, context: AgentContext) -> str:
@@ -118,6 +133,30 @@ class BaseAgent(ABC):
                 "Confirma que el cliente entendió antes de continuar.\n"
             )
         return prompt
+
+    def _inject_call_purpose(self, prompt: str, context: AgentContext) -> str:
+        """
+        Append the call-purpose objective block on voice calls.
+
+        Only acts when channel == "voice" and a call_purpose is set on the
+        context (CRM-initiated Pipecat calls). Same separator strategy as
+        _inject_tone_hint.
+        """
+        if context.channel != "voice" or not context.call_purpose:
+            return prompt
+        from app.services.agents.prompts.skills.voice.purpose_instructions import (
+            get_purpose_instructions,
+        )
+
+        instructions = get_purpose_instructions(context.call_purpose)
+        if not instructions:
+            return prompt
+        return (
+            prompt.rstrip()
+            + "\n\n---\n\n## OBJETIVO DE ESTA LLAMADA\n"
+            + instructions
+            + "\n"
+        )
 
     def _inject_handoff_context(self, prompt: str, context: AgentContext) -> str:
         """

@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.agents.base import BaseAgent
 from app.services.agents.prompts.qualifier_prompt import QUALIFIER_SYSTEM_PROMPT
-from app.services.agents.prompts.skills import QUALIFIER_SKILL
+from app.services.agents.prompts.skills import QUALIFIER_SKILL, QUALIFIER_VOICE_SKILL
 from app.services.agents.types import (
     AgentContext,
     AgentResponse,
@@ -63,6 +63,8 @@ class QualifierAgent(BaseAgent):
 
     agent_type = AgentType.QUALIFIER
     name = "QualifierAgent"
+    CHAT_SKILL = QUALIFIER_SKILL
+    VOICE_SKILL = QUALIFIER_VOICE_SKILL
 
     def get_system_prompt(self, context: AgentContext) -> str:
         lead_data = context.lead_data
@@ -315,9 +317,10 @@ class QualifierAgent(BaseAgent):
         skill_ext = context.lead_data.get("_skill_qualifier_extension")
         has_custom = bool(context.lead_data.get("_custom_qualifier_prompt"))
         base_prompt = self._inject_skill(
-            base_prompt, "" if has_custom else QUALIFIER_SKILL, skill_ext
+            base_prompt, "" if has_custom else self._get_skill_for_channel(context), skill_ext
         )
         base_prompt = self._inject_handoff_context(base_prompt, context)
+        base_prompt = self._inject_call_purpose(base_prompt, context)
         return self._inject_human_release_note(self._inject_tone_hint(base_prompt, context), context)
 
     async def should_handle(self, context: AgentContext) -> bool:

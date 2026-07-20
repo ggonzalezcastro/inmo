@@ -18,4 +18,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ .
 
 # Run Celery Worker
-CMD ["celery", "-A", "app.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
+# Shell form so CELERY_CONCURRENCY env var expands (default 4)
+CMD celery -A app.celery_app worker --loglevel=info --concurrency="${CELERY_CONCURRENCY:-4}"

@@ -225,22 +225,17 @@ React 18 + Vite, state via **Zustand** stores (`store/*.js`). Organized by featu
 
 ## Known Issues & Tech Debt (Phase 3.1)
 
-### Minor Code Quality Issues (Non-blocking)
+### Minor Code Quality Issues
 
-1. **Type hint mismatch in `gemini_provider.py` line 178**
-   - Signature declares `-> Tuple[str, List[Dict[str, Any]]]` (2-tuple)
-   - Implementation returns `(text, function_calls, usage)` (3-tuple) always
-   - Facade handles with `len(result) >= 3` check, but hint misleading
-   - Fix: Update signature to `-> Tuple[str, List[Dict[str, Any]], Optional[Dict]]`
+All three issues from the 2026-05 list are resolved or were misdiagnosed (audit 2026-06-10):
 
-2. **Redundant variable initialization in `scheduler.py` line 163**
-   - `tools: list = list(_HANDOFF_TOOLS)` immediately overwritten on line 178
-   - Remove line 163 for clarity
+1. ~~Type hint mismatch in `gemini_provider.py`~~ — fixed: `generate_with_tools` now declares the real 4-tuple `Tuple[str, List[Dict], Optional[Dict], Optional[str]]` (text, function_calls, usage, thinking_content).
+2. ~~Redundant variable in `scheduler.py`~~ — **not a bug**: `tools = list(_HANDOFF_TOOLS)` is the intentional fallback used when `AgentToolsService` fails to load (see the `except` that logs "using handoff-only tools"). Do not remove.
+3. ~~Missing `tool_mode_override` in `scheduler.py`~~ — already present (`tool_mode_override="ANY"` in the facade call).
 
-3. **Inconsistent `tool_mode_override` in `scheduler.py` line 203–211**
-   - Missing explicit `tool_mode_override="ANY"` in LLM facade call
-   - Other agents (Qualifier, FollowUp) explicitly set "AUTO" for consistency
-   - Functional (defaults to "ANY") but should be explicit for maintainability
+### Linting
+
+`backend/ruff.toml` defines the lint baseline (E4/E7/E9 + F; SQLAlchemy idioms `== True`/`== None` exempted). Pre-commit runs ruff on `backend/` changes. ~175 pre-existing F401/F841 violations remain — clean incrementally when touching a file; do NOT mass-autofix (unused model imports may be load-bearing for SQLAlchemy mapper registration).
 
 ### Recent Refactors (Phase 3.1 — Tool-based Agent Handoffs)
 
@@ -248,4 +243,4 @@ React 18 + Vite, state via **Zustand** stores (`store/*.js`). Organized by featu
 - **Added:** tool-based handoffs; agents define `_HANDOFF_TOOLS`, LLM decides when to call them
 - **Changed:** `AgentSupervisor._select_agent()` uses deterministic `_STAGE_TO_AGENT` table instead of polling `should_handle()`
 - **Deprecated:** `BaseAgent.should_handle()` no longer abstract; still exists for backward compat but supervisor doesn't call it
-- **Status:** Core functionality verified (3 critical bugs fixed). 3 minor code quality issues pending.
+- **Status:** Core functionality verified (3 critical bugs fixed). Minor code quality list above resolved.

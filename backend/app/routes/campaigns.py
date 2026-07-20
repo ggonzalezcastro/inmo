@@ -6,8 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import and_, desc, func
 from sqlalchemy.exc import IntegrityError, DBAPIError
-from typing import Optional, List
-from pydantic import BaseModel
+from typing import Optional
 from app.database import get_db
 from app.middleware.auth import get_current_user
 from app.services.campaigns import CampaignService
@@ -440,32 +439,6 @@ async def apply_campaign_to_lead(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{campaign_id}/stats", response_model=CampaignStatsResponse)
-async def get_campaign_stats(
-    campaign_id: int,
-    current_user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Get campaign statistics"""
-    
-    try:
-        broker_id = current_user.get("broker_id")
-        
-        stats = await CampaignService.get_campaign_stats(
-            db=db,
-            campaign_id=campaign_id,
-            broker_id=broker_id
-        )
-        
-        return CampaignStatsResponse(**stats)
-        
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        logger.error(f"Error getting campaign stats: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/{campaign_id}/matching-leads")
 async def get_matching_leads(
     campaign_id: int,
@@ -476,8 +449,7 @@ async def get_matching_leads(
     """Return count + sample of leads that currently match this campaign's trigger."""
     try:
         from app.models.lead import Lead
-        from datetime import timedelta, timezone
-        from sqlalchemy import case
+        from datetime import datetime, timedelta, timezone
 
         broker_id = current_user.get("broker_id")
         campaign = await CampaignService.get_campaign(db=db, campaign_id=campaign_id, broker_id=broker_id)
@@ -608,7 +580,6 @@ async def get_campaign_logs(
         
         from app.models.campaign import CampaignLog
         from sqlalchemy.future import select
-        from sqlalchemy import and_
         
         query = select(CampaignLog).where(CampaignLog.campaign_id == campaign_id)
         

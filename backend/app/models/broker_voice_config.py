@@ -24,6 +24,11 @@ class BrokerVoiceConfig(Base, IdMixin, TimestampMixin):
     provider_credentials = Column(JSONB, nullable=True)
 
     phone_number_id = Column(String(255), nullable=True)
+    # Twilio phone number in E.164 (e.g. "+56221234567") this broker receives
+    # inbound Pipecat calls on. Used to route inbound TwiML to the right tenant.
+    # phone_number_id above is a VAPI identifier and must NOT be matched against
+    # Twilio's E.164 "To" field.
+    twilio_phone_number = Column(String(20), nullable=True, index=True)
     assistant_id_default = Column(String(255), nullable=True)
     assistant_id_by_type = Column(JSONB, nullable=True)
 

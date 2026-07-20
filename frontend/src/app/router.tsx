@@ -78,6 +78,13 @@ const VentasStatsPage = lazy(() =>
   import('@/features/deals').then((m) => ({ default: m.VentasStatsPage }))
 )
 
+const VoiceTestPage = lazy(() =>
+  import('@/features/voice').then((m) => ({ default: m.VoiceTestPage }))
+)
+const LlamadasPage = lazy(() =>
+  import('@/features/voice').then((m) => ({ default: m.LlamadasPage }))
+)
+
 function SuspenseWrapper({ children }: { children: React.ReactNode }) {
   return (
     <Suspense
@@ -241,6 +248,18 @@ export const router = createBrowserRouter([
             <SuspenseWrapper><ObservabilityPage /></SuspenseWrapper>
           </RoleGuard>
         ),
+      },
+      {
+        path: '/voice-test',
+        element: (
+          <RoleGuard allowedRoles={['admin', 'superadmin']}>
+            <SuspenseWrapper><VoiceTestPage /></SuspenseWrapper>
+          </RoleGuard>
+        ),
+      },
+      {
+        path: '/llamadas',
+        element: <SuspenseWrapper><LlamadasPage /></SuspenseWrapper>,
       },
     ],
   },

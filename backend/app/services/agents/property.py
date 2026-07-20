@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.agents.base import BaseAgent
-from app.services.agents.prompts.skills import PROPERTY_SKILL
+from app.services.agents.prompts.skills import PROPERTY_SKILL, PROPERTY_VOICE_SKILL
 from app.services.agents.types import (
     AgentContext,
     AgentResponse,
@@ -58,6 +58,8 @@ class PropertyAgent(BaseAgent):
 
     agent_type = AgentType.PROPERTY
     name = "PropertyAgent"
+    CHAT_SKILL = PROPERTY_SKILL
+    VOICE_SKILL = PROPERTY_VOICE_SKILL
 
     def get_system_prompt(self, context: AgentContext) -> str:
         broker_name = context.lead_data.get("broker_name", "nuestra inmobiliaria")
@@ -175,9 +177,10 @@ Entusiasta pero profesional. Ayuda al cliente a imaginar vivir en las propiedade
         skill_ext = context.lead_data.get("_skill_property_extension")
         has_custom = bool(context.lead_data.get("_custom_property_prompt"))
         prompt = self._inject_skill(
-            prompt, "" if has_custom else PROPERTY_SKILL, skill_ext
+            prompt, "" if has_custom else self._get_skill_for_channel(context), skill_ext
         )
         prompt = self._inject_handoff_context(prompt, context)
+        prompt = self._inject_call_purpose(prompt, context)
         return self._inject_human_release_note(self._inject_tone_hint(prompt, context), context)
 
     async def should_handle(self, context: AgentContext) -> bool:

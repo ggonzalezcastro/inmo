@@ -1,7 +1,6 @@
 """
 Campaign models for multi-channel marketing automation
 """
-from datetime import datetime
 from enum import Enum
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Boolean, 
@@ -107,10 +106,10 @@ class Campaign(Base, IdMixin, TimestampMixin):
     approved_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     
     # Multi-tenancy
-    broker_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    broker_id = Column(Integer, ForeignKey("brokers.id", ondelete="CASCADE"), nullable=False, index=True)
     
     # Relationships
-    broker = relationship("User", foreign_keys=[broker_id])
+    broker = relationship("Broker", foreign_keys=[broker_id])
     creator = relationship("User", foreign_keys=[created_by])
     approver = relationship("User", foreign_keys=[approved_by])
     steps = relationship("CampaignStep", back_populates="campaign", cascade="all, delete-orphan", order_by="CampaignStep.step_number")

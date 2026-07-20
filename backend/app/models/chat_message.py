@@ -30,6 +30,7 @@ class ChatProvider(str, Enum):
     FACEBOOK = "facebook"
     TIKTOK = "tiktok"
     WEBCHAT = "webchat"
+    VOICE = "voice"
 
 
 class ChatMessage(Base, IdMixin, TimestampMixin):

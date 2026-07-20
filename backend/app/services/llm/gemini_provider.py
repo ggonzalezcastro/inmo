@@ -192,7 +192,7 @@ class GeminiProvider(BaseLLMProvider):
         tool_executor: Optional[Callable] = None,
         cached_content: Optional[str] = None,
         tool_mode_override: Optional[str] = None,
-    ) -> Tuple[str, List[Dict[str, Any]], Optional[Dict]]:
+    ) -> Tuple[str, List[Dict[str, Any]], Optional[Dict], Optional[str]]:
         """Generate response with function calling (or plain text when tools is empty).
 
         Args:

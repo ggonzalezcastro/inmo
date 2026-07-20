@@ -3,7 +3,7 @@ Chat orchestrator: coordinates lead resolution, analysis, score update,
 metadata update, pipeline advancement, and LLM response generation.
 Single entry point for chat flow to improve testability and maintainability.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +34,49 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 
+# ── Voice background-task tracking ───────────────────────────────────────────
+# Per-voice_call_id list of pending fire-and-forget tasks (logging, persist).
+# Drained at the start of the next turn for that call to preserve ordering
+# (next turn's lead_context fetch must see the previous turn's writes).
+_VOICE_PENDING_TASKS: Dict[int, list] = {}
+
+
+def _track_voice_task(voice_call_id: int, coro) -> None:
+    """Schedule a background coroutine and track it per call."""
+    import asyncio as _asyncio
+    task = _asyncio.create_task(coro)
+    _VOICE_PENDING_TASKS.setdefault(voice_call_id, []).append(task)
+    def _cleanup(t):
+        try:
+            _VOICE_PENDING_TASKS.get(voice_call_id, []).remove(t)
+        except ValueError:
+            pass
+        if t.exception():
+            logger.warning(
+                "[VoiceOrchestrator] background task error call=%s: %s",
+                voice_call_id, t.exception(),
+            )
+    task.add_done_callback(_cleanup)
+
+
+async def _drain_voice_tasks(voice_call_id: int) -> None:
+    """Wait for pending background tasks for this call to finish (≤200ms typical)."""
+    import asyncio as _asyncio
+    pending = _VOICE_PENDING_TASKS.get(voice_call_id, [])
+    if not pending:
+        return
+    try:
+        await _asyncio.wait_for(_asyncio.gather(*pending, return_exceptions=True), timeout=2.0)
+    except _asyncio.TimeoutError:
+        logger.warning("[VoiceOrchestrator] drain timeout call=%s pending=%d", voice_call_id, len(pending))
+    _VOICE_PENDING_TASKS.pop(voice_call_id, None)
+
+
+def voice_call_cleanup(voice_call_id: int) -> None:
+    """Called when a voice call ends — drop tracked tasks (best-effort)."""
+    _VOICE_PENDING_TASKS.pop(voice_call_id, None)
+
+
 @dataclass
 class ChatResult:
     response: str
@@ -41,6 +84,7 @@ class ChatResult:
     lead_score: float
     lead_status: str
     conversation_state: str = "greeting"
+    metadata: dict = field(default_factory=dict)
 
 
 class ChatOrchestratorService:
@@ -764,6 +808,7 @@ class ChatOrchestratorService:
             broker_name=_broker_name,
             agent_name=_agent_name,
             pre_analysis=analysis,
+            channel=provider_name or "webchat",
         )
         logger.info("[Orchestrator] Step 7d — calling AgentSupervisor.process stage=%s", agent_context.pipeline_stage)
         try:
@@ -772,7 +817,8 @@ class ChatOrchestratorService:
             logger.error("[Orchestrator] Step 7 FAILED — AgentSupervisor error: %s", _agent_exc, exc_info=True)
             await _release_lock()
             raise
-        ai_response = agent_result.message
+        from app.shared.input_sanitizer import sanitize_llm_output
+        ai_response = sanitize_llm_output(agent_result.message, source="chat")
         function_calls = agent_result.function_calls or []
         logger.info(
             "[Orchestrator] Step 7 done — agent=%s response_len=%d response=%r",
@@ -1023,4 +1069,284 @@ class ChatOrchestratorService:
             lead_score=new_score,
             lead_status=lead.status,
             conversation_state=conv_machine.state,
+        )
+
+    @staticmethod
+    async def process_for_voice(
+        db: AsyncSession,
+        lead_id: int,
+        broker_id: int,
+        message: str,
+        voice_call_id: int,
+        call_purpose: Optional[str] = None,
+    ) -> "ChatResult":
+        """
+        Voice variant of process_chat_message.
+
+        Differences from chat:
+        - Does NOT send response via any external channel (Pipecat handles TTS)
+        - Records messages with provider="voice"
+        - Does NOT broadcast ai_response WS event (TranscriptSaver does it)
+        - Sets channel="voice" in AgentContext so agents use VOICE_SKILL
+        - Skips advisory lock (voice calls are serialized by the pipeline itself)
+        - Skips sentiment Celery task (sync sentiment injected via tone_hint)
+        """
+        from app.services.agents import AgentSupervisor, build_context
+        from app.services.broker.config_service import BrokerConfigService
+        from app.services.leads.context_service import LeadContextService
+        from app.services.chat.service import ChatService
+        from app.services.chat.base_provider import ChatMessageData
+        from app.models.lead import Lead
+        from app.core.database import AsyncSessionLocal
+        import json as _json_v
+        from sqlalchemy import text as _sa_text_v
+        from app.core.encryption import encrypt_metadata_fields as _encrypt_v
+
+        # ── Fine-grained latency profiling ───────────────────────────────────
+        # Each stage adds its duration to `_t` so we can emit one structured
+        # line at the end. Reading these in production logs:
+        #   grep "VOICE-LATENCY-DETAIL" backend.log
+        import time as _time_v
+        _t: dict[str, float] = {}
+        _t_total = _time_v.perf_counter()
+        _t_stage = _time_v.perf_counter()
+
+        # Drain pending background tasks from the previous turn so the lead
+        # context fetch below sees their writes (preserves history ordering).
+        await _drain_voice_tasks(voice_call_id)
+        _t["drain_ms"] = (_time_v.perf_counter() - _t_stage) * 1000
+        _t_stage = _time_v.perf_counter()
+
+        lead = await db.get(Lead, lead_id)
+        _t["lead_get_ms"] = (_time_v.perf_counter() - _t_stage) * 1000
+        _t_stage = _time_v.perf_counter()
+
+        if not lead:
+            logger.error("[VoiceOrchestrator] lead_id=%s not found", lead_id)
+            return ChatResult(
+                response="Lo siento, hubo un error al procesar tu mensaje.",
+                lead_id=lead_id,
+                lead_score=0.0,
+                lead_status="cold",
+            )
+
+        # Inbound logging: fire-and-forget with its own session.
+        async def _log_inbound_bg() -> None:
+            try:
+                async with AsyncSessionLocal() as bg_db:
+                    await ChatService.log_message(
+                        bg_db,
+                        lead_id=lead_id,
+                        broker_id=broker_id,
+                        provider_name="voice",
+                        message_data=ChatMessageData(
+                            channel_user_id="voice",
+                            channel_username=None,
+                            channel_message_id=None,
+                            message_text=message,
+                            direction="in",
+                        ),
+                        ai_used=False,
+                    )
+            except Exception as _log_exc:
+                logger.warning("[VoiceOrchestrator] inbound log failed: %s", _log_exc)
+
+        _track_voice_task(voice_call_id, _log_inbound_bg())
+
+        # Build lead context + broker config in parallel to cut DB overhead.
+        # First-turn fast path: consume prewarmed cache if available.
+        import asyncio as _asyncio
+
+        try:
+            from app.services.voice.pipecat.processors.context_prewarmer import consume as _prewarm_consume
+        except Exception:
+            _prewarm_consume = None  # type: ignore[assignment]
+
+        _preloaded = _prewarm_consume(voice_call_id) if _prewarm_consume else None
+        _t["prewarm_consume_ms"] = (_time_v.perf_counter() - _t_stage) * 1000
+        _t["prewarm_hit"] = 1.0 if _preloaded is not None else 0.0
+        _t_stage = _time_v.perf_counter()
+
+        if _preloaded is not None:
+            logger.info(
+                "[VoiceOrchestrator] using prewarmed context call=%s history=%d",
+                voice_call_id, len(_preloaded.message_history),
+            )
+            _message_history = _preloaded.message_history
+            _broker_name = _preloaded.broker_name
+            _agent_name = _preloaded.agent_name
+            _broker_overrides = _preloaded.broker_overrides
+        else:
+            async def _get_lead_ctx() -> list:
+                try:
+                    ctx = await LeadContextService.get_lead_context(db=db, lead_id=lead_id)
+                    history = ctx.get("message_history", []) if isinstance(ctx, dict) else []
+                    # Voice: cap at 2 messages — reduces input tokens and LLM TTFT.
+                    # Chat path keeps the larger window via standard get_lead_context.
+                    # Voice optimizes for latency over long-range recall.
+                    return history[-2:] if len(history) > 2 else history
+                except Exception as _e:
+                    logger.warning("[VoiceOrchestrator] get_lead_context failed: %s", _e)
+                    return []
+
+            async def _get_broker_cfg() -> tuple:
+                try:
+                    from sqlalchemy import select as _select_v
+                    from sqlalchemy.orm import selectinload as _selectinload_v
+                    from app.models.broker import Broker as _Broker_v
+                    # Eager-load prompt_config to avoid greenlet errors when
+                    # accessed after the session boundary closes.
+                    _r = await db.execute(
+                        _select_v(_Broker_v)
+                        .options(_selectinload_v(_Broker_v.prompt_config))
+                        .where(_Broker_v.id == broker_id)
+                    )
+                    broker = _r.scalars().first()
+                    if not broker:
+                        return ("", "Sofía", {})
+                    prompt_cfg = getattr(broker, "prompt_config", None)
+                    broker_name = getattr(broker, "name", "") or ""
+                    agent_name = (getattr(prompt_cfg, "agent_name", None) or "Sofía") if prompt_cfg else "Sofía"
+                    overrides: dict = {}
+                    if prompt_cfg is not None:
+                        sp = getattr(prompt_cfg, "system_prompt", None)
+                        if sp:
+                            overrides["system_prompt"] = sp
+                    return (broker_name, agent_name, overrides)
+                except Exception:
+                    return ("", "Sofía", {})
+
+            _message_history, (_broker_name, _agent_name, _broker_overrides) = await _asyncio.gather(
+                _get_lead_ctx(), _get_broker_cfg()
+            )
+
+        _t["ctx_fetch_ms"] = (_time_v.perf_counter() - _t_stage) * 1000
+        _t_stage = _time_v.perf_counter()
+
+        agent_context = build_context(
+            lead, broker_id,
+            broker_overrides=_broker_overrides,
+            message_history=_message_history,
+            broker_name=_broker_name,
+            agent_name=_agent_name,
+            channel="voice",
+            call_purpose=call_purpose,
+        )
+        _t["ctx_build_ms"] = (_time_v.perf_counter() - _t_stage) * 1000
+        _t_stage = _time_v.perf_counter()
+
+        try:
+            agent_result = await AgentSupervisor.process(message, agent_context, db)
+        except Exception as _agent_exc:
+            logger.error("[VoiceOrchestrator] AgentSupervisor failed: %s", _agent_exc, exc_info=True)
+            return ChatResult(
+                response="Disculpa, ¿me lo puedes repetir?",
+                lead_id=lead_id,
+                lead_score=float(getattr(lead, "lead_score", 0) or 0),
+                lead_status=str(getattr(lead, "status", "cold")),
+            )
+
+        _t["supervisor_ms"] = (_time_v.perf_counter() - _t_stage) * 1000
+        _t_stage = _time_v.perf_counter()
+
+        from app.shared.input_sanitizer import sanitize_llm_output
+        ai_response = sanitize_llm_output(agent_result.message, source="voice")
+
+        # Outbound logging + metadata persist run in background with their own
+        # sessions so the response can return immediately. Tracked per call_id
+        # and drained at the start of the next turn for ordering.
+        _ctx_updates_snapshot = (
+            dict(agent_result.context_updates) if agent_result.context_updates else None
+        )
+
+        async def _log_outbound_bg() -> None:
+            try:
+                async with AsyncSessionLocal() as bg_db:
+                    await ChatService.log_message(
+                        bg_db,
+                        lead_id=lead_id,
+                        broker_id=broker_id,
+                        provider_name="voice",
+                        message_data=ChatMessageData(
+                            channel_user_id="voice",
+                            channel_username=None,
+                            channel_message_id=None,
+                            message_text=ai_response,
+                            direction="out",
+                        ),
+                        ai_used=True,
+                    )
+            except Exception as _log_exc:
+                logger.warning("[VoiceOrchestrator] outbound log failed: %s", _log_exc)
+
+        async def _persist_updates_bg() -> None:
+            if not _ctx_updates_snapshot:
+                return
+            try:
+                async with AsyncSessionLocal() as bg_db:
+                    _encrypted = _encrypt_v(_ctx_updates_snapshot)
+                    _set_expr = "COALESCE(metadata, '{}'::jsonb)"
+                    _params: dict = {"lid": lead_id}
+                    for _idx, (_key, _val) in enumerate(_encrypted.items()):
+                        _pkey = f"k{_idx}"
+                        _pval = f"v{_idx}"
+                        _set_expr = (
+                            f"jsonb_set({_set_expr}, ARRAY[:{_pkey}], "
+                            f"CAST(:{_pval} AS jsonb), true)"
+                        )
+                        _params[_pkey] = _key
+                        _params[_pval] = _json_v.dumps(_val)
+                    await bg_db.execute(
+                        _sa_text_v(f"UPDATE leads SET metadata = {_set_expr} WHERE id = :lid"),
+                        _params,
+                    )
+                    await bg_db.commit()
+            except Exception as _persist_exc:
+                logger.warning("[VoiceOrchestrator] context_updates persist failed: %s", _persist_exc)
+
+        _track_voice_task(voice_call_id, _log_outbound_bg())
+        _track_voice_task(voice_call_id, _persist_updates_bg())
+        _t["postprocess_ms"] = (_time_v.perf_counter() - _t_stage) * 1000
+
+        # ── Final structured profiling line ──────────────────────────────────
+        _t["total_ms"] = (_time_v.perf_counter() - _t_total) * 1000
+        logger.info(
+            "[VOICE-LATENCY-DETAIL] call=%s lead=%s "
+            "total_ms=%.0f drain_ms=%.0f lead_get_ms=%.0f "
+            "prewarm_consume_ms=%.0f prewarm_hit=%d ctx_fetch_ms=%.0f "
+            "ctx_build_ms=%.0f supervisor_ms=%.0f postprocess_ms=%.0f "
+            "msg_words=%d",
+            voice_call_id, lead_id,
+            _t["total_ms"], _t["drain_ms"], _t["lead_get_ms"],
+            _t["prewarm_consume_ms"], int(_t["prewarm_hit"]), _t["ctx_fetch_ms"],
+            _t["ctx_build_ms"], _t["supervisor_ms"], _t["postprocess_ms"],
+            len((message or "").split()),
+        )
+
+        # Use score from agent result if available (avoids stale ORM state)
+        _ctx_updates = agent_result.context_updates or {}
+        _final_score = float(
+            _ctx_updates.get("lead_score")
+            or getattr(lead, "lead_score", 0)
+            or 0
+        )
+        # Surface the fields the voice pipeline's HandoffMonitor / EmotionTagger
+        # consume. Without lead_score + handoff_to_human here, score-based and
+        # supervisor-signalled handoffs never fire (only the explicit-request
+        # regex does), and sentiment-based emotion tagging is disabled.
+        _voice_meta: dict = {
+            "agent_type": agent_result.agent_type.value if agent_result.agent_type else None,
+            "lead_score": _final_score,
+        }
+        if _ctx_updates.get("handoff_to_human"):
+            _voice_meta["handoff_to_human"] = True
+        _sentiment = _ctx_updates.get("sentiment")
+        if _sentiment:
+            _voice_meta["sentiment"] = _sentiment
+        return ChatResult(
+            response=ai_response,
+            lead_id=lead_id,
+            lead_score=_final_score,
+            lead_status=str(getattr(lead, "status", "cold")),
+            metadata=_voice_meta,
         )

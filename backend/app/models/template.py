@@ -59,10 +59,10 @@ class MessageTemplate(Base, IdMixin, TimestampMixin):
     variables = Column(JSON, default=[], nullable=False)
     
     # Multi-tenancy
-    broker_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    broker_id = Column(Integer, ForeignKey("brokers.id", ondelete="CASCADE"), nullable=False, index=True)
     
     # Relationships
-    broker = relationship("User", foreign_keys=[broker_id])
+    broker = relationship("Broker", foreign_keys=[broker_id])
     campaign_steps = relationship("CampaignStep", back_populates="message_template", foreign_keys="CampaignStep.message_template_id")
     
     # Indices

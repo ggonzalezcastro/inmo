@@ -137,6 +137,27 @@ class Settings(BaseSettings):
     BLAND_API_KEY: str = os.getenv("BLAND_API_KEY", "")
     RETELL_API_KEY: str = os.getenv("RETELL_API_KEY", "")
 
+    # ── Pipecat voice stack (autonomous / handoff / copilot / coaching) ─────
+    # TTS provider: "elevenlabs" (lowest latency w/ flash v2.5) | "deepgram" | "fish_audio"
+    TTS_PROVIDER: str = os.getenv("TTS_PROVIDER", "elevenlabs")
+    # ElevenLabs
+    ELEVENLABS_API_KEY: str = os.getenv("ELEVENLABS_API_KEY", "")
+    ELEVENLABS_VOICE_ID: str = os.getenv("ELEVENLABS_VOICE_ID", "")
+    # eleven_flash_v2_5 = ~75ms TTFB (vs ~200ms multilingual_v2). 32 languages.
+    ELEVENLABS_MODEL: str = os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5")
+    # Deepgram (STT + optional TTS)
+    DEEPGRAM_API_KEY: str = os.getenv("DEEPGRAM_API_KEY", "")
+    DEEPGRAM_TTS_VOICE: str = os.getenv("DEEPGRAM_TTS_VOICE", "aura-2-thalia-en")
+    # Fish Audio (legacy / Spanish premium voices)
+    FISH_AUDIO_API_KEY: str = os.getenv("FISH_AUDIO_API_KEY", "")
+    FISH_AUDIO_VOICE_ID: str = os.getenv("FISH_AUDIO_VOICE_ID", "")
+    FISH_AUDIO_MODEL: str = os.getenv("FISH_AUDIO_MODEL", "s2-pro")
+    # Twilio (telephony transport for Pipecat WS)
+    TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
+    TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")
+    TWILIO_PHONE_NUMBER: str = os.getenv("TWILIO_PHONE_NUMBER", "")
+    TWILIO_SIP_DOMAIN: str = os.getenv("TWILIO_SIP_DOMAIN", "")
+
     # Gemini Context Caching (TASK-028)
     # Caches static broker system prompts — reduces token costs ~75%.
     # Requires prompt > ~4096 tokens; off by default until prompt grows with RAG.
@@ -207,6 +228,18 @@ class Settings(BaseSettings):
         """Validate SECRET_KEY is secure in production"""
         import warnings
         env = os.getenv("ENVIRONMENT", "development")
+
+        # Known dev/placeholder keys that have appeared in repo files — never valid in prod
+        _KNOWN_WEAK_KEYS = {
+            "dev-secret-key",
+            "dev-only-secret-key-not-for-production!",
+            "your-super-secret-key-min-32-chars",
+        }
+        if env == "production" and v in _KNOWN_WEAK_KEYS:
+            raise ValueError(
+                "SECRET_KEY is a known development placeholder. "
+                "Generate a real key: openssl rand -hex 32"
+            )
 
         if not v or len(v) < 32:
             if env == "production":

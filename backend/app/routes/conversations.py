@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import desc, func
+from sqlalchemy.orm import aliased
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, timezone
@@ -97,6 +98,10 @@ async def list_conversations(
     leads = result.scalars().all()
 
     items: List[ConversationLeadItem] = []
+    # Apply visibility/mode/search filters in Python first, then batch-fetch
+    # message info for the surviving leads (3 queries total, no per-lead N+1).
+    visible: list = []
+    names: dict = {}
     for lead in leads:
         meta = lead.lead_metadata or {}
         is_human = bool(lead.human_mode)
@@ -121,37 +126,65 @@ async def list_conversations(
             if search.lower() not in haystack:
                 continue
 
-        # Get last message
-        msg_result = await db.execute(
-            select(ChatMessage)
-            .where(ChatMessage.lead_id == lead.id)
-            .order_by(desc(ChatMessage.id))
-            .limit(1)
-        )
-        last_msg = msg_result.scalar_one_or_none()
+        visible.append(lead)
+        names[lead.id] = name
 
-        # Count unread (inbound messages after last outbound)
+    lead_ids = [lead.id for lead in visible]
+    last_msg_by_lead: dict = {}
+    unread_by_lead: dict = {}
+    if lead_ids:
+        # Last message per lead (window function, one round-trip)
+        rn = (
+            func.row_number()
+            .over(partition_by=ChatMessage.lead_id, order_by=desc(ChatMessage.id))
+            .label("rn")
+        )
+        ranked = (
+            select(ChatMessage, rn)
+            .where(ChatMessage.lead_id.in_(lead_ids))
+            .subquery()
+        )
+        last_msg_alias = aliased(ChatMessage, ranked)
+        msg_result = await db.execute(
+            select(last_msg_alias).where(ranked.c.rn == 1)
+        )
+        for msg in msg_result.scalars():
+            last_msg_by_lead[msg.lead_id] = msg
+
+        # Unread = inbound messages newer than the last outbound, per lead
+        last_out = (
+            select(
+                ChatMessage.lead_id.label("lead_id"),
+                func.max(ChatMessage.id).label("last_out_id"),
+            )
+            .where(
+                ChatMessage.lead_id.in_(lead_ids),
+                ChatMessage.direction == MessageDirection.OUTBOUND,
+            )
+            .group_by(ChatMessage.lead_id)
+            .subquery()
+        )
+        unread_result = await db.execute(
+            select(ChatMessage.lead_id, func.count(ChatMessage.id))
+            .outerjoin(last_out, last_out.c.lead_id == ChatMessage.lead_id)
+            .where(
+                ChatMessage.lead_id.in_(lead_ids),
+                ChatMessage.direction == MessageDirection.INBOUND,
+                ChatMessage.id > func.coalesce(last_out.c.last_out_id, 0),
+            )
+            .group_by(ChatMessage.lead_id)
+        )
+        unread_by_lead = dict(unread_result.all())
+
+    for lead in visible:
+        name = names.get(lead.id)
+        is_human = bool(lead.human_mode)
+        assigned_to = lead.human_assigned_to
+        last_msg = last_msg_by_lead.get(lead.id)
+
         unread = 0
         if last_msg and last_msg.direction == MessageDirection.INBOUND:
-            last_out_result = await db.execute(
-                select(ChatMessage)
-                .where(
-                    ChatMessage.lead_id == lead.id,
-                    ChatMessage.direction == MessageDirection.OUTBOUND,
-                )
-                .order_by(desc(ChatMessage.id))
-                .limit(1)
-            )
-            last_out = last_out_result.scalar_one_or_none()
-            after_id = last_out.id if last_out else 0
-            count_result = await db.execute(
-                select(func.count(ChatMessage.id)).where(
-                    ChatMessage.lead_id == lead.id,
-                    ChatMessage.direction == MessageDirection.INBOUND,
-                    ChatMessage.id > after_id,
-                )
-            )
-            unread = count_result.scalar() or 0
+            unread = unread_by_lead.get(lead.id, 0)
 
         provider_val = None
         if last_msg:

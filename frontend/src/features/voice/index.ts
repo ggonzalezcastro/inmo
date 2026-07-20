@@ -1,5 +1,8 @@
 export { useVapiCall } from './hooks/useVapiCall'
 export { StartCallDialog } from './components/StartCallDialog'
 export { ActiveCallOverlay } from './components/ActiveCallOverlay'
+export { VoiceTestPage } from './components/VoiceTestPage'
+export { LlamadasPage } from './components/LlamadasPage'
 export { voiceService } from './services/voice.service'
+export { pipecatService } from './services/pipecat.service'
 export type * from './types'

@@ -34,6 +34,11 @@ redis==5.0.1
 httpx>=0.28.1
 aiohttp>=3.9.0
 
+# Voice — Pipecat pipeline (Twilio + Deepgram STT + ElevenLabs/Fish Audio TTS)
+# silero extra installs PyTorch (~2 GB) — Dockerfile adds libgomp1 for OpenMP support
+pipecat-ai[deepgram,elevenlabs,fish,silero]>=1.1.0
+twilio>=9.0.0
+
 # AI/ML - LLM Providers (pinned so pip resolves fast)
 google-genai
 anthropic>=0.40.0

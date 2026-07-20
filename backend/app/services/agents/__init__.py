@@ -86,6 +86,8 @@ def build_context(
     broker_name: str = "",
     agent_name: str = "Sofía",
     pre_analysis: dict | None = None,
+    channel: str = "chat",
+    call_purpose: str | None = None,
 ) -> AgentContext:
     """
     Convenience factory: build an AgentContext from a Lead ORM object.
@@ -157,6 +159,8 @@ def build_context(
         current_agent=_parse_agent_type(metadata.get("current_agent")),
         human_release_note=getattr(lead, "human_release_note", None),
         pre_analysis=pre_analysis,
+        channel=channel,
+        call_purpose=call_purpose,
         property_preferences={
             k: v for k, v in {
                 "property_type": metadata.get("property_type"),

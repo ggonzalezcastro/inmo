@@ -78,6 +78,19 @@ class VoiceCallListResponse(BaseModel):
     data: List[VoiceCallResponse]
 
 
+class CallListItem(VoiceCallResponse):
+    """Row for the broker-wide call list (Llamadas page)."""
+    lead_name: Optional[str] = None
+    lead_phone: Optional[str] = None
+    pipecat_mode: Optional[str] = None
+    handoff_occurred: Optional[bool] = None
+
+
+class CallListResponse(BaseModel):
+    data: List[CallListItem]
+    total: int
+
+
 # ── Agent voice profile ───────────────────────────────────────────────────────
 
 class AgentVoiceProfileUpdate(BaseModel):

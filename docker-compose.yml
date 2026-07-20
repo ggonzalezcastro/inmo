@@ -2,16 +2,17 @@ services:
   db:
     image: pgvector/pgvector:pg15  # includes pgvector extension (TASK-024)
     environment:
-      POSTGRES_USER: lead_user
-      POSTGRES_PASSWORD: lead_pass_123
-      POSTGRES_DB: lead_agent
+      POSTGRES_USER: ${POSTGRES_USER:-lead_user}
+      # Sin default: defínela en .env (fail-fast si falta)
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required — set it in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-lead_agent}
     ports:
       # Host ocupado (otro Postgres): POSTGRES_HOST_PORT=5433 docker compose up -d db
       - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U lead_user -d lead_agent"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -45,7 +46,7 @@ services:
       - MCP_TRANSPORT=http
       - MCP_SERVER_HOST=0.0.0.0
       - MCP_SERVER_PORT=8001
-      - DATABASE_URL=postgresql+asyncpg://lead_user:lead_pass_123@db:5432/lead_agent
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-lead_user}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@db:5432/${POSTGRES_DB:-lead_agent}
       - REDIS_URL=redis://redis:6379/0
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
@@ -69,8 +70,8 @@ services:
       dockerfile: backend/Dockerfile
     command: ["sh", "./migrate.sh"]
     environment:
-      - DATABASE_URL=postgresql+asyncpg://lead_user:lead_pass_123@db:5432/lead_agent
-      - SECRET_KEY=${SECRET_KEY:-dev-secret-key}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-lead_user}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@db:5432/${POSTGRES_DB:-lead_agent}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY required — generate with openssl rand -hex 32}
     depends_on:
       db:
         condition: service_healthy
@@ -96,11 +97,11 @@ services:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
-      - DATABASE_URL=postgresql+asyncpg://lead_user:lead_pass_123@db:5432/lead_agent
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-lead_user}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@db:5432/${POSTGRES_DB:-lead_agent}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
-      - SECRET_KEY=${SECRET_KEY}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY required — generate with openssl rand -hex 32}
       - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
       - LLM_FALLBACK_PROVIDER=${LLM_FALLBACK_PROVIDER:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
@@ -119,7 +120,7 @@ services:
       - OPENAI_MAX_TOKENS=${OPENAI_MAX_TOKENS:-2048}
       - OPENAI_TEMPERATURE=${OPENAI_TEMPERATURE:-0.7}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-anthropic/claude-haiku-4.5}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-google/gemini-2.5-flash-lite}
       - OPENROUTER_MAX_TOKENS=${OPENROUTER_MAX_TOKENS:-2048}
       - OPENROUTER_TEMPERATURE=${OPENROUTER_TEMPERATURE:-0.7}
       - PROPERTY_LLM_PROVIDER=${PROPERTY_LLM_PROVIDER:-openrouter}
@@ -141,7 +142,44 @@ services:
       - STORAGE_SIGNING_SECRET=${SECRET_KEY}
       - SEMANTIC_CACHE_ENABLED=${SEMANTIC_CACHE_ENABLED:-true}
       - SEMANTIC_CACHE_THRESHOLD=${SEMANTIC_CACHE_THRESHOLD:-0.92}
+      - GEMINI_CONTEXT_CACHING_ENABLED=${GEMINI_CONTEXT_CACHING_ENABLED:-true}
+      - GEMINI_CONTEXT_CACHE_TTL=${GEMINI_CONTEXT_CACHE_TTL:-3600}
+      # Voice latency tuning (overrides hard-coded defaults in services/stt.py & tts.py)
+      - VOICE_PREWARM_ENABLED=${VOICE_PREWARM_ENABLED:-1}
+      - VOICE_FILLER_ENABLED=${VOICE_FILLER_ENABLED:-0}
+      - DEEPGRAM_ENDPOINTING_MS=${DEEPGRAM_ENDPOINTING_MS:-150}
+      - DEEPGRAM_UTTERANCE_END_MS=${DEEPGRAM_UTTERANCE_END_MS:-1000}
+      - FISH_AUDIO_LATENCY=${FISH_AUDIO_LATENCY:-low}
+      - VOICE_VAD_CONFIDENCE=${VOICE_VAD_CONFIDENCE:-0.8}
+      - VOICE_VAD_START_SECS=${VOICE_VAD_START_SECS:-0.2}
+      - VOICE_VAD_STOP_SECS=${VOICE_VAD_STOP_SECS:-0.3}
+      - VOICE_VAD_MIN_VOLUME=${VOICE_VAD_MIN_VOLUME:-0.6}
+      - VOICE_TURN_COALESCE_MS=${VOICE_TURN_COALESCE_MS:-50}
+      - OPENROUTER_PROVIDER_SORT=${OPENROUTER_PROVIDER_SORT:-latency}
+      - VOICE_LLM_WARMUP_ENABLED=${VOICE_LLM_WARMUP_ENABLED:-1}
+      - VOICE_SMART_TURN_ENABLED=${VOICE_SMART_TURN_ENABLED:-1}
+      - VOICE_SMART_TURN_MIN_SPEECH_MS=${VOICE_SMART_TURN_MIN_SPEECH_MS:-300}
+      - DEEPGRAM_TTFS_P99=${DEEPGRAM_TTFS_P99:-0.30}
+      - VOICE_BARGE_GRACE_MS=${VOICE_BARGE_GRACE_MS:-1500}
+      - VOICE_BARGE_DISABLED=${VOICE_BARGE_DISABLED:-0}
       - VOICE_PROVIDER=${VOICE_PROVIDER:-vapi}
+      # Pipecat voice pipeline
+      - TTS_PROVIDER=${TTS_PROVIDER:-fish_audio}
+      - DEEPGRAM_TTS_VOICE=${DEEPGRAM_TTS_VOICE:-aura-2-thalia-en}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID:-}
+      - ELEVENLABS_MODEL=${ELEVENLABS_MODEL:-eleven_flash_v2_5}
+      - FISH_AUDIO_API_KEY=${FISH_AUDIO_API_KEY:-}
+      - FISH_AUDIO_VOICE_ID=${FISH_AUDIO_VOICE_ID:-}
+      - FISH_AUDIO_MODEL=${FISH_AUDIO_MODEL:-s2-pro}
+      - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY:-}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-}
+      - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER:-}
+      - TWILIO_SIP_DOMAIN=${TWILIO_SIP_DOMAIN:-}
+      - TWILIO_DEFAULT_BROKER_ID=${TWILIO_DEFAULT_BROKER_ID:-1}
+      - PIPECAT_LOG_LEVEL=${PIPECAT_LOG_LEVEL:-INFO}
+      - VAPI_WEBHOOK_SECRET=${VAPI_WEBHOOK_SECRET:-}
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-10080}
       - ALGORITHM=${ALGORITHM:-HS256}
       - ENVIRONMENT=${ENVIRONMENT:-development}
@@ -177,10 +215,10 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    command: celery -A app.celery_app worker --loglevel=info
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-4}
     environment:
       - PYTHONUNBUFFERED=1
-      - DATABASE_URL=postgresql+asyncpg://lead_user:lead_pass_123@db:5432/lead_agent
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-lead_user}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@db:5432/${POSTGRES_DB:-lead_agent}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
@@ -202,13 +240,15 @@ services:
       - OPENAI_MAX_TOKENS=${OPENAI_MAX_TOKENS:-2048}
       - OPENAI_TEMPERATURE=${OPENAI_TEMPERATURE:-0.7}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-anthropic/claude-haiku-4.5}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-google/gemini-2.5-flash-lite}
       - OPENROUTER_MAX_TOKENS=${OPENROUTER_MAX_TOKENS:-2048}
       - OPENROUTER_TEMPERATURE=${OPENROUTER_TEMPERATURE:-0.7}
       - PROPERTY_LLM_PROVIDER=${PROPERTY_LLM_PROVIDER:-openrouter}
       - PROPERTY_LLM_MODEL=${PROPERTY_LLM_MODEL:-google/gemini-2.5-pro}
       - SEMANTIC_CACHE_ENABLED=${SEMANTIC_CACHE_ENABLED:-true}
       - SEMANTIC_CACHE_THRESHOLD=${SEMANTIC_CACHE_THRESHOLD:-0.92}
+      - GEMINI_CONTEXT_CACHING_ENABLED=${GEMINI_CONTEXT_CACHING_ENABLED:-true}
+      - GEMINI_CONTEXT_CACHE_TTL=${GEMINI_CONTEXT_CACHE_TTL:-3600}
       - VOICE_PROVIDER=${VOICE_PROVIDER:-vapi}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
@@ -233,13 +273,52 @@ services:
       dockerfile: backend/Dockerfile
     command: celery -A app.celery_app beat --loglevel=info
     environment:
-      - DATABASE_URL=postgresql+asyncpg://lead_user:lead_pass_123@db:5432/lead_agent
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-lead_user}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@db:5432/${POSTGRES_DB:-lead_agent}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
     depends_on:
       - db
       - redis
+
+  # ── Pipecat Voice Agent ────────────────────────────────────────────────────
+  # Handles Pipecat pipelines for voice calls. Scales horizontally for concurrent calls.
+  # Start: docker compose --profile voice up
+  voice-agent:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: uvicorn app.voice_main:app --host 0.0.0.0 --port 8002 --reload
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-lead_user}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@db:5432/${POSTGRES_DB:-lead_agent}
+      - REDIS_URL=redis://redis:6379/0
+      - TTS_PROVIDER=${TTS_PROVIDER:-elevenlabs}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID:-}
+      - ELEVENLABS_MODEL=${ELEVENLABS_MODEL:-eleven_flash_v2_5}
+      - FISH_AUDIO_API_KEY=${FISH_AUDIO_API_KEY:-}
+      - FISH_AUDIO_VOICE_ID=${FISH_AUDIO_VOICE_ID:-}
+      - FISH_AUDIO_MODEL=${FISH_AUDIO_MODEL:-s2-pro}
+      - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY:-}
+      - DEEPGRAM_TTS_VOICE=${DEEPGRAM_TTS_VOICE:-aura-2-thalia-en}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-}
+      - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER:-}
+      - TWILIO_SIP_DOMAIN=${TWILIO_SIP_DOMAIN:-}
+      - TWILIO_DEFAULT_BROKER_ID=${TWILIO_DEFAULT_BROKER_ID:-1}
+      - PIPECAT_LOG_LEVEL=${PIPECAT_LOG_LEVEL:-INFO}
+      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY required — generate with openssl rand -hex 32}
+    ports:
+      - "8002:8002"
+    depends_on:
+      - db
+      - redis
+      - backend
+    profiles:
+      - voice
 
   # ── Jaeger — distributed tracing (dev only) ────────────────────────────────
   # Enable tracing: set OTEL_ENABLED=true in backend service environment.

@@ -22,6 +22,8 @@ import {
   Activity,
   Handshake,
   BarChart2,
+  FlaskConical,
+  Phone,
 } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
 import { useAuthStore } from '@/features/auth'
@@ -55,6 +57,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/pipeline', label: 'Pipeline', icon: GitBranch, excludeRoles: ['superadmin'] },
   { path: '/conversations', label: 'Conversaciones', icon: Inbox, excludeRoles: ['superadmin'] },
   { path: '/appointments', label: 'Citas', icon: Calendar, excludeRoles: ['superadmin'] },
+  { path: '/llamadas', label: 'Llamadas', icon: Phone, excludeRoles: ['superadmin'] },
   { path: '/chat', label: 'Chat IA', icon: MessageSquare, excludeRoles: ['superadmin'] },
   { path: '/costs', label: 'Costos LLM', icon: DollarSign, roles: ['admin', 'superadmin'] },
   { path: '/settings', label: 'Configuración', icon: Settings, roles: ['admin'] },
@@ -62,6 +65,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/brokers', label: 'Brokers', icon: Building2, roles: ['superadmin'], dividerBefore: true },
   { path: '/super-admin', label: 'Super Admin', icon: ShieldCheck, roles: ['superadmin'] },
   { path: '/admin/observability', label: 'Observabilidad', icon: Activity, roles: ['superadmin', 'admin'] },
+  { path: '/voice-test', label: 'Test de Voz', icon: FlaskConical, roles: ['admin', 'superadmin'] },
 ]
 
 const VENTAS_ITEMS: NavItem[] = [

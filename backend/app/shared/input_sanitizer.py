@@ -158,6 +158,38 @@ def sanitize_chat_input(
     )
 
 
+MAX_OUTPUT_LENGTH = 4000  # characters — well above any legitimate agent reply
+
+
+def sanitize_llm_output(
+    text: Optional[str],
+    max_length: int = MAX_OUTPUT_LENGTH,
+    source: Optional[str] = None,
+) -> str:
+    """
+    Clean an LLM-generated response before persisting it or sending it to a lead.
+
+    Unlike input sanitization this never raises: a degraded reply is better
+    than dropping the turn. Strips control characters (which break JSON / log
+    parsing and channel APIs) and truncates runaway generations.
+    """
+    if not text:
+        return ""
+
+    cleaned = _strip_control_characters(text).strip()
+    if len(cleaned) > max_length:
+        logger.warning(
+            "[InputSanitizer] LLM output truncated",
+            extra={
+                "source": source or "unknown",
+                "original_length": len(cleaned),
+                "max_length": max_length,
+            },
+        )
+        cleaned = cleaned[:max_length].rstrip()
+    return cleaned
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------

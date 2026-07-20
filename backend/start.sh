@@ -5,7 +5,7 @@ set -e
 case "${RAILWAY_SERVICE_NAME}" in
   "celery worker")
     echo "=== Starting Celery worker ===" >&2
-    exec celery -A app.celery_app worker --loglevel=info
+    exec celery -A app.celery_app worker --loglevel=info --concurrency="${CELERY_CONCURRENCY:-4}"
     ;;
   "celery-beat")
     echo "=== Starting Celery beat ===" >&2
@@ -16,4 +16,4 @@ esac
 python3 -m app.startup
 
 echo "=== Starting server ===" >&2
-exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
+exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}" --workers "${UVICORN_WORKERS:-1}"

@@ -1,11 +1,10 @@
 """
 Voice call models for recording and managing phone calls
 """
-from datetime import datetime
 from enum import Enum
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Float, Boolean,
-    ForeignKey, JSON, Enum as SQLEnum, Index
+    ForeignKey, Enum as SQLEnum, Index
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
@@ -61,7 +60,7 @@ class VoiceCall(Base, IdMixin, TimestampMixin):
     
     # Call status
     status = Column(
-        SQLEnum(CallStatus),
+        SQLEnum(CallStatus, values_callable=lambda x: [e.value for e in x]),
         default=CallStatus.INITIATED,
         nullable=False,
         index=True
@@ -89,7 +88,7 @@ class VoiceCall(Base, IdMixin, TimestampMixin):
     completed_at = Column(DateTime(timezone=True), nullable=True)
     
     # Multi-tenancy
-    broker_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    broker_id = Column(Integer, ForeignKey("brokers.id", ondelete="CASCADE"), nullable=False, index=True)
 
     # CRM agent who initiated the call (NULL for campaign/outbound calls)
     agent_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -107,10 +106,30 @@ class VoiceCall(Base, IdMixin, TimestampMixin):
     template_snapshot = Column(JSONB, nullable=True)
     profile_snapshot = Column(JSONB, nullable=True)
 
+    # ── Pipecat fields ────────────────────────────────────────────────────────
+    # pipecat_mode: "autonomous" | "copilot" | "handoff" | "coaching"
+    # (call_mode kept for VAPI backward compat; pipecat_mode for new calls)
+    pipecat_mode = Column(String(20), nullable=True)
+    call_direction = Column(String(10), nullable=True, default="outbound")  # "outbound" | "inbound"
+    initiated_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    agent_phone = Column(String(20), nullable=True)   # human agent phone for copilot/coaching/handoff
+    lead_phone = Column(String(20), nullable=True)
+    ai_speaking_seconds = Column(Float, nullable=True, default=0.0)
+    human_speaking_seconds = Column(Float, nullable=True, default=0.0)
+    lead_speaking_seconds = Column(Float, nullable=True, default=0.0)
+    handoff_occurred = Column(Boolean, nullable=False, default=False, server_default="false")
+    handoff_at = Column(DateTime(timezone=True), nullable=True)
+    handoff_reason = Column(Text, nullable=True)
+    handoff_to_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    extracted_data = Column(JSONB, nullable=True)  # sentiment, interests, objections, commitments, next_steps
+    call_metrics = Column(JSONB, nullable=True)    # tts_provider, tokens, cost, latency, tools_used, emotion_tags
+
     # Relationships
+    initiated_by = relationship("User", foreign_keys=[initiated_by_id])
+    handoff_to_user = relationship("User", foreign_keys=[handoff_to_user_id])
     lead = relationship("Lead")
     campaign = relationship("Campaign", foreign_keys=[campaign_id])
-    broker = relationship("User", foreign_keys=[broker_id])
+    broker = relationship("Broker", foreign_keys=[broker_id])
     agent_user = relationship("User", foreign_keys=[agent_user_id])
     transcript_lines = relationship("CallTranscript", back_populates="voice_call", cascade="all, delete-orphan")
     
@@ -140,7 +159,7 @@ class CallTranscript(Base, IdMixin):
     
     # Speaker identification
     speaker = Column(
-        SQLEnum(SpeakerType),
+        SQLEnum(SpeakerType, values_callable=lambda x: [e.value for e in x]),
         nullable=False
     )
     
@@ -152,7 +171,12 @@ class CallTranscript(Base, IdMixin):
     
     # STT confidence score (0.0 to 1.0)
     confidence = Column(Float, nullable=True)
-    
+
+    # Pipecat emotion fields
+    emotion_detected = Column(String(50), nullable=True)   # detected emotion of the lead speaker
+    emotion_tag_used = Column(String(100), nullable=True)  # Fish Audio emotion tag injected for AI (e.g. "[warm and enthusiastic]")
+    duration_ms = Column(Integer, nullable=True)           # duration of this utterance in milliseconds
+
     # Relationships
     voice_call = relationship("VoiceCall", back_populates="transcript_lines")
     
