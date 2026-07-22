@@ -97,11 +97,17 @@ class TestAppointmentCreate:
     @pytest.mark.asyncio
     async def test_create_appointment_returns_appointment(self, db_session, sample_lead):
         lead = await sample_lead()
-        start = CHILE_TZ.localize(datetime(2025, 2, 15, 14, 0, 0))
-        with patch("app.services.appointments.get_google_calendar_service") as mock_cal:
+        start = datetime.now(CHILE_TZ) + timedelta(days=3)
+        with patch("app.services.appointments.service.get_calendar_service_for_broker") as mock_cal, \
+             patch("app.services.appointments.google_calendar.get_calendar_service_for_agent") as mock_agent_cal:
             mock_svc = MagicMock()
-            mock_svc.service = None
+            mock_svc.is_ready = True
+            mock_svc.get_busy_intervals.return_value = []
+            mock_svc.create_event_with_meet.return_value = {
+                "event_id": "test-event", "meet_url": "https://meet.google.com/test"
+            }
             mock_cal.return_value = mock_svc
+            mock_agent_cal.return_value = mock_svc
 
             apt = await AppointmentService.create_appointment(
                 db_session,

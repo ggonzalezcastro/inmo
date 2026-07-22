@@ -12,7 +12,7 @@ caller must persist the (possibly new) refresh token via
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Tuple
 import logging
 import pytz
 
@@ -35,9 +35,11 @@ class OutlookCalendarService:
         self,
         refresh_token: str,
         calendar_id: Optional[str] = None,
+        schedule_email: Optional[str] = None,
     ) -> None:
         self._refresh_token = refresh_token
         self.calendar_id = calendar_id  # Graph calendar ID; None → primary
+        self.schedule_email = schedule_email
         self._token_rotated: bool = False  # set True when Graph returns a new RT
         # Build the MSAL app once per service instance (not per API call)
         self._msal_app = msal.ConfidentialClientApplication(
@@ -174,6 +176,34 @@ class OutlookCalendarService:
             return None
         except Exception as exc:
             logger.error("Unexpected error creating Outlook event: %s", exc, exc_info=True)
+            return None
+
+    def get_busy_intervals(
+        self, start_time: datetime, end_time: datetime
+    ) -> Optional[List[Tuple[datetime, datetime]]]:
+        """Return Microsoft 365 busy periods, or None if they cannot be verified."""
+        if not self.is_ready or not self.schedule_email:
+            return None
+        try:
+            access_token = self._get_access_token()
+            body = {
+                "schedules": [self.schedule_email],
+                "startTime": {"dateTime": start_time.astimezone(CHILE_TZ).strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": "America/Santiago"},
+                "endTime": {"dateTime": end_time.astimezone(CHILE_TZ).strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": "America/Santiago"},
+                "availabilityViewInterval": 30,
+            }
+            with httpx.Client(timeout=15) as client:
+                response = client.post(f"{GRAPH_BASE}/me/calendar/getSchedule", json=body, headers={"Authorization": f"Bearer {access_token}"})
+                response.raise_for_status()
+            schedules = response.json().get("value") or []
+            if not schedules or schedules[0].get("error"):
+                return None
+            return [(
+                CHILE_TZ.localize(datetime.fromisoformat(item["start"]["dateTime"]).replace(tzinfo=None)),
+                CHILE_TZ.localize(datetime.fromisoformat(item["end"]["dateTime"]).replace(tzinfo=None)),
+            ) for item in schedules[0].get("scheduleItems", [])]
+        except Exception as exc:
+            logger.error("Outlook free/busy failed: %s", exc, exc_info=True)
             return None
 
     def update_event(

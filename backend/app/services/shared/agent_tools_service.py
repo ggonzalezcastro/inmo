@@ -8,6 +8,12 @@ from google.genai import types
 import logging
 from app.services.appointments import AppointmentService
 from app.models.appointment import AppointmentType
+from app.models.appointment import Appointment, AppointmentStatus
+from app.services.appointments.time_resolver import (
+    DEFAULT_DURATION_MINUTES,
+    SchedulingTimeError,
+    resolve_schedule_time,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +43,8 @@ class AgentToolsService:
                     },
                     "duration_minutes": {
                         "type": "integer",
-                        "description": "Duración de la cita en minutos. Default: 60 minutos.",
-                        "default": 60
+                        "description": "Duración de la cita en minutos. Default: 30 minutos.",
+                        "default": DEFAULT_DURATION_MINUTES
                     }
                 },
                 "required": []
@@ -52,14 +58,23 @@ class AgentToolsService:
             parameters={
                 "type": "object",
                 "properties": {
-                    "start_time": {
+                    "date_reference": {
                         "type": "string",
-                        "description": "Fecha y hora de inicio de la cita en formato ISO 8601 con timezone (ej: '2025-02-01T15:00:00-03:00'). DEBE incluir timezone.",
+                        "enum": ["today", "tomorrow", "absolute"],
+                        "description": "Referencia de fecha expresada por el usuario. El backend la resuelve.",
+                    },
+                    "local_date": {
+                        "type": "string",
+                        "description": "Fecha YYYY-MM-DD, solo cuando date_reference sea absolute.",
+                    },
+                    "local_time": {
+                        "type": "string",
+                        "description": "Hora local HH:MM indicada por el usuario.",
                     },
                     "duration_minutes": {
                         "type": "integer",
-                        "description": "Duración de la cita en minutos. Default: 60.",
-                        "default": 60
+                        "description": "Duración de la cita en minutos. Default: 30.",
+                        "default": DEFAULT_DURATION_MINUTES
                     },
                     "appointment_type": {
                         "type": "string",
@@ -72,11 +87,24 @@ class AgentToolsService:
                         "description": "Notas adicionales sobre la cita (opcional)."
                     }
                 },
-                "required": ["start_time"]
+                "required": ["date_reference", "local_time"]
             }
         )
-        
-        return [get_slots_function, create_appointment_function]
+        reschedule_function = types.FunctionDeclaration(
+            name="reschedule_appointment",
+            description="Reagenda la última cita activa del cliente, solo tras confirmar el nuevo horario.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "date_reference": {"type": "string", "enum": ["today", "tomorrow", "absolute"]},
+                    "local_date": {"type": "string", "description": "Fecha YYYY-MM-DD para una fecha absoluta."},
+                    "local_time": {"type": "string", "description": "Hora local HH:MM."},
+                    "duration_minutes": {"type": "integer", "default": DEFAULT_DURATION_MINUTES},
+                },
+                "required": ["date_reference", "local_time"],
+            },
+        )
+        return [get_slots_function, create_appointment_function, reschedule_function]
     
     @staticmethod
     async def execute_tool(
@@ -84,7 +112,9 @@ class AgentToolsService:
         tool_name: str,
         arguments: Dict[str, Any],
         lead_id: int,
-        agent_id: Optional[int] = None
+        agent_id: Optional[int] = None,
+        timezone_name: str = "America/Santiago",
+        conversation_text: str = "",
     ) -> Dict[str, Any]:
         """
         Execute a tool function and return the result
@@ -110,7 +140,11 @@ class AgentToolsService:
             
             elif tool_name == "create_appointment":
                 return await AgentToolsService._create_appointment(
-                    db, arguments, lead_id, agent_id
+                    db, arguments, lead_id, agent_id, timezone_name, conversation_text
+                )
+            elif tool_name == "reschedule_appointment":
+                return await AgentToolsService._reschedule_appointment(
+                    db, arguments, lead_id, timezone_name, conversation_text
                 )
             
             else:
@@ -120,7 +154,11 @@ class AgentToolsService:
                     "error": f"Unknown tool: {tool_name}"
                 }
         
+        except SchedulingTimeError as e:
+            await db.rollback()
+            return {"success": False, "error_code": e.code, "error": str(e)}
         except Exception as e:
+            await db.rollback()
             logger.error(f"[AGENT_TOOLS] Error executing tool {tool_name}: {str(e)}", exc_info=True)
             return {
                 "success": False,
@@ -166,9 +204,12 @@ class AgentToolsService:
         end_date = start_date + timedelta(days=days_ahead)
         
         # Parse duration
-        duration_minutes = arguments.get("duration_minutes", 60)
+        duration_minutes = arguments.get("duration_minutes", DEFAULT_DURATION_MINUTES)
         
-        # Get available slots
+        if not agent_id:
+            return {"success": False, "error_code": "agent_calendar_unavailable", "error": "No hay un ejecutivo asignado para consultar su calendario"}
+
+        # Get internal CRM availability first.
         slots = await AppointmentService.get_available_slots(
             db=db,
             start_date=start_date,
@@ -178,28 +219,18 @@ class AgentToolsService:
             duration_minutes=duration_minutes
         )
 
-        # Fallback: if no slots are configured in DB, generate generic availability
-        # so the agent can still confirm whatever time the lead proposes.
-        if not slots:
-            fallback_slots = []
-            current = start_date
-            for _ in range(min(days_ahead, 14)):
-                if current.weekday() < 6:  # Mon–Sat
-                    for hour in (9, 10, 11, 14, 15, 16, 17):
-                        fallback_slots.append({
-                            "date": current.isoformat(),
-                            "time": f"{hour:02d}:00",
-                            "datetime": f"{current.isoformat()}T{hour:02d}:00:00",
-                            "available": True,
-                        })
-                current = current + timedelta(days=1)
-            slots = fallback_slots
-            formatted_slots = (
-                "Disponibilidad general: lunes a sábado de 9:00 a 18:00. "
-                "Confirma el día y hora que te acomode."
-            )
-        else:
-            formatted_slots = AppointmentService.format_slots_for_llm(slots, max_slots=20)
+        if slots:
+            range_start = datetime.fromisoformat(slots[0]["start_time"])
+            range_end = datetime.fromisoformat(slots[-1]["end_time"])
+            busy = await AppointmentService.external_busy_intervals(db, lead_id, agent_id, range_start, range_end)
+            if busy is None:
+                return {"success": False, "error_code": "external_calendar_unavailable", "error": "No pude verificar el calendario externo; no ofreceré horarios"}
+            slots = [slot for slot in slots if not any(
+                datetime.fromisoformat(slot["start_time"]) < busy_end
+                and datetime.fromisoformat(slot["end_time"]) > busy_start
+                for busy_start, busy_end in busy
+            )]
+        formatted_slots = AppointmentService.format_slots_for_llm(slots, max_slots=20) if slots else "No hay horarios verificables disponibles."
 
         return {
             "success": True,
@@ -219,7 +250,9 @@ class AgentToolsService:
         db: AsyncSession,
         arguments: Dict[str, Any],
         lead_id: int,
-        agent_id: Optional[int] = None
+        agent_id: Optional[int] = None,
+        timezone_name: str = "America/Santiago",
+        conversation_text: str = "",
     ) -> Dict[str, Any]:
         """Create an appointment"""
         
@@ -284,25 +317,13 @@ class AgentToolsService:
             agent_result = await db.execute(select(User).where(User.id == agent_id))
             agent = agent_result.scalars().first()
         
-        # Parse start_time
-        start_time_str = arguments.get("start_time")
-        try:
-            # Try parsing ISO format with timezone
-            start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
-            # Ensure timezone-aware (Chile timezone)
-            if start_time.tzinfo is None:
-                import pytz
-                chile_tz = pytz.timezone('America/Santiago')
-                start_time = chile_tz.localize(start_time)
-        except Exception as e:
-            logger.error(f"[AGENT_TOOLS] Error parsing start_time: {str(e)}")
-            return {
-                "success": False,
-                "error": f"Formato de fecha inválido: {start_time_str}. Usa formato ISO 8601 (ej: '2025-02-01T15:00:00-03:00')"
-            }
+        resolved = resolve_schedule_time(
+            arguments, timezone_name=timezone_name, conversation_text=conversation_text
+        )
+        start_time = resolved.start_time
         
         # Parse duration
-        duration_minutes = arguments.get("duration_minutes", 60)
+        duration_minutes = arguments.get("duration_minutes", DEFAULT_DURATION_MINUTES)
         
         # Parse appointment type
         apt_type_str = arguments.get("appointment_type", "virtual_meeting")
@@ -343,15 +364,44 @@ class AgentToolsService:
                 }
             }
         
+        except SchedulingTimeError as e:
+            await db.rollback()
+            return {"success": False, "error_code": e.code, "error": str(e)}
         except ValueError as e:
+            await db.rollback()
             # Likely availability issue
             return {
                 "success": False,
                 "error": str(e)
             }
         except Exception as e:
+            await db.rollback()
             logger.error(f"[AGENT_TOOLS] Error creating appointment: {str(e)}", exc_info=True)
             return {
                 "success": False,
                 "error": f"Error al crear la cita: {str(e)}"
             }
+
+    @staticmethod
+    async def _reschedule_appointment(db, arguments, lead_id, timezone_name, conversation_text):
+        from sqlalchemy.future import select
+        result = await db.execute(
+            select(Appointment).where(
+                Appointment.lead_id == lead_id,
+                Appointment.status.in_([AppointmentStatus.SCHEDULED, AppointmentStatus.CONFIRMED]),
+            ).order_by(Appointment.created_at.desc()).limit(1)
+        )
+        appointment = result.scalars().first()
+        if not appointment:
+            return {"success": False, "error_code": "appointment_not_found", "error": "No hay una cita activa para reagendar"}
+        resolved = resolve_schedule_time(arguments, timezone_name=timezone_name, conversation_text=conversation_text)
+        updated = await AppointmentService.update_appointment(db, appointment.id, {
+            "start_time": resolved.start_time,
+            "duration_minutes": arguments.get("duration_minutes", appointment.duration_minutes or DEFAULT_DURATION_MINUTES),
+        })
+        return {"success": True, "result": {
+            "appointment_id": updated.id,
+            "start_time": updated.start_time.isoformat(),
+            "end_time": updated.end_time.isoformat(),
+            "message": f"Cita reagendada para {updated.start_time.strftime('%d/%m/%Y a las %H:%M')}",
+        }}

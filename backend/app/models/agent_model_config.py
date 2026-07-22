@@ -5,7 +5,7 @@ Allows SUPERADMIN to assign a specific LLM provider, model, temperature
 and max_tokens to each agent type for a given broker, overriding the
 global env-var configuration.
 """
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.models.base import Base, IdMixin, TimestampMixin
 
@@ -45,7 +45,6 @@ class AgentModelConfig(Base, IdMixin, TimestampMixin):
 
     __table_args__ = (
         UniqueConstraint("broker_id", "agent_type", name="uq_agent_model_config_broker_agent"),
-        Index("ix_agent_model_configs_broker_id", "broker_id"),
     )
 
     # Relationship back to broker (optional — used for eager loading)

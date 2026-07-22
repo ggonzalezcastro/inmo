@@ -14,6 +14,7 @@ from app.models.appointment import (
     AvailabilitySlot,
     AppointmentBlock,
 )
+from app.services.appointments.time_resolver import MIN_LEAD_TIME_MINUTES
 
 logger = logging.getLogger(__name__)
 
@@ -81,10 +82,16 @@ async def get_available_slots(
     agent_id: Optional[int] = None,
     appointment_type: Optional[AppointmentType] = None,
     duration_minutes: int = 60,
+    now: Optional[datetime] = None,
 ) -> List[Dict[str, Any]]:
     """Get available time slots for a date range."""
     available_slots = []
     current_date = start_date
+
+    local_now = now.astimezone(CHILE_TZ) if now and now.tzinfo else (
+        CHILE_TZ.localize(now) if now else datetime.now(CHILE_TZ)
+    )
+    earliest_start = local_now + timedelta(minutes=MIN_LEAD_TIME_MINUTES)
 
     while current_date <= end_date:
         day_of_week = current_date.weekday()
@@ -130,6 +137,9 @@ async def get_available_slots(
                 current_slot_end = current_slot_start + timedelta(
                     minutes=duration_minutes
                 )
+                if current_slot_start < earliest_start:
+                    current_slot_start += timedelta(minutes=slot.slot_duration_minutes)
+                    continue
                 is_available = await check_availability(
                     db,
                     start_time=current_slot_start,

@@ -6,6 +6,7 @@ Responsible for pipeline stages: potencial, agendado
 from __future__ import annotations
 
 import logging
+import re
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -160,6 +161,22 @@ class FollowUpAgent(BaseAgent):
             stage=context.pipeline_stage,
         )
 
+        # Never leave a confirmed reschedule request to an LLM-only promise.
+        has_active_appointment = bool(context.lead_data.get("confirmed_appointment"))
+        reschedule_intent = bool(re.search(
+            r"\b(reagend|cambi(?:ar|o|é)|corr(?:egir|ijo|ige)|otra fecha|otra hora)\w*\b",
+            message.lower(),
+        ))
+        if has_active_appointment and reschedule_intent:
+            return AgentResponse(
+                message="Voy a verificar el nuevo horario en el calendario antes de confirmarlo.",
+                agent_type=AgentType.FOLLOW_UP,
+                handoff=HandoffSignal(
+                    target_agent=AgentType.SCHEDULER,
+                    reason="El lead pidió reagendar una cita existente",
+                ),
+            )
+
         system_prompt = self.get_system_prompt(context)
         _handoff_intent: dict = {}
 
@@ -200,6 +217,9 @@ class FollowUpAgent(BaseAgent):
                 target_agent=_handoff_intent["target"],
                 reason=_handoff_intent["reason"],
             )
+
+        if not handoff and re.search(r"\b(actualic|reagend|cambi).{0,40}\b(cita|fecha|hora)", response_text.lower()):
+            response_text = "Aún no he modificado la cita. Indícame la nueva fecha y hora para verificarla en el calendario."
 
         self._log(
             "DONE",

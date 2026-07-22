@@ -108,8 +108,10 @@ class SchedulerAgent(BaseAgent):
 
         base_prompt += (
             "\n\n### Paso 4 — Traspaso\n"
-            "Una vez que create_appointment responda con éxito, llama handoff_to_follow_up. "
-            "NO llames handoff_to_follow_up si create_appointment devolvió error."
+            "Resuelve hoy/mañana con date_reference; nunca inventes mes ni año. "
+            "Usa reschedule_appointment si ya existe una cita que el lead quiere cambiar. "
+            "Una vez que create_appointment o reschedule_appointment responda con éxito, llama handoff_to_follow_up. "
+            "NO confirmes ni hagas handoff si la herramienta devolvió error."
         )
 
         skill_ext = context.lead_data.get("_skill_scheduler_extension")
@@ -311,14 +313,33 @@ class SchedulerAgent(BaseAgent):
                                     "Pregunta al lead si quiere explorar otras zonas/tipos antes de agendar."
                                 ),
                             }
+                    _tool_started = _time.perf_counter()
                     result = await AgentToolsService.execute_tool(
                         db=db,
                         tool_name=tool_name,
                         arguments=arguments,
                         lead_id=context.lead_id,
                         agent_id=None,
+                        timezone_name=broker_timezone,
+                        conversation_text=message,
                     )
-                    if tool_name == "create_appointment" and isinstance(result, dict) and result.get("success"):
+                    try:
+                        from app.services.observability.event_logger import event_logger
+                        await event_logger.log_tool_call(
+                            lead_id=context.lead_id,
+                            broker_id=context.broker_id,
+                            tool_name=tool_name,
+                            tool_input=arguments,
+                            tool_output=result,
+                            latency_ms=int((_time.perf_counter() - _tool_started) * 1000),
+                            success=bool(isinstance(result, dict) and result.get("success")),
+                            agent_type=self.agent_type.value,
+                            message_id=context.message_id,
+                            conversation_id=context.conversation_id,
+                        )
+                    except Exception:
+                        logger.warning("Could not log scheduler tool call", exc_info=True)
+                    if tool_name in ("create_appointment", "reschedule_appointment") and isinstance(result, dict) and result.get("success"):
                         _last_appointment_result = result.get("result")
                     return result
                 except Exception as _te:

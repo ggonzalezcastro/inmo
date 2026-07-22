@@ -258,7 +258,7 @@ class TestSchedulerAgent:
         assert "Las Condes" in prompt
 
     @pytest.mark.asyncio
-    async def test_process_signals_handoff_when_appointment_confirmed(self):
+    async def test_process_blocks_handoff_without_successful_appointment_tool(self):
         agent = SchedulerAgent()
         ctx = _qualified_context()
 
@@ -278,8 +278,7 @@ class TestSchedulerAgent:
                 "Perfecto, ese horario me acomoda", ctx, db
             )
 
-        assert response.handoff is not None
-        assert response.handoff.target_agent == AgentType.FOLLOW_UP
+        assert response.handoff is None
 
     @pytest.mark.asyncio
     async def test_process_no_handoff_when_not_confirmed(self):

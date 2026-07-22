@@ -23,10 +23,11 @@ export interface DealDocumentsBoardProps {
 interface SlotDropZoneProps {
   dealId: number;
   slotKey: string;
+  slotIndex: number;
   disabled?: boolean;
 }
 
-function SlotDropZone({ dealId, slotKey, disabled }: SlotDropZoneProps) {
+function SlotDropZone({ dealId, slotKey, slotIndex, disabled }: SlotDropZoneProps) {
   const uploadDocument = useDealsStore((s) => s.uploadDocument);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,14 +43,14 @@ function SlotDropZone({ dealId, slotKey, disabled }: SlotDropZoneProps) {
       setError(null);
       setUploading(true);
       try {
-        await uploadDocument(dealId, slotKey, accepted[0]);
+        await uploadDocument(dealId, slotKey, accepted[0], slotIndex);
       } catch {
         setError('Error al subir el archivo. Intenta de nuevo.');
       } finally {
         setUploading(false);
       }
     },
-    [dealId, slotKey, uploadDocument],
+    [dealId, slotKey, slotIndex, uploadDocument],
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -220,7 +221,7 @@ function DocumentRow({ doc, slotLabel, dealId, slotKey, canEdit }: DocumentRowPr
       )}
 
       {doc.status === 'rechazado' && canEdit && (
-        <SlotDropZone dealId={dealId} slotKey={slotKey} />
+        <SlotDropZone dealId={dealId} slotKey={slotKey} slotIndex={doc.slot_index} />
       )}
 
       <RejectDocumentModal
@@ -253,7 +254,17 @@ interface SlotCardProps {
 function SlotCard({ slot, docs, dealId, canEdit }: SlotCardProps) {
   const slotDocs = docs.filter((d) => d.slot === slot.slot_key);
   const hasUploadedDocs = slotDocs.length > 0;
-  const allApproved = slotDocs.length > 0 && slotDocs.every((d) => d.status === 'aprobado');
+  const requiredIndexes = Array.from({ length: slot.max_count }, (_, index) => index);
+  const activeDocs = slotDocs.filter((doc) => doc.status !== 'rechazado');
+  const approvedIndexes = new Set(
+    slotDocs.filter((doc) => doc.status === 'aprobado').map((doc) => doc.slot_index),
+  );
+  const occupiedIndexes = new Set(activeDocs.map((doc) => doc.slot_index));
+  const approvedCount = requiredIndexes.filter((index) => approvedIndexes.has(index)).length;
+  const allApproved = slot.required
+    ? requiredIndexes.every((index) => approvedIndexes.has(index))
+    : slotDocs.length > 0 && slotDocs.every((doc) => doc.status === 'aprobado');
+  const nextMissingIndex = requiredIndexes.find((index) => !occupiedIndexes.has(index));
 
   return (
     <div
@@ -268,6 +279,11 @@ function SlotCard({ slot, docs, dealId, canEdit }: SlotCardProps) {
           <p className="text-xs text-muted-foreground mt-0.5">
             Requerido para etapa: <span className="font-medium">{slot.required_for_stage}</span>
           </p>
+          {slot.required && slot.max_count > 1 && (
+            <p className={`text-xs mt-1 font-medium ${allApproved ? 'text-emerald-700' : 'text-amber-700'}`}>
+              {approvedCount} de {slot.max_count} documentos aprobados
+            </p>
+          )}
         </div>
         <span
           className={`flex-shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -299,8 +315,8 @@ function SlotCard({ slot, docs, dealId, canEdit }: SlotCardProps) {
       )}
 
       {/* Drop zone for new uploads (when canEdit and slot not fully approved) */}
-      {canEdit && !allApproved && (
-        <SlotDropZone dealId={dealId} slotKey={slot.slot_key} />
+      {canEdit && !allApproved && nextMissingIndex !== undefined && (
+        <SlotDropZone dealId={dealId} slotKey={slot.slot_key} slotIndex={nextMissingIndex} />
       )}
     </div>
   );

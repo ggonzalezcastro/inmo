@@ -72,6 +72,8 @@ class AgentContext:
     tone_hint: Optional[str] = None             # "empathetic", "professional", "concise"
     channel: str = "chat"                        # "chat" | "voice" — selects skill variant
     call_purpose: Optional[str] = None           # CallPurpose value — objective of a voice call
+    message_id: Optional[int] = None
+    conversation_id: Optional[int] = None
 
     @property
     def recent_messages(self) -> List[Dict]:

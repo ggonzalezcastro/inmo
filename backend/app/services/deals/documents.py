@@ -47,6 +47,31 @@ class DealDocumentService:
         if not is_slot_key_valid(slot):
             raise DealError(f"Slot de documento inválido: '{slot}'", status_code=400)
 
+        definition = SLOT_DEFINITIONS[slot]
+        if slot_index < 0 or slot_index >= definition.max_count:
+            raise DealError(
+                f"Índice inválido para {definition.label}: {slot_index}. "
+                f"Debe estar entre 0 y {definition.max_count - 1}.",
+                status_code=422,
+            )
+
+        existing_result = await db.execute(
+            select(DealDocument).where(
+                and_(
+                    DealDocument.deal_id == deal.id,
+                    DealDocument.slot == slot,
+                    DealDocument.slot_index == slot_index,
+                    DealDocument.co_titular_index == co_titular_index,
+                    DealDocument.status != "rechazado",
+                )
+            )
+        )
+        if existing_result.scalars().first():
+            raise DealError(
+                f"Ya existe un documento activo para {definition.label} (índice {slot_index}).",
+                status_code=409,
+            )
+
         if uploaded_by_ai:
             result = await db.execute(
                 select(BrokerLeadConfig).where(BrokerLeadConfig.broker_id == deal.broker_id)

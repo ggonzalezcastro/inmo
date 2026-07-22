@@ -48,7 +48,8 @@ async def _get_db_session():
 async def get_available_appointment_slots(
     start_date: Optional[str] = None,
     days_ahead: int = 14,
-    duration_minutes: int = 60,
+    duration_minutes: int = 30,
+    lead_id: Optional[int] = None,
 ) -> dict:
     """
     Obtiene los horarios disponibles para agendar citas.
@@ -63,8 +64,14 @@ async def get_available_appointment_slots(
     Returns:
         Dict con slots disponibles, conteo, y rango de fechas.
     """
-    from app.services.appointments import AppointmentService
-    from app.models.appointment import AppointmentType
+    from app.services.shared.agent_tools_service import AgentToolsService
+
+    if lead_id is None:
+        return {
+            "success": False,
+            "error_code": "lead_required",
+            "error": "Se requiere lead_id para verificar el calendario del ejecutivo asignado",
+        }
 
     # Parse start_date
     if start_date:
@@ -79,29 +86,16 @@ async def get_available_appointment_slots(
 
     db = await _get_db_session()
     try:
-        slots = await AppointmentService.get_available_slots(
+        return await AgentToolsService.execute_tool(
             db=db,
-            start_date=parsed_start,
-            end_date=end_date,
-            agent_id=None,
-            appointment_type=AppointmentType.VIRTUAL_MEETING,
-            duration_minutes=duration_minutes,
-        )
-
-        formatted = AppointmentService.format_slots_for_llm(slots, max_slots=20)
-
-        return {
-            "success": True,
-            "result": {
-                "slots": slots[:20],
-                "formatted": formatted,
-                "count": len(slots),
-                "date_range": {
-                    "start": parsed_start.isoformat(),
-                    "end": end_date.isoformat(),
-                },
+            tool_name="get_available_appointment_slots",
+            arguments={
+                "start_date": parsed_start.isoformat(),
+                "days_ahead": days_ahead,
+                "duration_minutes": duration_minutes,
             },
-        }
+            lead_id=lead_id,
+        )
     except Exception as e:
         logger.error(f"[MCP] Error getting slots: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
@@ -116,7 +110,7 @@ async def get_available_appointment_slots(
 async def create_appointment(
     start_time: str,
     lead_id: int,
-    duration_minutes: int = 60,
+    duration_minutes: int = 30,
     appointment_type: str = "virtual_meeting",
     notes: Optional[str] = None,
 ) -> dict:

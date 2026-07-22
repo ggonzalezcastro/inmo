@@ -3,7 +3,7 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Tuple
 import logging
 import os
 import pytz
@@ -167,6 +167,30 @@ class GoogleCalendarService:
             logger.error(f"Unexpected error creating Google Calendar event: {str(e)}", exc_info=True)
             return None
 
+    def get_busy_intervals(
+        self, start_time: datetime, end_time: datetime
+    ) -> Optional[List[Tuple[datetime, datetime]]]:
+        """Return calendar busy periods, or None when free/busy cannot be verified."""
+        if not self.service:
+            return None
+        try:
+            response = self.service.freebusy().query(body={
+                "timeMin": start_time.astimezone(pytz.UTC).isoformat(),
+                "timeMax": end_time.astimezone(pytz.UTC).isoformat(),
+                "timeZone": "UTC",
+                "items": [{"id": self.calendar_id}],
+            }).execute()
+            calendar = (response.get("calendars") or {}).get(self.calendar_id) or {}
+            if calendar.get("errors"):
+                return None
+            return [(
+                datetime.fromisoformat(item["start"].replace("Z", "+00:00")),
+                datetime.fromisoformat(item["end"].replace("Z", "+00:00")),
+            ) for item in calendar.get("busy", [])]
+        except Exception as exc:
+            logger.error("Google free/busy failed: %s", exc, exc_info=True)
+            return None
+
     def update_event(
         self,
         event_id: str,
@@ -279,7 +303,11 @@ def get_calendar_service_for_broker(broker_config):
             from app.services.appointments.outlook_calendar import OutlookCalendarService
             token = decrypt_value(outlook_rt)
             calendar_id = getattr(broker_config, "outlook_calendar_id", None)
-            return OutlookCalendarService(refresh_token=token, calendar_id=calendar_id)
+            return OutlookCalendarService(
+                refresh_token=token,
+                calendar_id=calendar_id,
+                schedule_email=getattr(broker_config, "outlook_calendar_email", None),
+            )
         logger.warning(
             "calendar_provider='outlook' but no refresh token found for broker_id=%s; "
             "falling back to Google",
@@ -333,6 +361,7 @@ def get_calendar_service_for_agent(agent, broker_config):
                 svc = OutlookCalendarService(
                     refresh_token=token,
                     calendar_id=agent.outlook_calendar_id,
+                    schedule_email=agent.outlook_calendar_email,
                 )
                 if svc.is_ready:
                     logger.info(

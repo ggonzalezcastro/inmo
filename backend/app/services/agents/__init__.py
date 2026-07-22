@@ -88,6 +88,8 @@ def build_context(
     pre_analysis: dict | None = None,
     channel: str = "chat",
     call_purpose: str | None = None,
+    message_id: int | None = None,
+    conversation_id: int | None = None,
 ) -> AgentContext:
     """
     Convenience factory: build an AgentContext from a Lead ORM object.
@@ -161,6 +163,8 @@ def build_context(
         pre_analysis=pre_analysis,
         channel=channel,
         call_purpose=call_purpose,
+        message_id=message_id,
+        conversation_id=conversation_id,
         property_preferences={
             k: v for k, v in {
                 "property_type": metadata.get("property_type"),

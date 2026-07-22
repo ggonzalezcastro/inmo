@@ -112,6 +112,7 @@ class ChatService:
         message_data: ChatMessageData,
         status: MessageStatus = MessageStatus.SENT,
         ai_used: bool = True,
+        conversation_id: Optional[int] = None,
     ) -> ChatMessage:
         """Log chat message to database."""
         try:
@@ -136,6 +137,7 @@ class ChatService:
             provider_metadata=message_data.provider_metadata,
             attachments=message_data.attachments,
             ai_response_used=ai_used,
+            conversation_id=conversation_id,
         )
         db.add(message)
         await db.commit()

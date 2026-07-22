@@ -24,6 +24,12 @@ from app.services.appointments.availability import (
     get_available_slots as _get_available_slots,
     CHILE_TZ,
 )
+from app.services.appointments.time_resolver import (
+    DEFAULT_DURATION_MINUTES,
+    DEFAULT_TIMEZONE,
+    validate_future_start,
+    SchedulingTimeError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +38,58 @@ class AppointmentService:
     """Service for managing appointments and availability"""
 
     CHILE_TZ = CHILE_TZ
+
+    @staticmethod
+    async def external_busy_intervals(
+        db: AsyncSession,
+        lead_id: int,
+        agent_id: Optional[int],
+        start_time: datetime,
+        end_time: datetime,
+        agent=None,
+    ):
+        """Read the effective Google/Outlook calendar; None means unverifiable."""
+        lead_result = await db.execute(select(Lead).where(Lead.id == lead_id))
+        lead = lead_result.scalars().first()
+        if not lead:
+            return None
+        if agent is None and agent_id:
+            agent_result = await db.execute(select(User).where(User.id == agent_id))
+            agent = agent_result.scalars().first()
+        broker_config = None
+        if lead.broker_id:
+            config_result = await db.execute(
+                select(BrokerPromptConfig).where(BrokerPromptConfig.broker_id == lead.broker_id)
+            )
+            broker_config = config_result.scalars().first()
+        from app.services.appointments.google_calendar import get_calendar_service_for_agent
+        calendar_service = get_calendar_service_for_agent(agent, broker_config)
+        if not calendar_service.is_ready:
+            return None
+        busy = calendar_service.get_busy_intervals(start_time, end_time)
+        if isinstance(calendar_service, OutlookCalendarService) and broker_config:
+            await persist_outlook_token_if_rotated(calendar_service, broker_config, db)
+        return busy
+
+    @staticmethod
+    async def require_external_availability(
+        db: AsyncSession,
+        lead_id: int,
+        agent_id: Optional[int],
+        start_time: datetime,
+        end_time: datetime,
+        agent=None,
+    ) -> None:
+        busy = await AppointmentService.external_busy_intervals(
+            db, lead_id, agent_id, start_time, end_time, agent=agent
+        )
+        if busy is None:
+            raise SchedulingTimeError(
+                "external_calendar_unavailable",
+                "No pude verificar el calendario externo; la cita no fue confirmada",
+            )
+        if any(start_time < busy_end and end_time > busy_start for busy_start, busy_end in busy):
+            raise SchedulingTimeError("slot_unavailable", "El horario está ocupado en el calendario externo")
 
     @staticmethod
     def generate_google_meet_url(lead_id: int, appointment_id: Optional[int] = None) -> str:
@@ -55,7 +113,7 @@ class AppointmentService:
         db: AsyncSession,
         lead_id: int,
         start_time: datetime,
-        duration_minutes: int = 60,
+        duration_minutes: int = DEFAULT_DURATION_MINUTES,
         appointment_type: AppointmentType = AppointmentType.VIRTUAL_MEETING,
         agent_id: Optional[int] = None,
         agent=None,  # Optional pre-loaded User object (avoids extra DB query)
@@ -64,9 +122,8 @@ class AppointmentService:
     ) -> Appointment:
         """Create a new appointment - always generates Google Meet URL for online meetings"""
 
-        # Ensure start_time is timezone-aware
-        if start_time.tzinfo is None:
-            start_time = AppointmentService.CHILE_TZ.localize(start_time)
+        # This is the final guard shared by REST, MCP, chat and voice callers.
+        start_time = validate_future_start(start_time, timezone_name=DEFAULT_TIMEZONE)
 
         end_time = start_time + timedelta(minutes=duration_minutes)
 
@@ -96,7 +153,11 @@ class AppointmentService:
         )
 
         if not is_available:
-            raise ValueError("Time slot is not available")
+            raise SchedulingTimeError("slot_unavailable", "El horario no está disponible")
+
+        await AppointmentService.require_external_availability(
+            db, lead_id, agent_id, start_time, end_time, agent=agent
+        )
 
         # Get lead information for event title
         lead_result = await db.execute(
@@ -137,10 +198,7 @@ class AppointmentService:
 
         # Use agent's calendar if available, fallback to broker's
         from app.services.appointments.google_calendar import get_calendar_service_for_agent
-        if agent and getattr(agent, "google_calendar_id", None) and agent.google_calendar_connected:
-            calendar_service = get_calendar_service_for_agent(agent, broker_config)
-        else:
-            calendar_service = get_calendar_service_for_broker(broker_config)
+        calendar_service = get_calendar_service_for_agent(agent, broker_config)
         if calendar_service.is_ready:
             try:
                 event_title = f"Reunión con {lead_name}"
@@ -164,21 +222,25 @@ class AppointmentService:
                 if isinstance(calendar_service, OutlookCalendarService) and broker_config:
                     await persist_outlook_token_if_rotated(calendar_service, broker_config, db)
 
-                if calendar_event and calendar_event.get('meet_url'):
+                if calendar_event:
                     meet_url = calendar_event['meet_url']
                     google_event_id = calendar_event.get('event_id')
                     logger.info(f"Calendar event created: {google_event_id}, Meet URL: {meet_url}")
                 else:
-                    logger.warning("Calendar event creation failed, using fallback URL")
-                    meet_url = AppointmentService.generate_google_meet_url(lead_id)
+                    raise SchedulingTimeError(
+                        "external_calendar_write_failed",
+                        "El calendario externo no pudo crear la cita",
+                    )
             except Exception as e:
                 logger.error(f"Error creating calendar event: {str(e)}", exc_info=True)
-                # Fallback to generated URL
-                meet_url = AppointmentService.generate_google_meet_url(lead_id)
+                if isinstance(e, SchedulingTimeError):
+                    raise
+                raise SchedulingTimeError("external_calendar_write_failed", "El calendario externo no pudo crear la cita") from e
         else:
-            # Fallback: generate a simulated URL
-            logger.warning("Calendar service not configured, using fallback URL")
-            meet_url = AppointmentService.generate_google_meet_url(lead_id)
+            raise SchedulingTimeError(
+                "external_calendar_unavailable",
+                "No hay un calendario externo conectado; la cita no fue confirmada",
+            )
 
         appointment = Appointment(
             lead_id=lead_id,
@@ -224,7 +286,7 @@ class AppointmentService:
         end_date: date,
         agent_id: Optional[int] = None,
         appointment_type: Optional[AppointmentType] = None,
-        duration_minutes: int = 60,
+        duration_minutes: int = DEFAULT_DURATION_MINUTES,
     ) -> List[Dict[str, Any]]:
         """Get available time slots for a date range (delegates to availability service)."""
         return await _get_available_slots(
@@ -315,6 +377,10 @@ class AppointmentService:
 
         # Check availability if time changed (but exclude current appointment from conflict check)
         if time_changed:
+            appointment.start_time = validate_future_start(
+                appointment.start_time,
+                timezone_name=DEFAULT_TIMEZONE,
+            )
             is_available = await AppointmentService.check_availability(
                 db,
                 start_time=appointment.start_time,
@@ -324,7 +390,20 @@ class AppointmentService:
             )
 
             if not is_available:
-                raise ValueError("Time slot is not available")
+                raise SchedulingTimeError("slot_unavailable", "El horario no está disponible")
+
+            await AppointmentService.require_external_availability(
+                db,
+                appointment.lead_id,
+                appointment.agent_id,
+                appointment.start_time,
+                appointment.end_time,
+            )
+            if not appointment.google_event_id:
+                raise SchedulingTimeError(
+                    "external_calendar_write_failed",
+                    "La cita antigua no está vinculada a un evento externo y no puede reagendarse automáticamente",
+                )
 
         # Update Google Calendar event if exists
         if appointment.google_event_id:
@@ -338,7 +417,12 @@ class AppointmentService:
                         select(BrokerPromptConfig).where(BrokerPromptConfig.broker_id == _lead.broker_id)
                     )
                     _broker_cfg = _bcfg_res.scalars().first()
-                calendar_service = get_calendar_service_for_broker(_broker_cfg)
+                _agent = None
+                if appointment.agent_id:
+                    _agent_res = await db.execute(select(User).where(User.id == appointment.agent_id))
+                    _agent = _agent_res.scalars().first()
+                from app.services.appointments.google_calendar import get_calendar_service_for_agent
+                calendar_service = get_calendar_service_for_agent(_agent, _broker_cfg)
                 if calendar_service.is_ready:
                     # Check if relevant fields changed
                     needs_calendar_update = (
@@ -393,10 +477,18 @@ class AppointmentService:
                             if appointment.agent_id != old_agent_id:
                                 logger.info(f"Agent changed from {old_agent_id} to {appointment.agent_id}, attendees updated")
                         else:
-                            logger.warning(f"Failed to update calendar event: {appointment.google_event_id}")
+                            raise SchedulingTimeError(
+                                "external_calendar_write_failed",
+                                "El calendario externo no pudo reagendar la cita",
+                            )
             except Exception as e:
                 logger.error(f"Error updating calendar event: {str(e)}", exc_info=True)
-                # Continue with update even if calendar update fails
+                if isinstance(e, SchedulingTimeError):
+                    raise
+                raise SchedulingTimeError(
+                    "external_calendar_write_failed",
+                    "El calendario externo no pudo reagendar la cita",
+                ) from e
 
         await db.commit()
         await db.refresh(appointment)

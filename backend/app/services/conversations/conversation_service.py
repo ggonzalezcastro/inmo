@@ -63,7 +63,7 @@ class ConversationService:
             db.add(conv)
             await db.flush()  # get the ID without committing
             logger.info(
-                "Created new conversation %d for lead %d channel=%s",
+                "Created new conversation %s for lead %s channel=%s",
                 conv.id, lead_id, channel,
             )
 

@@ -229,8 +229,9 @@ class ChatOrchestratorService:
                 logger.warning("[Orchestrator] ConversationService.get_or_create failed (continuing): %s", _conv_exc)
 
         # 2. Log inbound message (skip if caller already logged it, e.g. whatsapp_tasks)
+        _inbound_message = None
         if broker_id and not skip_inbound_log:
-            await ChatService.log_message(
+            _inbound_message = await ChatService.log_message(
                 db,
                 lead_id=lead.id,
                 broker_id=broker_id,
@@ -243,6 +244,7 @@ class ChatOrchestratorService:
                     direction="in",
                 ),
                 ai_used=False,
+                conversation_id=_conversation.id if _conversation else None,
             )
         else:
             await ActivityService.log_telegram_message(
@@ -809,10 +811,16 @@ class ChatOrchestratorService:
             agent_name=_agent_name,
             pre_analysis=analysis,
             channel=provider_name or "webchat",
+            message_id=_inbound_message.id if _inbound_message else None,
+            conversation_id=_conversation.id if _conversation else None,
         )
         logger.info("[Orchestrator] Step 7d — calling AgentSupervisor.process stage=%s", agent_context.pipeline_stage)
         try:
-            agent_result = await AgentSupervisor.process(message, agent_context, db)
+            agent_result = await AgentSupervisor.process(
+                message, agent_context, db,
+                message_id=agent_context.message_id,
+                conversation_id=agent_context.conversation_id,
+            )
         except Exception as _agent_exc:
             logger.error("[Orchestrator] Step 7 FAILED — AgentSupervisor error: %s", _agent_exc, exc_info=True)
             await _release_lock()
@@ -954,6 +962,7 @@ class ChatOrchestratorService:
                     direction="out",
                 ),
                 ai_used=True,
+                conversation_id=_conversation.id if _conversation else None,
             )
         else:
             await ActivityService.log_telegram_message(
