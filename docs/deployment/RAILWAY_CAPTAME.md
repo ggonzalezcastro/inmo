@@ -40,7 +40,7 @@ FRONTEND_URL=https://app.captame.cl
 WEBHOOK_BASE_URL=https://api.captame.cl
 META_OAUTH_REDIRECT_BASE_URL=https://api.captame.cl/api/v1/meta
 ALLOWED_ORIGINS=https://app.captame.cl
-ALLOWED_HOSTS=api.captame.cl,*.up.railway.app,*.railway.internal
+ALLOWED_HOSTS=api.captame.cl,healthcheck.railway.app,*.up.railway.app,*.railway.internal
 ```
 
 Railway proporciona automáticamente sus dominios público y privado al

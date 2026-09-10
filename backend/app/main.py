@@ -331,6 +331,7 @@ allowed_hosts = ["localhost", "127.0.0.1"]
 if settings.ENVIRONMENT == "production":
     # Accept explicit custom domains plus Railway-generated service domains.
     import os
+    allowed_hosts.append("healthcheck.railway.app")
     production_hosts = os.getenv('ALLOWED_HOSTS', '').split(',')
     allowed_hosts.extend([h.strip() for h in production_hosts if h.strip()])
     for railway_domain_key in ('RAILWAY_PUBLIC_DOMAIN', 'RAILWAY_PRIVATE_DOMAIN'):
