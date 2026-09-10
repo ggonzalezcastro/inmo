@@ -1511,3 +1511,72 @@ async def create_voice_assistant(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Transbank payment config ─────────────────────────────────────────────────
+
+def _mask_commerce_code(code: Optional[str]) -> Optional[str]:
+    if not code:
+        return None
+    if len(code) <= 4:
+        return "•" * len(code)
+    return "•" * (len(code) - 4) + code[-4:]
+
+
+@router.get("/payment-config")
+async def get_payment_config(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the broker's Transbank config. Never exposes the API key."""
+    from app.services.broker.payment_config_service import BrokerPaymentConfigService
+    from app.schemas.payment import PaymentConfigRead
+
+    broker_id = current_user.get("broker_id")
+    if not broker_id:
+        raise HTTPException(status_code=400, detail="Usuario sin broker asignado.")
+
+    row = await BrokerPaymentConfigService.get_config(db, broker_id)
+    if row is None:
+        return PaymentConfigRead()
+    return PaymentConfigRead(
+        provider=row.provider or "transbank",
+        environment=row.environment or "integration",
+        enabled=bool(row.enabled),
+        commerce_code_masked=_mask_commerce_code(row.commerce_code),
+        has_api_key=bool(row.api_key_encrypted),
+    )
+
+
+@router.put("/payment-config")
+async def update_payment_config(
+    current_user: dict = Depends(Permissions.require_admin),
+    db: AsyncSession = Depends(get_db),
+    body: dict = Body(...),
+):
+    """Create or update the broker's Transbank credentials (admin only)."""
+    from app.services.broker.payment_config_service import BrokerPaymentConfigService
+    from app.schemas.payment import PaymentConfigRead, PaymentConfigUpdate
+
+    broker_id = current_user.get("broker_id")
+    if not broker_id:
+        raise HTTPException(status_code=400, detail="Usuario sin broker asignado.")
+
+    payload = PaymentConfigUpdate(**body)
+    row = await BrokerPaymentConfigService.upsert_config(
+        db,
+        broker_id,
+        commerce_code=payload.commerce_code,
+        api_key=payload.api_key,
+        environment=payload.environment,
+        enabled=payload.enabled,
+    )
+    await db.commit()
+    await db.refresh(row)
+    return PaymentConfigRead(
+        provider=row.provider or "transbank",
+        environment=row.environment or "integration",
+        enabled=bool(row.enabled),
+        commerce_code_masked=_mask_commerce_code(row.commerce_code),
+        has_api_key=bool(row.api_key_encrypted),
+    )
+
+

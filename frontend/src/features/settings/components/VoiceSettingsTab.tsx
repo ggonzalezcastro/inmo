@@ -78,7 +78,11 @@ function AgentProfileSection() {
           voiceService.getAvailableVoices(p.template_id),
           voiceService.getAvailableTones(p.template_id),
         ])
-        setAvailableVoices(vRes.voice_ids)
+        setAvailableVoices(
+          vRes.voice_ids.map((voice) =>
+            typeof voice === 'string' ? voice : voice.voiceId
+          )
+        )
         setAvailableTones(tRes.tones)
 
         // Load VAPI catalog for display names

@@ -25,62 +25,78 @@ class TestGetAvailableSlots:
             {"date": "2025-02-01", "time": "11:00", "duration": 60},
         ]
 
+        tool_result = {
+            "success": True,
+            "result": {"slots": mock_slots, "count": 2, "formatted": "Formatted slots"},
+        }
         with patch("app.mcp.server._get_db_session", new_callable=AsyncMock, return_value=db_session), \
-             patch("app.services.appointment_service.AppointmentService.get_available_slots",
-                   new_callable=AsyncMock, return_value=mock_slots), \
-             patch("app.services.appointment_service.AppointmentService.format_slots_for_llm",
-                   return_value="Formatted slots"):
+             patch(
+                 "app.services.shared.agent_tools_service.AgentToolsService.execute_tool",
+                 new_callable=AsyncMock,
+                 return_value=tool_result,
+             ) as mock_execute:
 
-            result = await get_available_appointment_slots()
+            result = await get_available_appointment_slots(lead_id=42)
 
         assert result["success"] is True
         assert result["result"]["count"] == 2
         assert result["result"]["formatted"] == "Formatted slots"
+        assert mock_execute.call_args.kwargs["lead_id"] == 42
 
     @pytest.mark.asyncio
     async def test_with_custom_start_date(self, db_session):
         """Should parse custom start_date correctly."""
+        tool_result = {"success": True, "result": {"slots": [], "count": 0, "formatted": ""}}
         with patch("app.mcp.server._get_db_session", new_callable=AsyncMock, return_value=db_session), \
-             patch("app.services.appointment_service.AppointmentService.get_available_slots",
-                   new_callable=AsyncMock, return_value=[]) as mock_get, \
-             patch("app.services.appointment_service.AppointmentService.format_slots_for_llm",
-                   return_value=""):
+             patch(
+                 "app.services.shared.agent_tools_service.AgentToolsService.execute_tool",
+                 new_callable=AsyncMock,
+                 return_value=tool_result,
+             ) as mock_execute:
 
             result = await get_available_appointment_slots(
                 start_date="2025-03-01",
                 days_ahead=7,
                 duration_minutes=30,
+                lead_id=42,
             )
 
         assert result["success"] is True
         # Verify the start_date was parsed correctly
-        call_args = mock_get.call_args
-        assert call_args.kwargs["start_date"] == date(2025, 3, 1)
-        assert call_args.kwargs["duration_minutes"] == 30
+        arguments = mock_execute.call_args.kwargs["arguments"]
+        assert arguments["start_date"] == "2025-03-01"
+        assert arguments["duration_minutes"] == 30
 
     @pytest.mark.asyncio
     async def test_handles_invalid_date_gracefully(self, db_session):
         """Should fallback to today when start_date is invalid."""
+        tool_result = {"success": True, "result": {"slots": [], "count": 0, "formatted": ""}}
         with patch("app.mcp.server._get_db_session", new_callable=AsyncMock, return_value=db_session), \
-             patch("app.services.appointment_service.AppointmentService.get_available_slots",
-                   new_callable=AsyncMock, return_value=[]) as mock_get, \
-             patch("app.services.appointment_service.AppointmentService.format_slots_for_llm",
-                   return_value=""):
+             patch(
+                 "app.services.shared.agent_tools_service.AgentToolsService.execute_tool",
+                 new_callable=AsyncMock,
+                 return_value=tool_result,
+             ) as mock_execute:
 
-            result = await get_available_appointment_slots(start_date="not-a-date")
+            result = await get_available_appointment_slots(
+                start_date="not-a-date", lead_id=42
+            )
 
         assert result["success"] is True
-        call_args = mock_get.call_args
-        assert call_args.kwargs["start_date"] == date.today()
+        arguments = mock_execute.call_args.kwargs["arguments"]
+        assert arguments["start_date"] == date.today().isoformat()
 
     @pytest.mark.asyncio
     async def test_handles_db_error(self, db_session):
         """Should return error on database failure."""
         with patch("app.mcp.server._get_db_session", new_callable=AsyncMock, return_value=db_session), \
-             patch("app.services.appointment_service.AppointmentService.get_available_slots",
-                   new_callable=AsyncMock, side_effect=Exception("DB connection failed")):
+             patch(
+                 "app.services.shared.agent_tools_service.AgentToolsService.execute_tool",
+                 new_callable=AsyncMock,
+                 side_effect=Exception("DB connection failed"),
+             ):
 
-            result = await get_available_appointment_slots()
+            result = await get_available_appointment_slots(lead_id=42)
 
         assert result["success"] is False
         assert "DB connection failed" in result["error"]
@@ -118,7 +134,7 @@ class TestCreateAppointment:
         mock_apt.status = MagicMock(value="scheduled")
 
         with patch("app.mcp.server._get_db_session", new_callable=AsyncMock, return_value=db_session), \
-             patch("app.services.appointment_service.AppointmentService.create_appointment",
+             patch("app.services.appointments.AppointmentService.create_appointment",
                    new_callable=AsyncMock, return_value=mock_apt):
 
             result = await create_appointment(

@@ -1,28 +1,25 @@
 """
 WhatsApp Business API (Meta) chat provider.
 """
-import hmac
-import hashlib
 import json
+import hashlib
+import hmac
 import logging
 from typing import Optional, Dict, Any, List
 
-import httpx
-
+from app.core.config import settings
 from app.services.chat.base_provider import (
     BaseChatProvider,
     ChatMessageData,
     SendMessageResult,
 )
+from app.services.meta.client import MetaGraphClient, MetaGraphError
 
 logger = logging.getLogger(__name__)
 
 
 class WhatsAppProvider(BaseChatProvider):
     """WhatsApp Business API provider (Meta)."""
-
-    BASE_URL = "https://graph.facebook.com"
-    API_VERSION = "v18.0"
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
@@ -34,13 +31,10 @@ class WhatsAppProvider(BaseChatProvider):
         if not all([self.phone_number_id, self.access_token]):
             raise ValueError("WhatsApp phone_number_id and access_token are required")
 
-        self.api_url = f"{self.BASE_URL}/{self.API_VERSION}/{self.phone_number_id}"
-
-    def _headers(self) -> Dict[str, str]:
-        return {
-            "Authorization": f"Bearer {self.access_token}",
-            "Content-Type": "application/json",
-        }
+        self.client = MetaGraphClient(
+            access_token=self.access_token,
+            api_version=settings.META_GRAPH_API_VERSION,
+        )
 
     async def send_message(
         self,
@@ -63,28 +57,44 @@ class WhatsAppProvider(BaseChatProvider):
             if context_message_id := kwargs.get("context_message_id"):
                 payload["context"] = {"message_id": context_message_id}
 
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{self.api_url}/messages",
-                    headers=self._headers(),
-                    json=payload,
-                )
-
-                if response.status_code == 200:
-                    result = response.json()
-                    message_id = result["messages"][0]["id"]
-                    return SendMessageResult(
-                        success=True,
-                        message_id=message_id,
-                        provider_response=result,
-                    )
-                error = response.text
-                logger.error("WhatsApp send failed: %s", error)
-                return SendMessageResult(
-                    success=False,
-                    message_id=None,
-                    error=error,
-                )
+            if template_name := kwargs.get("template_name"):
+                payload = {
+                    "messaging_product": "whatsapp",
+                    "recipient_type": "individual",
+                    "to": channel_user_id.replace("+", "").replace(" ", ""),
+                    "type": "template",
+                    "template": {
+                        "name": template_name,
+                        "language": {"code": kwargs.get("template_language", "es_CL")},
+                        "components": kwargs.get("template_components", []),
+                    },
+                }
+            result = await self.client.post(
+                f"{self.phone_number_id}/messages",
+                json=payload,
+            )
+            message_id = (result.get("messages") or [{}])[0].get("id")
+            return SendMessageResult(
+                success=True,
+                message_id=message_id,
+                provider_response=result,
+            )
+        except MetaGraphError as exc:
+            logger.warning(
+                "WhatsApp send failed category=%s code=%s",
+                exc.category,
+                exc.code,
+            )
+            return SendMessageResult(
+                success=False,
+                message_id=None,
+                error=str(exc),
+                provider_response={
+                    "error_category": exc.category,
+                    "error_code": exc.code,
+                    "error_subcode": exc.subcode,
+                },
+            )
         except Exception as e:
             logger.error("Error sending WhatsApp message: %s", e, exc_info=True)
             return SendMessageResult(
@@ -121,26 +131,27 @@ class WhatsAppProvider(BaseChatProvider):
             if caption and wa_type in ("image", "video", "document"):
                 payload[wa_type]["caption"] = caption
 
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{self.api_url}/messages",
-                    headers=self._headers(),
-                    json=payload,
-                )
-
-                if response.status_code == 200:
-                    result = response.json()
-                    message_id = result["messages"][0]["id"]
-                    return SendMessageResult(
-                        success=True,
-                        message_id=message_id,
-                        provider_response=result,
-                    )
-                return SendMessageResult(
-                    success=False,
-                    message_id=None,
-                    error=response.text,
-                )
+            result = await self.client.post(
+                f"{self.phone_number_id}/messages",
+                json=payload,
+            )
+            message_id = (result.get("messages") or [{}])[0].get("id")
+            return SendMessageResult(
+                success=True,
+                message_id=message_id,
+                provider_response=result,
+            )
+        except MetaGraphError as exc:
+            return SendMessageResult(
+                success=False,
+                message_id=None,
+                error=str(exc),
+                provider_response={
+                    "error_category": exc.category,
+                    "error_code": exc.code,
+                    "error_subcode": exc.subcode,
+                },
+            )
         except Exception as e:
             logger.error("Error sending WhatsApp media: %s", e, exc_info=True)
             return SendMessageResult(

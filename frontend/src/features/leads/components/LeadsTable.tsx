@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { type ColumnDef } from '@tanstack/react-table'
-import { MoreHorizontal, Pencil, Trash2, Eye, Columns3 } from 'lucide-react'
+import { MoreHorizontal, Pencil, Trash2, Eye, Columns3, Megaphone } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/shared/components/ui/button'
 import {
@@ -24,6 +24,7 @@ import { leadsService } from '../services/leads.service'
 import { getErrorMessage } from '@/shared/types/api'
 import { usePermissions } from '@/shared/hooks/usePermissions'
 import type { Lead } from '../types'
+import { ContactabilityBadge } from './ContactabilityBadge'
 
 interface LeadsTableProps {
   leads: Lead[]
@@ -43,6 +44,7 @@ const TOGGLEABLE_COLUMNS: Record<string, string> = {
   monthly_income: 'Sueldo',
   dicom: 'DICOM',
   created_at: 'Fecha creación',
+  contactability: 'Contactabilidad',
 }
 
 export function LeadsTable({
@@ -90,7 +92,7 @@ export function LeadsTable({
       accessorKey: 'name',
       header: 'Nombre',
       cell: ({ row }) => (
-        <p className="font-medium text-foreground">{row.original.name ?? '—'}</p>
+        <div className="flex items-center gap-2"><p className="font-medium text-foreground">{row.original.name ?? '—'}</p>{row.original.meta_origin?.source === 'meta' && <span title="Lead atribuido a Meta Ads" className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700"><Megaphone className="h-2.5 w-2.5" /> Meta</span>}</div>
       ),
     },
     {
@@ -167,6 +169,11 @@ export function LeadsTable({
           },
         ] as ColumnDef<Lead>[])
       : []),
+    {
+      id: 'contactability',
+      header: 'Contactabilidad',
+      cell: ({ row }) => <ContactabilityBadge contactability={row.original.contactability} />,
+    },
     {
       accessorKey: 'last_contacted',
       header: 'Último contacto',
@@ -282,5 +289,3 @@ export function LeadsTable({
     </>
   )
 }
-
-

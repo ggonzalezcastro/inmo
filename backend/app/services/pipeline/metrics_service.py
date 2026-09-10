@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone, date
 from typing import List, Optional, Dict, Any
 
 from app.models.lead import Lead
+from app.models.lead_follow_up import LeadAdvisory
 from app.models.activity_log import ActivityLog
 from app.services.pipeline.constants import PIPELINE_STAGES
 
@@ -187,6 +188,12 @@ async def get_stage_metrics(
     weekly_trend = await get_weekly_leads_trend(db, broker_id=broker_id)
     response_rate = await get_response_rate(db, broker_id=broker_id)
 
+    advisory_metrics = await get_advised_lead_metrics(
+        db,
+        broker_id=broker_id,
+        total_leads=total_leads,
+    )
+
     return {
         "total_leads": total_leads,
         "stage_counts": stage_counts,
@@ -195,6 +202,25 @@ async def get_stage_metrics(
         "conversion_rate": conversion_rate,
         "weekly_trend": weekly_trend,
         "response_rate": response_rate,
+        **advisory_metrics,
+    }
+
+
+async def get_advised_lead_metrics(
+    db: AsyncSession,
+    *,
+    broker_id: Optional[int],
+    total_leads: int,
+) -> Dict[str, Any]:
+    """Count unique advised leads; repeated advisory events never inflate the KPI."""
+    query = select(func.count(func.distinct(LeadAdvisory.lead_id)))
+    if broker_id is not None:
+        query = query.where(LeadAdvisory.broker_id == broker_id)
+    advised_leads = (await db.execute(query)).scalar() or 0
+    advised_rate = round((advised_leads / total_leads) * 100, 1) if total_leads else 0.0
+    return {
+        "advised_leads": advised_leads,
+        "advised_rate": advised_rate,
     }
 
 

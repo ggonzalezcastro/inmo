@@ -3,52 +3,68 @@ Tests for ScoringService - lead scoring algorithm.
 """
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 from app.services.leads import ScoringService
 from app.models.lead import Lead, LeadStatus
 
 
-class TestScoringBaseInteraction:
-    """Test _calculate_base_interaction"""
+def _lead_for_profile(**overrides):
+    lead = MagicMock(spec=Lead)
+    lead.name = None
+    lead.phone = None
+    lead.lead_metadata = {}
+    lead.pipeline_stage = None
+    lead.last_contacted = None
+    for key, value in overrides.items():
+        setattr(lead, key, value)
+    return lead
 
-    def test_zero_messages_returns_zero(self):
-        assert ScoringService._calculate_base_interaction([]) == 0
 
-    def test_one_message_returns_5(self):
-        msg = MagicMock()
-        assert ScoringService._calculate_base_interaction([msg]) == 5
+class TestScoringKeyProfile:
+    """Test the current financial-first model's profile component."""
 
-    def test_two_messages_returns_10(self):
-        msg1, msg2 = MagicMock(), MagicMock()
-        assert ScoringService._calculate_base_interaction([msg1, msg2]) == 10
+    def test_empty_profile_returns_zero(self):
+        assert ScoringService._calculate_key_profile(_lead_for_profile()) == 0
 
-    def test_five_messages_returns_17(self):
-        msgs = [MagicMock() for _ in range(5)]
-        assert ScoringService._calculate_base_interaction(msgs) == 17
+    def test_name_returns_5(self):
+        lead = _lead_for_profile(name="Juan")
+        assert ScoringService._calculate_key_profile(lead) == 5
 
-    def test_capped_at_30(self):
-        msgs = [MagicMock() for _ in range(100)]
-        assert ScoringService._calculate_base_interaction(msgs) <= 30
+    def test_valid_phone_returns_10(self):
+        lead = _lead_for_profile(phone="+56912345678")
+        assert ScoringService._calculate_key_profile(lead) == 10
+
+    def test_income_returns_10(self):
+        lead = _lead_for_profile(lead_metadata={"monthly_income": 1_500_000})
+        assert ScoringService._calculate_key_profile(lead) == 10
+
+    def test_complete_profile_is_capped_at_25(self):
+        lead = _lead_for_profile(
+            name="Juan",
+            phone="+56912345678",
+            lead_metadata={"monthly_income": 1_500_000},
+        )
+        assert ScoringService._calculate_key_profile(lead) == 25
 
 
 class TestScoringEngagement:
-    """Test _calculate_engagement"""
+    """Test the current engagement bonus (0-15)."""
 
     def test_empty_activities_returns_zero(self):
-        assert ScoringService._calculate_engagement([]) == 0
+        assert ScoringService._calculate_engagement_bonus([], []) == 0
 
-    def test_three_score_updates_returns_8(self):
+    def test_three_activities_returns_5(self):
         activities = [
             MagicMock(action_type="score_update"),
             MagicMock(action_type="score_update"),
             MagicMock(action_type="score_update"),
         ]
-        assert ScoringService._calculate_engagement(activities) == 8
+        assert ScoringService._calculate_engagement_bonus([], activities) == 5
 
-    def test_five_message_activities_returns_6(self):
-        activities = [MagicMock(action_type="message") for _ in range(5)]
-        assert ScoringService._calculate_engagement(activities) == 6
+    def test_five_messages_returns_5(self):
+        messages = [MagicMock(direction="in", created_at=None) for _ in range(5)]
+        assert ScoringService._calculate_engagement_bonus(messages, []) == 5
 
 
 class TestScoringPenalties:
@@ -70,38 +86,38 @@ class TestScoringPenalties:
 
     def test_inactive_60_days_adds_5(self):
         lead = MagicMock(spec=Lead)
-        lead.last_contacted = datetime.utcnow() - timedelta(days=61)
+        lead.last_contacted = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=61)
+        lead.lead_metadata = {}
+        messages = [MagicMock(message_text="hi")]
+        assert ScoringService._calculate_penalties(lead, messages) == 5
+
+    def test_inactive_timezone_aware_date_adds_5(self):
+        lead = MagicMock(spec=Lead)
+        lead.last_contacted = datetime.now(timezone.utc) - timedelta(days=61)
         lead.lead_metadata = {}
         messages = [MagicMock(message_text="hi")]
         assert ScoringService._calculate_penalties(lead, messages) == 5
 
 
-class TestScoringStageScore:
-    """Test _calculate_stage_score"""
+class TestScoringStageIndependence:
+    """Pipeline stage no longer adds points to the financial-first score."""
 
-    def test_no_stage_returns_zero(self):
-        lead = MagicMock(spec=Lead)
-        lead.pipeline_stage = None
-        lead.lead_metadata = {}
-        assert ScoringService._calculate_stage_score(lead) == 0
+    @pytest.mark.parametrize("stage", [None, "entrada", "ganado", "perdido"])
+    @pytest.mark.asyncio
+    async def test_stage_component_is_zero(self, stage):
+        lead = _lead_for_profile(pipeline_stage=stage)
+        db = AsyncMock()
 
-    def test_entrada_returns_2(self):
-        lead = MagicMock(spec=Lead)
-        lead.pipeline_stage = "entrada"
-        lead.lead_metadata = {}
-        assert ScoringService._calculate_stage_score(lead) == 2
-
-    def test_ganado_returns_20(self):
-        lead = MagicMock(spec=Lead)
-        lead.pipeline_stage = "ganado"
-        lead.lead_metadata = {}
-        assert ScoringService._calculate_stage_score(lead) == 20
-
-    def test_perdido_returns_negative(self):
-        lead = MagicMock(spec=Lead)
-        lead.pipeline_stage = "perdido"
-        lead.lead_metadata = {}
-        assert ScoringService._calculate_stage_score(lead) == -10
+        with patch.object(
+            ScoringService,
+            "_calculate_financial_score",
+            new_callable=AsyncMock,
+            return_value=0,
+        ):
+            result = await ScoringService._compute_score_components(
+                db, lead, [], [], broker_id=None
+            )
+        assert result["stage"] == 0
 
 
 class TestScoringIntegration:
@@ -137,7 +153,11 @@ class TestScoringIntegration:
         db_session.add(msg)
         await db_session.commit()
 
-        with patch("app.services.broker_config_service.BrokerConfigService.calculate_financial_score", new_callable=AsyncMock, return_value=0):
+        with patch(
+            "app.services.broker.BrokerConfigService.calculate_financial_score",
+            new_callable=AsyncMock,
+            return_value=0,
+        ):
             result = await ScoringService.calculate_lead_score_from_lead(
                 db_session, lead, broker_id=None, messages=[msg], activities=[]
             )

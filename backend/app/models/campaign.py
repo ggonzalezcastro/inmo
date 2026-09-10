@@ -4,7 +4,7 @@ Campaign models for multi-channel marketing automation
 from enum import Enum
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Boolean, 
-    ForeignKey, JSON, Index, Enum as SQLEnum
+    ForeignKey, JSON, Index, Enum as SQLEnum, func
 )
 from sqlalchemy.orm import relationship
 from app.models.base import Base, IdMixin, TimestampMixin
@@ -100,6 +100,17 @@ class Campaign(Base, IdMixin, TimestampMixin):
     
     # Limits
     max_contacts = Column(Integer, nullable=True)  # NULL = unlimited
+
+    # Referral campaigns are selected exclusively by ReferralAgent when a lead
+    # enters the won stage.  Keeping this explicit prevents an unrelated active
+    # campaign from being used for a referral request.
+    is_referral_campaign = Column(
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
+        index=True,
+    )
     
     # Approval workflow
     created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -119,6 +130,7 @@ class Campaign(Base, IdMixin, TimestampMixin):
     __table_args__ = (
         Index('idx_campaign_broker_status', 'broker_id', 'status'),
         Index('idx_campaign_trigger', 'triggered_by', 'status'),
+        Index('idx_campaign_broker_referral_status', 'broker_id', 'is_referral_campaign', 'status'),
     )
     
     def __repr__(self):
@@ -218,7 +230,7 @@ class CampaignLog(Base, IdMixin):
     response = Column(JSON, nullable=True, default={})
     
     # Timestamp
-    created_at = Column(DateTime(timezone=True), server_default="now()", nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
     executed_at = Column(DateTime(timezone=True), nullable=True)  # When step actually executed
     
     # Relationships
@@ -234,6 +246,4 @@ class CampaignLog(Base, IdMixin):
     
     def __repr__(self):
         return f"<CampaignLog id={self.id} campaign_id={self.campaign_id} lead_id={self.lead_id} step={self.step_number} status={self.status}>"
-
-
 

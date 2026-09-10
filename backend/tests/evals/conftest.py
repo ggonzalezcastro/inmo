@@ -48,6 +48,8 @@ def make_test_case(entry: dict[str, Any]):
         additional_metadata={
             "conversation_id": entry["id"],
             "category": entry["category"],
+            "channel": entry.get("channel"),
+            "scenario_id": entry.get("scenario_id"),
             "pipeline_stage": entry["pipeline_stage"],
             "task_action_expected": labels.get("task_action_expected", ""),
             "task_action_completed": labels.get("task_action_completed", True),
@@ -60,7 +62,7 @@ def make_test_case(entry: dict[str, Any]):
 
 @pytest.fixture(scope="session")
 def all_conversations():
-    """Full dataset (51 entries)."""
+    """Full dataset (54 entries)."""
     return load_dataset()
 
 
@@ -78,7 +80,7 @@ def violation_conversations():
 
 @pytest.fixture(scope="session")
 def all_test_cases(all_conversations):
-    """deepeval LLMTestCase objects for all 51 conversations."""
+    """deepeval LLMTestCase objects for all 54 conversations."""
     try:
         return [tc for entry in all_conversations if (tc := make_test_case(entry))]
     except ImportError:

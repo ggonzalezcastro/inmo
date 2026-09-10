@@ -1,6 +1,6 @@
 """add Pipecat voice fields to voice_calls and call_transcripts
 
-Revision ID: a3c5d7e9f1g2
+Revision ID: a3c5d7e9f1a2
 Revises: z2b3c4d5e6f7
 Create Date: 2026-05-04
 

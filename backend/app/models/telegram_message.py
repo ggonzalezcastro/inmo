@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum as SQLEnum, func
 from sqlalchemy.orm import relationship
 from enum import Enum
 from app.models.base import Base, IdMixin
@@ -47,11 +47,10 @@ class TelegramMessage(Base, IdMixin):
     ai_response_used = Column(Boolean, default=True)
     
     # Timestamps
-    created_at = Column(DateTime(timezone=True), server_default="now()", nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     
     # Relationship
     lead = relationship("Lead", back_populates="telegram_messages")
     
     def __repr__(self):
         return f"<TelegramMessage id={self.id} lead_id={self.lead_id} direction={self.direction}>"
-

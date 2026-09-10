@@ -118,3 +118,8 @@ export function useWebSocketEvent(onMessage: Listener, enabled = true) {
     return ctx.subscribe((event) => onMessageRef.current(event))
   }, [ctx, enabled])
 }
+
+export function useWebSocketStatus() {
+  const ctx = useContext(WebSocketContext)
+  return { connected: ctx?.connected ?? false }
+}

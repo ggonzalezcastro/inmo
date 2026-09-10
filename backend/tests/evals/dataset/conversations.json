@@ -882,5 +882,62 @@
       "task_action_completed": true,
       "dicom_violation": false
     }
+  },
+  {
+    "id": "conv_052",
+    "category": "meta_channel_response",
+    "scenario_id": "availability_without_live_inventory",
+    "channel": "whatsapp",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Hola, ¿quedan departamentos de 2 dormitorios en Parque Norte?",
+    "actual_output": "¡Hola! Parque Norte contempla departamentos de 2 dormitorios.\nEl stock cambia durante el día, así que prefiero confirmarlo antes de asegurarte disponibilidad.\n¿Te averiguo las unidades vigentes y sus valores?",
+    "expected_output": "Respuesta breve para WhatsApp: usar solo la tipología conocida, no inventar stock y ofrecer verificación.",
+    "context": ["Proyecto Parque Norte contempla tipologías de 2 dormitorios. El inventario en tiempo real no está disponible en este contexto."],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_053",
+    "category": "meta_channel_response",
+    "scenario_id": "availability_without_live_inventory",
+    "channel": "instagram",
+    "pipeline_stage": "QUALIFYING",
+    "input": "¿Tienen 2D disponible en Parque Norte?",
+    "actual_output": "Parque Norte contempla departamentos de 2 dormitorios.\nComo el stock cambia, necesito verificar las unidades vigentes antes de confirmarte.\n¿Quieres que revise disponibilidad y valores?",
+    "expected_output": "Respuesta compacta para Instagram: no afirmar inventario y ofrecer revisión.",
+    "context": ["Proyecto Parque Norte contempla tipologías de 2 dormitorios. El inventario en tiempo real no está disponible en este contexto."],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
+  },
+  {
+    "id": "conv_054",
+    "category": "meta_channel_response",
+    "scenario_id": "availability_without_live_inventory",
+    "channel": "messenger",
+    "pipeline_stage": "QUALIFYING",
+    "input": "Buenas, necesito saber si aún hay departamentos de dos dormitorios en Parque Norte.",
+    "actual_output": "¡Hola! El proyecto Parque Norte contempla departamentos de 2 dormitorios.\nNo quiero asegurarte una unidad sin revisar el inventario vigente.\nSi te parece, confirmo disponibilidad y valores antes de continuar.",
+    "expected_output": "Respuesta clara para Messenger: reconocer la tipología, explicitar la verificación y no inventar stock.",
+    "context": ["Proyecto Parque Norte contempla tipologías de 2 dormitorios. El inventario en tiempo real no está disponible en este contexto."],
+    "conversation_history": [],
+    "labels": {
+      "answer_relevance": 1.0,
+      "is_faithful": true,
+      "task_action_expected": "",
+      "task_action_completed": true,
+      "dicom_violation": false
+    }
   }
 ]

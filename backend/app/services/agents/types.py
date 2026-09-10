@@ -7,6 +7,7 @@ circular imports between agent modules.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -20,6 +21,7 @@ class AgentType(str, Enum):
     QUALIFIER = "qualifier"          # Collects lead data + financial qualification
     SCHEDULER = "scheduler"         # Books property visits
     FOLLOW_UP = "follow_up"         # Post-visit engagement / referrals
+    REFERRAL = "referral"           # Won-lead referral capture only
     PROPERTY = "property"           # Hybrid property search + recommendations
     SUPERVISOR = "supervisor"       # Internal: routes between agents
 
@@ -74,6 +76,10 @@ class AgentContext:
     call_purpose: Optional[str] = None           # CallPurpose value — objective of a voice call
     message_id: Optional[int] = None
     conversation_id: Optional[int] = None
+    meta_asset_id: Optional[int] = None
+    channel_identity_id: Optional[int] = None
+    messaging_window_expires_at: Optional[datetime] = None
+    ai_mode: str = "suggestion"
 
     @property
     def recent_messages(self) -> List[Dict]:

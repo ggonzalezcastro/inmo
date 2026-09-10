@@ -77,8 +77,6 @@ class TestSearchDispatch:
     @pytest.mark.asyncio
     async def test_execute_semantic_strategy_calls_semantic(self):
         from app.services.properties import search_service as svc_mod
-        from app.services.properties import embedding as emb_mod
-
         db = AsyncMock()
         params = {"semantic_query": "departamento moderno Las Condes", "strategy": "semantic"}
         fake_embedding = [0.1] * 768
@@ -86,7 +84,11 @@ class TestSearchDispatch:
         with patch.object(svc_mod, "_structured_search", new_callable=AsyncMock, return_value=[]), \
              patch.object(svc_mod, "_semantic_search", new_callable=AsyncMock, return_value=[]) as mock_sem, \
              patch.object(svc_mod, "_rrf_merge", new_callable=AsyncMock, return_value=[]), \
-             patch.object(emb_mod, "_embed", new_callable=AsyncMock, return_value=fake_embedding):
+             patch(
+                 "app.services.properties.embedding.generate_property_query_embedding",
+                 new_callable=AsyncMock,
+                 return_value=(fake_embedding, 12),
+             ):
             await svc_mod.execute_property_search(params=params, db=db, broker_id=1)
 
         mock_sem.assert_called_once()
@@ -102,7 +104,9 @@ class TestSearchDispatch:
              patch.object(svc_mod, "_rrf_merge", new_callable=AsyncMock, return_value=[]):
             result = await svc_mod.execute_property_search(params={}, db=db, broker_id=1)
 
-        assert isinstance(result, list)
+        properties, embed_tokens = result
+        assert isinstance(properties, list)
+        assert embed_tokens == 0
 
 
 class TestSearchToolDefinition:
@@ -119,5 +123,4 @@ class TestSearchToolDefinition:
         from app.services.properties.search_service import SEARCH_PROPERTIES_TOOL
         desc = SEARCH_PROPERTIES_TOOL["description"].lower()
         assert "propiedad" in desc or "property" in desc or "buscar" in desc
-
 

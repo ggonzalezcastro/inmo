@@ -23,6 +23,7 @@ export function LeadFiltersBar({ filters, onFilterChange, onReset }: LeadFilters
     filters.status ||
     filters.pipeline_stage ||
     filters.dicom_status ||
+    filters.contactability ||
     filters.created_from ||
     filters.created_to
 
@@ -54,6 +55,22 @@ export function LeadFiltersBar({ filters, onFilterChange, onReset }: LeadFilters
             <SelectItem value="hot">Caliente</SelectItem>
             <SelectItem value="converted">Convertido</SelectItem>
             <SelectItem value="lost">Perdido</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={filters.contactability ?? ''}
+          onValueChange={(v) => onFilterChange('contactability', v === 'all' ? '' : v)}
+        >
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Contactabilidad" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Toda contactabilidad</SelectItem>
+            <SelectItem value="difficult,critical">Difícil o crítico</SelectItem>
+            <SelectItem value="intermittent">Intermitente</SelectItem>
+            <SelectItem value="contactable">Contactable</SelectItem>
+            <SelectItem value="insufficient_data">Sin información</SelectItem>
           </SelectContent>
         </Select>
 

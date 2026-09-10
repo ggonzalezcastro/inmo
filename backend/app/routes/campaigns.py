@@ -24,6 +24,7 @@ from app.schemas.campaign import (
     CampaignStatsResponse
 )
 import logging
+from app.shared.pipeline_stages import PIPELINE_STAGE_WON
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -82,7 +83,8 @@ async def create_campaign(
             triggered_by=CampaignTrigger(campaign_data.triggered_by) if campaign_data.triggered_by else CampaignTrigger.MANUAL,
             trigger_condition=campaign_data.trigger_condition,
             max_contacts=campaign_data.max_contacts,
-            created_by=current_user.get("id")
+            created_by=current_user.get("id") or current_user.get("user_id"),
+            is_referral_campaign=campaign_data.is_referral_campaign,
         )
         
         await _refresh_campaign_with_steps(db, campaign)
@@ -204,6 +206,25 @@ async def update_campaign(
         
         # Update fields
         update_data = campaign_update.dict(exclude_unset=True)
+
+        if (
+            "is_referral_campaign" in update_data
+            and update_data["is_referral_campaign"] != campaign.is_referral_campaign
+            and campaign.status == CampaignStatus.ACTIVE
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Pausa la campaña antes de cambiar si es una campaña de referidos",
+            )
+
+        # A referral campaign has one unambiguous trigger: entering "ganado".
+        # This also keeps the hourly generic trigger from changing its meaning.
+        if update_data.get("is_referral_campaign") is True:
+            update_data["triggered_by"] = CampaignTrigger.STAGE_CHANGE
+            update_data["trigger_condition"] = {"stage": PIPELINE_STAGE_WON}
+        elif update_data.get("is_referral_campaign") is False and campaign.is_referral_campaign:
+            update_data["triggered_by"] = CampaignTrigger.MANUAL
+            update_data["trigger_condition"] = {}
         
         for field, value in update_data.items():
             if field == "status" and value:
@@ -220,6 +241,8 @@ async def update_campaign(
         await _refresh_campaign_with_steps(db, campaign)
         
         return CampaignResponse.model_validate(campaign)
+    except HTTPException:
+        raise
     except Exception as e:
         raise _handle_db_error(e, "actualizar la campaña")
 
@@ -649,12 +672,18 @@ async def preview_ai_message(
             "call": "llamada telefónica", "email": "correo",
         }
 
+        referral_instruction = (
+            " Es una campaña de postventa para un cliente que ya compró. Agradece su confianza y "
+            "pregunta sin presión si desea compartir el nombre y teléfono de alguien que busque propiedad."
+            if campaign.is_referral_campaign else
+            " El mensaje debe estar orientado a reconectar o avanzar en el proceso."
+        )
         prompt = (
             f"Eres Sofía, una asesora inmobiliaria chilena de {campaign.name or 'la empresa'}. "
             f"Genera UN mensaje corto y natural para enviar por {channel_labels.get(channel, channel)} "
             f"a un lead inmobiliario cuyo contexto es: {trigger_labels.get(trigger, trigger)}. "
             f"El objetivo de la campaña es: {campaign.description or campaign.name}. "
-            "El mensaje debe ser profesional, cálido y orientado a reconectar o avanzar en el proceso. "
+            f"El mensaje debe ser profesional y cálido.{referral_instruction} "
             "Máximo 3 oraciones. Responde SOLO con el texto del mensaje, sin explicaciones."
         )
 
@@ -708,6 +737,27 @@ async def activate_campaign(
             raise HTTPException(status_code=404, detail="Campaign not found")
         if campaign.status.value not in ("pending_review", "paused", "draft"):
             raise HTTPException(status_code=400, detail=f"No se puede activar una campaña en estado '{campaign.status.value}'")
+        if campaign.is_referral_campaign:
+            if not campaign.steps:
+                raise HTTPException(
+                    status_code=400,
+                    detail="La campaña de referidos debe tener al menos un paso antes de activarse",
+                )
+            active_result = await db.execute(
+                select(Campaign.id).where(
+                    Campaign.broker_id == broker_id,
+                    Campaign.is_referral_campaign == True,
+                    Campaign.status == CampaignStatus.ACTIVE,
+                    Campaign.id != campaign.id,
+                )
+            )
+            if active_result.first():
+                raise HTTPException(
+                    status_code=409,
+                    detail="Ya existe una campaña de referidos activa para este broker",
+                )
+            campaign.triggered_by = CampaignTrigger.STAGE_CHANGE
+            campaign.trigger_condition = {"stage": PIPELINE_STAGE_WON}
         campaign.status = CampaignStatus("active")
         campaign.approved_by = current_user.get("id")
         await db.commit()
@@ -744,4 +794,3 @@ async def pause_campaign(
         raise
     except Exception as e:
         raise _handle_db_error(e, "pausar campaña")
-

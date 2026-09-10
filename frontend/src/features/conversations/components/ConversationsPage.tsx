@@ -5,7 +5,6 @@ import { chatService, type ChatMessage } from '@/features/pipeline/services/chat
 import { pipelineService } from '@/features/pipeline/services/pipeline.service'
 import { cn } from '@/shared/lib/utils'
 import { useWebSocketEvent } from '@/shared/context/WebSocketContext'
-import { useAuthStore } from '@/features/auth'
 import {
   Bot, User, Search, Send, RefreshCw,
   MessageSquare, Inbox, ChevronDown,
@@ -449,7 +448,7 @@ function ConversationDetail({
           </button>
 
           <button
-            onClick={loadMessages}
+            onClick={() => void loadMessages()}
             className="h-8 w-8 rounded-lg flex items-center justify-center text-[#9CA3AF] hover:text-[#374151] hover:bg-[#F0F4F8] transition-colors"
           >
             <RefreshCw size={14} />

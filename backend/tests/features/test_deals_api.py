@@ -41,11 +41,16 @@ def make_deal(stage="draft", delivery_type="inmediata", **kwargs):
     return deal
 
 
-def make_db(doc_found: bool = True) -> AsyncMock:
-    """DB where every document query returns found/not-found."""
+def make_db(doc_found: bool = True, payment_approved: bool = False) -> AsyncMock:
+    """DB where every document query returns found/not-found.
+
+    The draft→reserva guard first checks for an approved Payment (via .first());
+    default is no approved payment so these tests exercise the document path.
+    """
     db = AsyncMock()
     result = MagicMock()
     result.scalar_one_or_none.return_value = MagicMock() if doc_found else None
+    result.first.return_value = (1,) if payment_approved else None
     db.execute.return_value = result
     db.add = MagicMock()
     return db
@@ -117,7 +122,12 @@ class TestDealServiceCreate:
         assert deal.property_id == 20
         assert deal.delivery_type == "inmediata"
         assert deal.jefatura_review_required is False
-        db.add.assert_called_once()
+        # create() adds the deal and reserves the property (2 adds).
+        assert db.add.call_count == 2
+        added = [c.args[0] for c in db.add.call_args_list]
+        assert deal in added
+        assert prop in added
+        assert prop.status == "reserved"
         db.flush.assert_awaited_once()
 
     def test_create_property_not_available(self):
@@ -217,7 +227,7 @@ class TestDealStateMachine:
 
     def test_cancel_sets_timestamps(self):
         deal = make_deal(stage="reserva")
-        _run(transition(deal, "cancelado", AsyncMock(), cancellation_reason="Sin fondos"))
+        _run(transition(deal, "cancelado", make_db(), cancellation_reason="Sin fondos"))
         assert deal.stage == "cancelado"
         assert deal.cancelled_at is not None
         assert deal.cancellation_reason == "Sin fondos"
@@ -331,17 +341,24 @@ class TestDealDocumentService:
         assert exc.value.status_code == 400
         assert "nonexistent" in exc.value.message
 
+    @staticmethod
+    def _upload_db(config):
+        """DB for upload(): 1st execute = duplicate-doc check (none via scalars().first()),
+        2nd execute = BrokerLeadConfig lookup (scalar_one_or_none())."""
+        no_dup = MagicMock()
+        no_dup.scalars.return_value.first.return_value = None
+        config_result = MagicMock()
+        config_result.scalar_one_or_none.return_value = config
+        db = AsyncMock()
+        db.execute.side_effect = [no_dup, config_result]
+        return db
+
     def test_upload_ai_blocked_without_flag(self):
         """When uploaded_by_ai=True and config.ai_can_upload_deal_files=False, raise 403."""
         config_mock = MagicMock()
         config_mock.ai_can_upload_deal_files = False
 
-        result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = config_mock
-
-        db = AsyncMock()
-        db.execute.return_value = result_mock
-
+        db = self._upload_db(config_mock)
         deal = make_deal()
         file = MagicMock()
 
@@ -355,12 +372,7 @@ class TestDealDocumentService:
 
     def test_upload_ai_blocked_when_config_missing(self):
         """When uploaded_by_ai=True and BrokerLeadConfig doesn't exist, raise 403."""
-        result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = None  # no config row
-
-        db = AsyncMock()
-        db.execute.return_value = result_mock
-
+        db = self._upload_db(None)  # no dup doc, then no config row
         deal = make_deal()
         file = MagicMock()
 

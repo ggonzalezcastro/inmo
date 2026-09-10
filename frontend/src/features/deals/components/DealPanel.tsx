@@ -387,12 +387,12 @@ function CreateDealModal({ leadId, open, onClose }: CreateDealModalProps) {
 
 export function DealPanel({ leadId }: DealPanelProps) {
   const { dealsByLeadId, loading, error, loadDealsForLead } = useDealsStore()
-  const { isAdmin, isAgent, role } = usePermissions()
+  const { isAdmin, isAgent } = usePermissions()
   const [showCreate, setShowCreate] = useState(false)
 
   const deals = dealsByLeadId[leadId] ?? []
   const canWrite = isAdmin || isAgent
-  const canAdvance = role !== 'viewer'
+  const canAdvance = isAdmin || isAgent
 
   useEffect(() => {
     loadDealsForLead(leadId).catch(() => {})

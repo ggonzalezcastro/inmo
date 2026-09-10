@@ -2,11 +2,12 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Search, X, User } from 'lucide-react'
 import { apiClient } from '@/shared/lib/api-client'
 
-interface LeadOption {
+export interface LeadOption {
   id: number
   name: string
   phone: string
   email?: string
+  assigned_to?: number | null
 }
 
 interface PaginatedLeads {

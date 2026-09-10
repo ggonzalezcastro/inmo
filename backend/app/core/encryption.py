@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import logging
 import os
 from typing import Any, Dict, Optional, Set
@@ -97,7 +98,9 @@ def encrypt_value(value: Any) -> str:
         return str(value)
 
     try:
-        plain = str(value).encode()
+        # JSON preserves scalar types (for example, an integer income remains an
+        # integer after decrypting) while still supporting legacy string tokens.
+        plain = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
         token = fernet.encrypt(plain).decode()
         return f"{_ENCRYPTED_PREFIX}{token}"
     except Exception as exc:
@@ -105,7 +108,7 @@ def encrypt_value(value: Any) -> str:
         return str(value)
 
 
-def decrypt_value(encrypted: str) -> str:
+def decrypt_value(encrypted: str) -> Any:
     """
     Decrypt a value previously encrypted with encrypt_value.
     Returns the original string, or the input unchanged if not encrypted / error.
@@ -120,7 +123,12 @@ def decrypt_value(encrypted: str) -> str:
 
     try:
         token = encrypted[len(_ENCRYPTED_PREFIX):].encode()
-        return fernet.decrypt(token).decode()
+        plain = fernet.decrypt(token).decode()
+        try:
+            return json.loads(plain)
+        except (json.JSONDecodeError, TypeError):
+            # Tokens written before type-preserving JSON used raw strings.
+            return plain
     except Exception as exc:
         logger.warning("[Encryption] decrypt_value failed: %s", exc)
         return encrypted  # return as-is rather than crash

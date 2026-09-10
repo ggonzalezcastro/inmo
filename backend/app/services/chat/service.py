@@ -1,6 +1,7 @@
 """
 Chat service - orchestrates chat providers and message persistence.
 """
+import inspect
 import logging
 from typing import Optional, Dict, Any
 
@@ -13,6 +14,7 @@ from app.services.chat.base_provider import BaseChatProvider, ChatMessageData, S
 from app.services.chat.factory import ChatProviderFactory
 from app.services.leads import LeadService
 from app.schemas.lead import LeadCreate
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +31,10 @@ class ChatService:
         result = await db.execute(
             select(BrokerChatConfig).where(BrokerChatConfig.broker_id == broker_id)
         )
-        return result.scalars().first()
+        config = result.scalar_one_or_none()
+        if inspect.isawaitable(config):
+            config = await config
+        return config
 
     @staticmethod
     async def get_provider_for_broker(
@@ -74,6 +79,57 @@ class ChatService:
         Send message via specified provider.
         Optionally logs the outbound message to DB when lead_id is provided.
         """
+        asset_routing_enabled = (
+            provider_name == "whatsapp" and settings.META_WHATSAPP_ASSET_ROUTING_ENABLED
+        ) or (
+            provider_name == "instagram" and settings.META_INSTAGRAM_ENABLED
+        ) or (
+            provider_name == "facebook" and settings.META_MESSENGER_ENABLED
+        )
+        if asset_routing_enabled and lead_id is not None:
+            from app.services.meta.outbound import MetaOutboundError, MetaOutboundService
+
+            try:
+                outbound = await MetaOutboundService.send_for_lead(
+                    db,
+                    broker_id=broker_id,
+                    lead_id=lead_id,
+                    message_text=message_text,
+                    generation_mode=str(kwargs.pop("generation_mode", "automation")),
+                    preferred_channel=provider_name,
+                    sent_by_user_id=kwargs.pop("sent_by_user_id", None),
+                )
+                if outbound is not None:
+                    return outbound.provider_result
+            except MetaOutboundError as exc:
+                return SendMessageResult(
+                    success=False,
+                    message_id=None,
+                    error=f"{exc.code}: {exc}",
+                )
+
+        if provider_name == "whatsapp":
+            from app.services.meta.metrics import record_legacy_fallback
+
+            reason = (
+                "missing_asset_conversation"
+                if asset_routing_enabled and lead_id is not None
+                else "missing_lead_id"
+                if asset_routing_enabled
+                else "asset_routing_disabled"
+            )
+            if not settings.META_WHATSAPP_LEGACY_FALLBACK_ENABLED:
+                record_legacy_fallback("outbound", reason, "blocked")
+                return SendMessageResult(
+                    success=False,
+                    message_id=None,
+                    error=(
+                        "LEGACY_WHATSAPP_FALLBACK_DISABLED: "
+                        "an asset-aware WhatsApp conversation is required"
+                    ),
+                )
+            record_legacy_fallback("outbound", reason, "used")
+
         provider = await ChatService.get_provider_for_broker(db, broker_id, provider_name)
         if not provider:
             return SendMessageResult(
@@ -113,6 +169,11 @@ class ChatService:
         status: MessageStatus = MessageStatus.SENT,
         ai_used: bool = True,
         conversation_id: Optional[int] = None,
+        meta_asset_id: Optional[int] = None,
+        sent_by_user_id: Optional[int] = None,
+        generation_mode: str = "manual",
+        message_type: str = "text",
+        reply_to_external_id: Optional[str] = None,
     ) -> ChatMessage:
         """Log chat message to database."""
         try:
@@ -138,6 +199,11 @@ class ChatService:
             attachments=message_data.attachments,
             ai_response_used=ai_used,
             conversation_id=conversation_id,
+            meta_asset_id=meta_asset_id,
+            sent_by_user_id=sent_by_user_id,
+            generation_mode=generation_mode,
+            message_type=message_type,
+            reply_to_external_id=reply_to_external_id,
         )
         db.add(message)
         await db.commit()
@@ -150,6 +216,7 @@ class ChatService:
         broker_id: int,
         provider_name: str,
         channel_user_id: str,
+        meta_asset_id: Optional[int] = None,
     ) -> Optional[Any]:
         """Find lead that has messages from this channel user (provider + channel_user_id)."""
         try:
@@ -157,13 +224,16 @@ class ChatService:
         except ValueError:
             provider_enum = ChatProvider.WEBCHAT
 
+        filters = [
+            ChatMessage.broker_id == broker_id,
+            ChatMessage.provider == provider_enum,
+            ChatMessage.channel_user_id == channel_user_id,
+        ]
+        if meta_asset_id is not None:
+            filters.append(ChatMessage.meta_asset_id == meta_asset_id)
         result = await db.execute(
             select(ChatMessage.lead_id)
-            .where(
-                ChatMessage.broker_id == broker_id,
-                ChatMessage.provider == provider_enum,
-                ChatMessage.channel_user_id == channel_user_id,
-            )
+            .where(*filters)
             .order_by(ChatMessage.created_at.desc())
             .limit(1)
         )

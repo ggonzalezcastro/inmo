@@ -26,6 +26,9 @@ celery_app.conf.task_acks_late = True
 # Reject (not re-queue) tasks that were in progress when the worker was lost,
 # so they don't loop forever; they will be caught by DLQ on_failure.
 celery_app.conf.task_reject_on_worker_lost = True
+# Celery 6 removes the legacy startup fallback; make the intended retry
+# behavior explicit so workers tolerate Redis starting or restarting slowly.
+celery_app.conf.broker_connection_retry_on_startup = True
 # Default retry policy: 3 retries with exponential backoff (2^n seconds)
 celery_app.conf.task_max_retries = 3
 
@@ -50,6 +53,11 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.human_timeout_tasks.check_human_mode_timeouts",
         "schedule": crontab(minute="*/5"),
     },
+    # ── Lead task reminders (every minute) ─────────────────────────────────
+    "send-lead-task-reminders": {
+        "task": "app.tasks.lead_task_reminders.send_due_lead_task_reminders",
+        "schedule": crontab(minute="*"),
+    },
     # ── Observability alert evaluation (every 5 min) ───────────────────────
     "evaluate-observability-alerts": {
         "task": "observability.evaluate_alerts",
@@ -59,6 +67,32 @@ celery_app.conf.beat_schedule = {
     "cleanup-cancelled-deal-files": {
         "task": "app.tasks.deal_cleanup_tasks.cleanup_cancelled_deal_files",
         "schedule": crontab(hour=2, minute=0),  # 2 AM UTC daily
+    },
+    "cleanup-expired-meta-webhook-payloads": {
+        "task": "app.tasks.meta_tasks.cleanup_expired_meta_webhook_payloads",
+        "schedule": crontab(hour=3, minute=20),
+    },
+    "revalidate-meta-connections": {
+        "task": "app.tasks.meta_tasks.revalidate_meta_connections",
+        "schedule": crontab(minute=15, hour="*/6"),
+    },
+    "synchronize-meta-assets": {
+        "task": "app.tasks.meta_tasks.synchronize_meta_assets",
+        "schedule": crontab(hour=4, minute=10),
+    },
+    "reconcile-meta-lead-forms": {
+        "task": "app.tasks.meta_tasks.reconcile_meta_lead_forms",
+        "schedule": crontab(minute="*/15"),
+    },
+    "synchronize-meta-ads-insights": {
+        "task": "app.tasks.meta_tasks.synchronize_meta_ads_insights",
+        "schedule": crontab(minute=35),
+        "kwargs": {"backfill_days": 1},
+    },
+    "backfill-meta-ads-insights": {
+        "task": "app.tasks.meta_tasks.synchronize_meta_ads_insights",
+        "schedule": crontab(hour=5, minute=5),
+        "kwargs": {"backfill_days": 3},
     },
 }
 
@@ -74,4 +108,3 @@ def debug_task(self):
 
 if __name__ == "__main__":
     celery_app.start()
-

@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.sentiment.heuristics import SentimentResult
 from app.services.sentiment.scorer import ActionLevel, empty_sentiment, update_sentiment_window
 
 
@@ -43,6 +42,7 @@ def make_async_db(scalar_result=None, first_result=None) -> AsyncMock:
 
     db = AsyncMock()
     db.execute = AsyncMock(return_value=cursor)
+    db.add = MagicMock()
     db.commit = AsyncMock()
     return db
 
@@ -266,5 +266,3 @@ class TestEscalationAction:
         assert call["data"]["lead_id"] == 2
         assert "frustration_score" in call["data"]
         assert call["data"]["channel"] == "telegram"
-
-

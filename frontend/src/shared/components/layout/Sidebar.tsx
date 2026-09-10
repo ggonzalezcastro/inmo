@@ -6,11 +6,9 @@ import {
   GitBranch,
   Megaphone,
   Calendar,
-  FileText,
   Settings,
   UserCog,
   Building2,
-  Home,
   MessageSquare,
   Inbox,
   DollarSign,
@@ -21,9 +19,11 @@ import {
   ShieldCheck,
   Activity,
   Handshake,
-  BarChart2,
   FlaskConical,
   Phone,
+  ListTodo,
+  RadioTower,
+  PlugZap,
 } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
 import { useAuthStore } from '@/features/auth'
@@ -46,15 +46,13 @@ interface NavItem {
   dividerBefore?: boolean
 }
 
-interface NavGroup {
-  label?: string
-  items: NavItem[]
-}
-
 const NAV_ITEMS: NavItem[] = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/leads', label: 'Leads', icon: Users },
+  { path: '/tasks', label: 'Mis tareas', icon: ListTodo, excludeRoles: ['superadmin'] },
   { path: '/pipeline', label: 'Pipeline', icon: GitBranch, excludeRoles: ['superadmin'] },
+  { path: '/meta-inbox', label: 'Bandeja Meta', icon: RadioTower, excludeRoles: ['superadmin'] },
+  { path: '/my-channels', label: 'Mis canales', icon: PlugZap, excludeRoles: ['superadmin'] },
   { path: '/conversations', label: 'Conversaciones', icon: Inbox, excludeRoles: ['superadmin'] },
   { path: '/appointments', label: 'Citas', icon: Calendar, excludeRoles: ['superadmin'] },
   { path: '/llamadas', label: 'Llamadas', icon: Phone, excludeRoles: ['superadmin'] },
@@ -72,6 +70,7 @@ const VENTAS_ITEMS: NavItem[] = [
   { path: '/projects', label: 'Inventario', icon: Building2, roles: ['admin', 'superadmin'] },
   { path: '/negocios', label: 'Negocios', icon: Handshake, roles: ['admin', 'superadmin'] },
   { path: '/campaigns', label: 'Campañas', icon: Megaphone, roles: ['admin', 'superadmin'] },
+  { path: '/meta-ads', label: 'Meta Ads', icon: RadioTower, excludeRoles: ['superadmin'] },
 ]
 
 const STATUS_COLORS: Record<SofiaStatus, { dot: string; bg: string; text: string; detail: string }> = {

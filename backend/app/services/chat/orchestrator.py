@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import update, func
+from sqlalchemy import case, update
 
 from app.models.lead import Lead, LeadStatus
 from app.services.leads import LeadService, LeadContextService
@@ -98,6 +98,11 @@ class ChatOrchestratorService:
         lead_id: Optional[int] = None,
         provider_name: str = "webchat",
         skip_inbound_log: bool = False,
+        skip_outbound_log: bool = False,
+        conversation_id: Optional[int] = None,
+        meta_asset_id: Optional[int] = None,
+        channel_identity_id: Optional[int] = None,
+        channel_user_id: Optional[str] = None,
         # File attachment — populated by Telegram/WhatsApp callers when the
         # incoming message contains a photo, document, or other media.
         attachment_bytes: Optional[bytes] = None,
@@ -216,14 +221,28 @@ class ChatOrchestratorService:
 
         # 1b. Get or create Conversation record (tracks this chat session)
         _conversation = None
-        if broker_id:
+        if broker_id and not skip_outbound_log:
             try:
-                _conversation = await ConversationService.get_or_create(
-                    db=db,
-                    lead_id=lead.id,
-                    broker_id=broker_id,
-                    channel=provider_name or "webchat",
-                )
+                if conversation_id is not None:
+                    from app.models.conversation import Conversation as _Conversation
+                    _conversation = await db.scalar(
+                        _sa_select(_Conversation).where(
+                            _Conversation.id == conversation_id,
+                            _Conversation.lead_id == lead.id,
+                            _Conversation.broker_id == broker_id,
+                        )
+                    )
+                    if _conversation is None:
+                        raise ValueError("Conversation does not belong to this lead and broker")
+                else:
+                    _conversation = await ConversationService.get_or_create(
+                        db=db,
+                        lead_id=lead.id,
+                        broker_id=broker_id,
+                        channel=provider_name or "webchat",
+                        meta_asset_id=meta_asset_id,
+                        channel_identity_id=channel_identity_id,
+                    )
                 await db.flush()
             except Exception as _conv_exc:
                 logger.warning("[Orchestrator] ConversationService.get_or_create failed (continuing): %s", _conv_exc)
@@ -237,7 +256,7 @@ class ChatOrchestratorService:
                 broker_id=broker_id,
                 provider_name=provider_name,
                 message_data=ChatMessageData(
-                    channel_user_id="0",
+                    channel_user_id=channel_user_id or "0",
                     channel_username=None,
                     channel_message_id=None,
                     message_text=message,
@@ -245,6 +264,8 @@ class ChatOrchestratorService:
                 ),
                 ai_used=False,
                 conversation_id=_conversation.id if _conversation else None,
+                meta_asset_id=meta_asset_id,
+                generation_mode="manual",
             )
         else:
             await ActivityService.log_telegram_message(
@@ -637,12 +658,16 @@ class ChatOrchestratorService:
 
             # Atomic score update (protected by the lock above)
             score_delta = analysis.get("score_delta", 0)
+            candidate_score = Lead.lead_score + score_delta
+            bounded_score = case(
+                (candidate_score < 0, 0),
+                (candidate_score > 100, 100),
+                else_=candidate_score,
+            )
             await db.execute(
                 update(Lead)
                 .where(Lead.id == lead.id)
-                .values(
-                    lead_score=func.least(100, func.greatest(0, Lead.lead_score + score_delta))
-                )
+                .values(lead_score=bounded_score)
             )
             await db.flush()
             await db.refresh(lead)
@@ -655,42 +680,50 @@ class ChatOrchestratorService:
             raise
 
         logger.info("[Orchestrator] Step 5 — updating lead metadata, status")
-        if analysis.get("name"):
-            lead.name = analysis["name"]
-        if analysis.get("phone"):
-            lead.phone = analysis["phone"]
-        if analysis.get("email"):
-            lead.email = analysis["email"]
+        from app.shared.pipeline_stages import PIPELINE_STAGE_WON
+        _is_won_referral_flow = lead.pipeline_stage == PIPELINE_STAGE_WON
+
+        # A won client's next message may contain the referred person's name
+        # and phone. The generic qualification analysis must never overwrite
+        # the buyer's own contact fields; ReferralAgent records them separately.
+        if not _is_won_referral_flow:
+            if analysis.get("name"):
+                lead.name = analysis["name"]
+            if analysis.get("phone"):
+                lead.phone = analysis["phone"]
+            if analysis.get("email"):
+                lead.email = analysis["email"]
 
         current_metadata = dict(lead.lead_metadata or {})
-        for field in [
-            "location", "timeline", "salary", "job_type", "property_type",
-            "bedrooms", "dicom_status", "morosidad_amount"
-        ]:
-            if analysis.get(field):
-                current_metadata[field] = analysis[field]
-                if field == "salary":
-                    current_metadata["monthly_income"] = analysis[field]
+        if not _is_won_referral_flow:
+            for field in [
+                "location", "timeline", "salary", "job_type", "property_type",
+                "bedrooms", "dicom_status", "morosidad_amount"
+            ]:
+                if analysis.get(field):
+                    current_metadata[field] = analysis[field]
+                    if field == "salary":
+                        current_metadata["monthly_income"] = analysis[field]
 
-        # Use LLM analysis to detect interest confirmation — no keyword matching needed.
-        # interest_level >= 7 or timeline == "immediate"/"30days" signals confirmed intent.
-        if analysis.get("interest_level", 0) >= 7 or analysis.get("timeline") in ("immediate", "30days"):
-            current_metadata["interest_confirmed"] = True
-            current_metadata["interest_confirmed_at"] = datetime.now().isoformat()
+            # Use LLM analysis to detect interest confirmation — no keyword matching needed.
+            # interest_level >= 7 or timeline == "immediate"/"30days" signals confirmed intent.
+            if analysis.get("interest_level", 0) >= 7 or analysis.get("timeline") in ("immediate", "30days"):
+                current_metadata["interest_confirmed"] = True
+                current_metadata["interest_confirmed_at"] = datetime.now().isoformat()
 
-        if analysis.get("salary") and not analysis.get("budget"):
-            current_metadata["monthly_income"] = analysis["salary"]
-            current_metadata["salary"] = analysis["salary"]
-        if analysis.get("budget"):
-            current_metadata["budget"] = analysis["budget"]
-        if analysis.get("key_points"):
-            current_points = current_metadata.get("key_points", []) or []
-            for point in analysis["key_points"]:
-                if point not in current_points:
-                    current_points.append(point)
-            current_metadata["key_points"] = current_points
-        current_metadata["last_analysis"] = analysis
-        current_metadata["source"] = "web_chat"
+            if analysis.get("salary") and not analysis.get("budget"):
+                current_metadata["monthly_income"] = analysis["salary"]
+                current_metadata["salary"] = analysis["salary"]
+            if analysis.get("budget"):
+                current_metadata["budget"] = analysis["budget"]
+            if analysis.get("key_points"):
+                current_points = current_metadata.get("key_points", []) or []
+                for point in analysis["key_points"]:
+                    if point not in current_points:
+                        current_points.append(point)
+                current_metadata["key_points"] = current_points
+            current_metadata["last_analysis"] = analysis
+            current_metadata["source"] = "web_chat"
         # Persist conversation state
         current_metadata = conv_machine.to_metadata(current_metadata)
         # Encrypt sensitive financial fields before writing to DB
@@ -698,21 +731,22 @@ class ChatOrchestratorService:
         # Track when the lead was last contacted by the AI
         lead.last_contacted = datetime.now()
 
-        has_all_info = (
-            lead.name and lead.name not in ("User", "Test User")
-            and lead.phone and not str(lead.phone).startswith(("web_chat_", "whatsapp_", "+569999"))
-            and lead.email and str(lead.email).strip() != ""
-            and lead.lead_metadata.get("location")
-            and lead.lead_metadata.get("budget")
-        )
-        if has_all_info:
-            lead.status = LeadStatus.HOT
-        elif new_score < 20:
-            lead.status = LeadStatus.COLD
-        elif new_score < 50:
-            lead.status = LeadStatus.WARM
-        else:
-            lead.status = LeadStatus.HOT
+        if not _is_won_referral_flow:
+            has_all_info = (
+                lead.name and lead.name not in ("User", "Test User")
+                and lead.phone and not str(lead.phone).startswith(("web_chat_", "whatsapp_", "+569999"))
+                and lead.email and str(lead.email).strip() != ""
+                and lead.lead_metadata.get("location")
+                and lead.lead_metadata.get("budget")
+            )
+            if has_all_info:
+                lead.status = LeadStatus.HOT
+            elif new_score < 20:
+                lead.status = LeadStatus.COLD
+            elif new_score < 50:
+                lead.status = LeadStatus.WARM
+            else:
+                lead.status = LeadStatus.HOT
         if not lead.pipeline_stage:
             lead.pipeline_stage = "entrada"
             lead.stage_entered_at = datetime.now()
@@ -773,6 +807,7 @@ class ChatOrchestratorService:
         _broker_overrides: dict = {}
         _broker_name = ""
         _agent_name = "Sofía"
+        _meta_ai_mode = "suggestion"
         try:
             from app.models.broker import Broker
             _cfg_res = await db.execute(
@@ -795,6 +830,17 @@ class ChatOrchestratorService:
             _broker = _br_res.scalars().first()
             if _broker:
                 _broker_name = _broker.name or ""
+            if meta_asset_id:
+                from app.models.meta import MetaAsset as _MetaAsset
+                _asset_res = await db.execute(
+                    _select(_MetaAsset).where(
+                        _MetaAsset.id == meta_asset_id,
+                        _MetaAsset.broker_id == broker_id,
+                    )
+                )
+                _meta_asset = _asset_res.scalars().first()
+                if _meta_asset:
+                    _meta_ai_mode = _meta_asset.ai_mode
             logger.info("[Orchestrator] Step 7b — broker config loaded: agent=%s broker=%r", _agent_name, _broker_name)
         except Exception as _ov_exc:
             logger.warning("[Orchestrator] Step 7b could not load broker config (continuing): %s", _ov_exc)
@@ -813,6 +859,12 @@ class ChatOrchestratorService:
             channel=provider_name or "webchat",
             message_id=_inbound_message.id if _inbound_message else None,
             conversation_id=_conversation.id if _conversation else None,
+            meta_asset_id=meta_asset_id,
+            channel_identity_id=channel_identity_id,
+            messaging_window_expires_at=(
+                _conversation.messaging_window_expires_at if _conversation else None
+            ),
+            ai_mode=_meta_ai_mode,
         )
         logger.info("[Orchestrator] Step 7d — calling AgentSupervisor.process stage=%s", agent_context.pipeline_stage)
         try:
@@ -948,14 +1000,15 @@ class ChatOrchestratorService:
                     "analysis": analysis,
                 },
             )
+        _outbound_message = None
         if broker_id:
-            await ChatService.log_message(
+            _outbound_message = await ChatService.log_message(
                 db,
                 lead_id=current_lead_id,
                 broker_id=broker_id,
                 provider_name=provider_name,
                 message_data=ChatMessageData(
-                    channel_user_id="0",
+                    channel_user_id=channel_user_id or "0",
                     channel_username=None,
                     channel_message_id=None,
                     message_text=ai_response,
@@ -963,6 +1016,8 @@ class ChatOrchestratorService:
                 ),
                 ai_used=True,
                 conversation_id=_conversation.id if _conversation else None,
+                meta_asset_id=meta_asset_id,
+                generation_mode="ai_auto",
             )
         else:
             await ActivityService.log_telegram_message(
@@ -1078,6 +1133,11 @@ class ChatOrchestratorService:
             lead_score=new_score,
             lead_status=lead.status,
             conversation_state=conv_machine.state,
+            metadata={
+                "conversation_id": _conversation.id if _conversation else None,
+                "outbound_message_id": _outbound_message.id if _outbound_message else None,
+                "meta_asset_id": meta_asset_id,
+            },
         )
 
     @staticmethod

@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "stage_order": ["whatsapp", "instagram", "messenger", "ads", "lead_ads"],
+  "canary": {
+    "status": "pending_external",
+    "broker_reference": null,
+    "started_at": null,
+    "ended_at": null,
+    "rollback_exercise": "pending_external",
+    "stages": [
+      {"name": "whatsapp", "status": "pending_external", "enabled_at": null, "validated_at": null},
+      {"name": "instagram", "status": "pending_external", "enabled_at": null, "validated_at": null},
+      {"name": "messenger", "status": "pending_external", "enabled_at": null, "validated_at": null},
+      {"name": "ads", "status": "pending_external", "enabled_at": null, "validated_at": null},
+      {"name": "lead_ads", "status": "pending_external", "enabled_at": null, "validated_at": null}
+    ],
+    "outcomes": {
+      "message_loss": null,
+      "duplicate_effects": null,
+      "unexplained_spend_events": null
+    }
+  },
+  "cohort_rollout": {
+    "status": "pending_external",
+    "cohorts": []
+  },
+  "legacy_retirement": {
+    "status": "pending_external",
+    "stable_releases_before_disable": [],
+    "zero_read_observation": {
+      "release": null,
+      "legacy_reads": null
+    },
+    "fallback_disabled": false,
+    "disabled_in_release": null,
+    "monitor_release": null,
+    "monitor_release_complete": false
+  },
+  "secret_retirement": {
+    "status": "pending_external",
+    "database_backup_reference": null,
+    "rollback_verified": false,
+    "migration_reference": null,
+    "database_verification": "pending_external",
+    "secret_scan": "pending_external",
+    "legacy_environment_variables_removed": false
+  }
+}

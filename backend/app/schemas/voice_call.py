@@ -1,7 +1,7 @@
 """
 Voice call schemas for API validation
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict
 from typing import Any, Dict, List, Literal, Optional
 from datetime import datetime
 from enum import Enum
@@ -50,6 +50,8 @@ class CallStartResponse(BaseModel):
 # ── VoiceCall response ────────────────────────────────────────────────────────
 
 class VoiceCallResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     lead_id: int
     campaign_id: Optional[int] = None
@@ -69,10 +71,6 @@ class VoiceCallResponse(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     created_at: datetime
-
-    class Config:
-        from_attributes = True
-
 
 class VoiceCallListResponse(BaseModel):
     data: List[VoiceCallResponse]
@@ -102,6 +100,8 @@ class AgentVoiceProfileUpdate(BaseModel):
 
 
 class AgentVoiceProfileResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     user_id: int
     template_id: int
@@ -112,10 +112,6 @@ class AgentVoiceProfileResponse(BaseModel):
     preferred_call_mode: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
-
 
 # ── Agent voice template ──────────────────────────────────────────────────────
 
@@ -142,6 +138,8 @@ class AgentVoiceTemplateUpdate(AgentVoiceTemplateCreate):
 
 
 class AgentVoiceTemplateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     broker_id: int
     name: str
@@ -160,10 +158,6 @@ class AgentVoiceTemplateResponse(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
-
-
 # ── Call metrics ──────────────────────────────────────────────────────────────
 
 class CallMetricsResponse(BaseModel):
@@ -172,6 +166,4 @@ class CallMetricsResponse(BaseModel):
     by_mode: Dict[str, int]
     avg_duration_seconds: Optional[float]
     this_month: int
-
-
 

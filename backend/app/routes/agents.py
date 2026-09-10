@@ -18,7 +18,7 @@ os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -45,16 +45,14 @@ class AgentPriorityUpdate(BaseModel):
 
 
 class AgentInfo(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     email: str
     is_active: bool
     calendar_id: Optional[str]
     calendar_connected: bool
-
-    class Config:
-        from_attributes = True
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -241,7 +239,7 @@ import jwt as pyjwt
 from fastapi.responses import RedirectResponse
 
 from app.core.config import settings
-from app.core.encryption import encrypt_value, decrypt_value
+from app.core.encryption import encrypt_value
 
 GOOGLE_OAUTH_SCOPES = ["https://www.googleapis.com/auth/calendar"]
 OUTLOOK_OAUTH_SCOPES = [

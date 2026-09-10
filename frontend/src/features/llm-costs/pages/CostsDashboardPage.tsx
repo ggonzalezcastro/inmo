@@ -3,13 +3,12 @@ import { Link } from 'react-router-dom';
 import { cn } from '@/shared/lib/utils';
 import {
   MessageSquare, Phone, DollarSign, Zap, Clock, TrendingUp,
-  CheckCircle, PhoneOff,
+  CheckCircle, PhoneOff, type LucideIcon,
 } from 'lucide-react';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from 'recharts';
-import { useAuthStore } from '../../../store/authStore';
 import { useCostsStore } from '../store/costsStore';
 import { AlertsPanel } from '../components/AlertsPanel';
 import { TopExpensiveLeads } from '../components/TopExpensiveLeads';
@@ -18,7 +17,6 @@ import type { LLMUsage, VoiceCallItem, VoiceSummary, CostPeriod } from '../types
 
 // ─── Design tokens (matches system) ──────────────────────────────────────────
 const BLUE = '#1A56DB';
-const BORDER = '#D1D9E6';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatUSD(usd: number | null | undefined): string {
@@ -44,7 +42,7 @@ function StatCard({
   label, value, sub, icon: Icon, accent = false,
 }: {
   label: string; value: string; sub?: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: LucideIcon;
   accent?: boolean;
 }) {
   return (
@@ -102,7 +100,7 @@ function Pagination({ page, totalPages, total, onPageChange }: {
 
 // ─── Chat Tab ─────────────────────────────────────────────────────────────────
 function ChatTab({ period, brokerId }: { period: string; brokerId: number | null }) {
-  const { summary, daily, outliers, isLoading } = useCostsStore();
+  const { summary, daily, isLoading } = useCostsStore();
   const [items, setItems] = useState<LLMUsage[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -157,7 +155,7 @@ function ChatTab({ period, brokerId }: { period: string; brokerId: number | null
                   <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
                   <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9CA3AF' }} />
                   <YAxis tick={{ fontSize: 11, fill: '#9CA3AF' }} tickFormatter={v => `$${v}`} />
-                  <Tooltip formatter={(v: number) => [`$${v.toFixed(6)}`, 'Costo']} />
+                  <Tooltip formatter={(v) => [`$${Number(v ?? 0).toFixed(6)}`, 'Costo']} />
                   <Line type="monotone" dataKey="costo" stroke={BLUE} strokeWidth={2} dot={{ r: 3, fill: BLUE }} />
                 </LineChart>
               </ResponsiveContainer>
@@ -173,7 +171,7 @@ function ChatTab({ period, brokerId }: { period: string; brokerId: number | null
                     <Pie data={callTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={3}>
                       {callTypeData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
                     </Pie>
-                    <Tooltip formatter={(v: number) => formatUSD(v)} />
+                    <Tooltip formatter={(v) => formatUSD(Number(v ?? 0))} />
                     <Legend iconType="circle" iconSize={8} />
                   </PieChart>
                 </ResponsiveContainer>
@@ -400,9 +398,7 @@ function VoiceTab({ period, brokerId }: { period: string; brokerId: number | nul
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export function CostsDashboardPage() {
-  const userRole = useAuthStore((s) => s.user?.role ?? '');
   const { fetchAll, error, period, setPeriod, selectedBrokerId } = useCostsStore();
-  const isSuperadmin = userRole === 'superadmin';
   const [activeTab, setActiveTab] = useState<'chat' | 'voice'>('chat');
 
   // Superadmin sees all brokers by default (no broker_id required)

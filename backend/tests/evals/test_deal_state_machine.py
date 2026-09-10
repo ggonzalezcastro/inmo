@@ -36,11 +36,16 @@ def make_deal(stage="draft", delivery_type="inmediata", **kwargs):
     return deal
 
 
-def make_db(doc_found: bool = True) -> AsyncMock:
-    """DB where every document query returns found/not-found."""
+def make_db(doc_found: bool = True, payment_approved: bool = False) -> AsyncMock:
+    """DB where every document query returns found/not-found.
+
+    The draft→reserva guard first checks for an approved Payment (via .first());
+    default is no approved payment so these tests exercise the document path.
+    """
     db = AsyncMock()
     result = MagicMock()
     result.scalar_one_or_none.return_value = MagicMock() if doc_found else None
+    result.first.return_value = (1,) if payment_approved else None
     db.execute.return_value = result
     db.add = MagicMock()  # db.add is sync in SQLAlchemy
     return db
@@ -145,18 +150,18 @@ class TestCancellationGuard:
 
     def test_cancel_with_reason_updates_stage(self):
         deal = make_deal(stage="reserva")
-        _run(transition(deal, "cancelado", AsyncMock(), cancellation_reason="Cliente desistió"))
+        _run(transition(deal, "cancelado", make_db(), cancellation_reason="Cliente desistió"))
         assert deal.stage == "cancelado"
         assert deal.cancellation_reason == "Cliente desistió"
 
     def test_cancel_from_docs_pendientes(self):
         deal = make_deal(stage="docs_pendientes")
-        _run(transition(deal, "cancelado", AsyncMock(), cancellation_reason="Problema financiero"))
+        _run(transition(deal, "cancelado", make_db(), cancellation_reason="Problema financiero"))
         assert deal.stage == "cancelado"
 
     def test_cancel_from_promesa_firmada(self):
         deal = make_deal(stage="promesa_firmada")
-        _run(transition(deal, "cancelado", AsyncMock(), cancellation_reason="Acuerdo roto"))
+        _run(transition(deal, "cancelado", make_db(), cancellation_reason="Acuerdo roto"))
         assert deal.stage == "cancelado"
 
 
@@ -174,6 +179,12 @@ class TestGuardDraftToReserva:
     def test_with_comprobante_advances(self):
         deal = make_deal(stage="draft")
         _run(transition(deal, "reserva", make_db(doc_found=True)))
+        assert deal.stage == "reserva"
+
+    def test_approved_payment_advances_without_comprobante(self):
+        # A confirmed Transbank payment replaces the manual transfer receipt.
+        deal = make_deal(stage="draft")
+        _run(transition(deal, "reserva", make_db(doc_found=False, payment_approved=True)))
         assert deal.stage == "reserva"
 
     def test_timestamps_set_on_reserva(self):
@@ -226,7 +237,7 @@ class TestGuardAprobacionToPromesa:
             bank_review_status="aprobado",
             delivery_type="inmediata",
         )
-        _run(transition(deal, "promesa_redaccion", AsyncMock()))
+        _run(transition(deal, "promesa_redaccion", make_db()))
         assert deal.stage == "promesa_redaccion"
 
     def test_futura_missing_jefatura_raises(self):
@@ -257,7 +268,7 @@ class TestGuardAprobacionToPromesa:
             delivery_type="futura",
             jefatura_review_status="aprobado",
         )
-        _run(transition(deal, "promesa_redaccion", AsyncMock()))
+        _run(transition(deal, "promesa_redaccion", make_db()))
         assert deal.stage == "promesa_redaccion"
 
 
@@ -329,7 +340,7 @@ class TestHappyPathFutura:
             delivery_type="futura",
             jefatura_review_status="aprobado",
         )
-        _run(transition(deal, "promesa_redaccion", AsyncMock()))
+        _run(transition(deal, "promesa_redaccion", make_db()))
         assert deal.stage == "promesa_redaccion"
 
     def test_futura_full_pipeline_except_aprobacion(self):

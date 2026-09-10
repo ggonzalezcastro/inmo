@@ -27,6 +27,10 @@ from app.tasks.base import DLQTask
 
 logger = logging.getLogger(__name__)
 
+# Optional session factory seam used by isolated tests. Production leaves it as
+# ``None`` so every Celery invocation creates an event-loop-local engine.
+_AsyncSession = None
+
 
 @shared_task(
     name="app.tasks.sentiment_tasks.analyze_sentiment",
@@ -94,11 +98,18 @@ async def _async_analyze(
 
     # NullPool: no connection pooling — each task gets a fresh connection and
     # closes it when done. Avoids pool exhaustion under concurrent load.
-    engine = create_async_engine(settings.DATABASE_URL, echo=False, poolclass=NullPool)
-    AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    engine = None
+    session_factory = _AsyncSession
+    if session_factory is None:
+        engine = create_async_engine(settings.DATABASE_URL, echo=False, poolclass=NullPool)
+        session_factory = async_sessionmaker(
+            engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
 
     try:
-        async with AsyncSessionLocal() as db:
+        async with session_factory() as db:
             # SELECT FOR UPDATE (no skip_locked): serializes concurrent tasks on the
             # same lead. The wait is brief (single short transaction) and ensures
             # every message's sentiment data is captured — not silently discarded.
@@ -114,7 +125,11 @@ async def _async_analyze(
 
             # Skip if already escalated (human has taken over)
             current_sentiment = meta.get("sentiment", empty_sentiment())
-            if current_sentiment.get("escalated", False) or lead.human_mode:
+            if (
+                current_sentiment.get("escalated", False)
+                or lead.human_mode is True
+                or meta.get("human_mode") is True
+            ):
                 logger.debug("sentiment_task: lead %s already escalated or in human_mode", lead_id)
                 return
 
@@ -172,7 +187,8 @@ async def _async_analyze(
                 channel=channel,
             )
     finally:
-        await engine.dispose()
+        if engine is not None:
+            await engine.dispose()
 
 
 def _extract_recent_context(meta: dict) -> list[str]:

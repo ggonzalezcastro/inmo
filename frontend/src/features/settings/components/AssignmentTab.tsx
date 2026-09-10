@@ -60,9 +60,13 @@ function SortableAgent({ agent, index }: { agent: Agent; index: number }) {
         <p className="text-xs text-[#9CA3AF] leading-tight">{agent.email}</p>
       </div>
       {agent.calendar_connected ? (
-        <Calendar className="h-4 w-4 text-green-500 shrink-0" title="Calendario conectado" />
+        <span title="Calendario conectado">
+          <Calendar className="h-4 w-4 text-green-500 shrink-0" />
+        </span>
       ) : (
-        <CalendarOff className="h-4 w-4 text-gray-300 shrink-0" title="Sin calendario" />
+        <span title="Sin calendario">
+          <CalendarOff className="h-4 w-4 text-gray-300 shrink-0" />
+        </span>
       )}
     </div>
   )

@@ -36,12 +36,30 @@ def client(admin_user):
 
     async def override_db():
         db = AsyncMock()
+
+        async def execute(statement):
+            result = MagicMock()
+            result.scalar_one.return_value = 0
+            params = statement.compile().params
+            result.scalar_one_or_none.return_value = (
+                None if 999 in params.values() else MagicMock()
+            )
+            return result
+
+        db.execute = AsyncMock(side_effect=execute)
         yield db
 
     app.dependency_overrides[get_current_user] = override_user
     app.dependency_overrides[get_db] = override_db
-    with TestClient(app, raise_server_exceptions=False) as c:
-        yield c
+    with patch("app.main._ensure_storage_dir"), patch(
+        "app.main.init_db",
+        new_callable=AsyncMock,
+    ), patch(
+        "app.main.close_db",
+        new_callable=AsyncMock,
+    ):
+        with TestClient(app, raise_server_exceptions=False) as c:
+            yield c
     app.dependency_overrides.clear()
 
 

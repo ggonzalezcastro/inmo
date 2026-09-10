@@ -315,11 +315,16 @@ class TestCRMLLMProcessor:
         mock_result.response = "Hola, soy Sofía"
         mock_result.metadata = {"agent_type": "qualifier"}
 
-        _mock_orchestrator_cls.process_for_voice = AsyncMock(return_value=mock_result)
+        orchestrator = patch(
+            "app.services.chat.orchestrator.ChatOrchestratorService.process_for_voice",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        )
         proc._db_factory = MagicMock(return_value=self._mock_db())
 
         frame = make_transcription_frame("hola busco un depa")
-        self._run_frame(proc, frame)
+        with orchestrator:
+            self._run_frame(proc, frame)
 
         assert proc.push_frame.called
         pushed_texts = [
@@ -335,22 +340,32 @@ class TestCRMLLMProcessor:
         mock_result.response = "Perfecto, confirmado"
         mock_result.metadata = {}
 
-        _mock_orchestrator_cls.process_for_voice = AsyncMock(return_value=mock_result)
+        orchestrator = patch(
+            "app.services.chat.orchestrator.ChatOrchestratorService.process_for_voice",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        )
         proc._db_factory = MagicMock(return_value=self._mock_db())
 
         frame = make_transcription_frame("si me acomoda")
-        self._run_frame(proc, frame)
+        with orchestrator as mock_process:
+            self._run_frame(proc, frame)
 
-        kwargs = _mock_orchestrator_cls.process_for_voice.call_args.kwargs
+        kwargs = mock_process.call_args.kwargs
         assert kwargs["call_purpose"] == "confirmacion_visita"
 
     def test_fallback_response_on_error(self):
         proc = self._processor()
-        _mock_orchestrator_cls.process_for_voice = AsyncMock(side_effect=Exception("LLM timeout"))
+        orchestrator = patch(
+            "app.services.chat.orchestrator.ChatOrchestratorService.process_for_voice",
+            new_callable=AsyncMock,
+            side_effect=Exception("LLM timeout"),
+        )
         proc._db_factory = MagicMock(return_value=self._mock_db())
 
         frame = make_transcription_frame("hola")
-        self._run_frame(proc, frame)
+        with orchestrator:
+            self._run_frame(proc, frame)
 
         pushed_texts = [
             c.args[0].text for c in proc.push_frame.call_args_list
@@ -369,11 +384,16 @@ class TestCRMLLMProcessor:
         mock_result.response = "respuesta"
         mock_result.metadata = {}
 
-        _mock_orchestrator_cls.process_for_voice = AsyncMock(return_value=mock_result)
+        orchestrator = patch(
+            "app.services.chat.orchestrator.ChatOrchestratorService.process_for_voice",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        )
         proc._db_factory = MagicMock(return_value=self._mock_db())
 
         frame = make_transcription_frame("algo")
-        self._run_frame(proc, frame)
+        with orchestrator:
+            self._run_frame(proc, frame)
 
         proc.push_frame.assert_not_called()
 

@@ -42,8 +42,8 @@ def process_whatsapp_message(
         pid = str(phone_number_id)
 
         logger.info(
-            "WhatsApp task starting: from=%s phone_number_id=%s wamid=%s",
-            from_number, pid, wamid,
+            "WhatsApp task starting: phone_number_id=%s wamid=%s",
+            pid, wamid,
         )
 
         from app.models.broker_chat_config import BrokerChatConfig
@@ -56,6 +56,38 @@ def process_whatsapp_message(
         from app.services.leads import LeadService
 
         async with AsyncSessionLocal() as db:
+            if settings.META_WHATSAPP_ASSET_ROUTING_ENABLED:
+                from app.services.meta.inbound import MetaInboundMessageService
+                from app.services.meta.normalization import NormalizedMetaMessage
+
+                await MetaInboundMessageService.process(
+                    db,
+                    NormalizedMetaMessage(
+                        provider="whatsapp",
+                        asset_type="whatsapp_phone",
+                        asset_external_id=pid,
+                        sender_id=from_number,
+                        message_id=wamid,
+                        text=message_text,
+                        metadata={"source": "legacy_whatsapp_webhook"},
+                    ),
+                )
+                logger.info(
+                    "WhatsApp task completed through asset-aware routing for wamid=%s",
+                    wamid,
+                )
+                return
+
+            from app.services.meta.metrics import record_legacy_fallback
+
+            if not settings.META_WHATSAPP_LEGACY_FALLBACK_ENABLED:
+                record_legacy_fallback("inbound", "asset_routing_disabled", "blocked")
+                logger.error(
+                    "WhatsApp task: legacy fallback is disabled and asset routing is off"
+                )
+                return
+            record_legacy_fallback("inbound", "asset_routing_disabled", "entered")
+
             # 1. Resolve broker via phone_number_id stored in BrokerChatConfig JSONB.
             #    Guard against NULL provider_configs with isnot(None) filter.
             result = await db.execute(
@@ -67,15 +99,21 @@ def process_whatsapp_message(
             )
             config = result.scalars().first()
 
-            # Fallback: if global env-var matches, use any broker_chat_config with
-            # whatsapp enabled (legacy single-broker setup without per-broker DB config).
+            # The global fallback is valid only when exactly one broker is eligible.
+            # Refuse ambiguous routing instead of selecting an arbitrary tenant.
             if not config and settings.WHATSAPP_PHONE_NUMBER_ID and settings.WHATSAPP_PHONE_NUMBER_ID == pid:
                 fallback = await db.execute(
                     select(BrokerChatConfig).where(
                         BrokerChatConfig.enabled_providers.contains(["whatsapp"])
-                    ).limit(1)
+                    ).limit(2)
                 )
-                config = fallback.scalars().first()
+                candidates = list(fallback.scalars().all())
+                if len(candidates) == 1:
+                    config = candidates[0]
+                elif len(candidates) > 1:
+                    logger.error(
+                        "WhatsApp task: refusing ambiguous global credential routing"
+                    )
 
             if not config:
                 logger.warning(
@@ -101,7 +139,7 @@ def process_whatsapp_message(
                 db, broker_id, "whatsapp", from_number
             )
             if not lead:
-                logger.info("WhatsApp task: creating new lead for from_number=%s", from_number)
+                logger.info("WhatsApp task: creating new lead")
                 lead = await LeadService.create_lead(
                     db,
                     LeadCreate(
@@ -123,7 +161,10 @@ def process_whatsapp_message(
                 from sqlalchemy.future import select as _sel_dup
                 _dup_res = await db.execute(
                     _sel_dup(_CMCheck.id)
-                    .where(_CMCheck.channel_message_id == wamid)
+                    .where(
+                        _CMCheck.broker_id == broker_id,
+                        _CMCheck.channel_message_id == wamid,
+                    )
                     .limit(1)
                 )
                 if _dup_res.scalars().first():
@@ -167,28 +208,34 @@ def process_whatsapp_message(
                 )
             except Exception as _orch_exc:
                 logger.error(
-                    "WhatsApp task: orchestrator FAILED for lead_id=%s: %s",
-                    lead.id, _orch_exc, exc_info=True,
+                    "WhatsApp task: orchestrator failed for lead_id=%s error_type=%s",
+                    lead.id,
+                    type(_orch_exc).__name__,
                 )
                 raise
             logger.info(
-                "WhatsApp task: orchestrator done, response_len=%d response=%r",
+                "WhatsApp task: orchestrator done, response_len=%d",
                 len(chat_result.response or ""),
-                (chat_result.response or "")[:80],
             )
 
             # 5. Send AI reply (skip if human agent has taken control)
             if chat_result.response and chat_result.response != "[human_mode]":
-                logger.info("WhatsApp task: sending reply to %s via phone_number_id=%s", from_number, _wa_phone_id)
+                logger.info(
+                    "WhatsApp task: sending reply via phone_number_id=%s",
+                    _wa_phone_id,
+                )
                 wa = WhatsAppService(phone_number_id=_wa_phone_id, access_token=_wa_token)
                 try:
                     await wa.send_text_message(from_number, chat_result.response)
                 except Exception as _send_exc:
-                    logger.error("WhatsApp task: send_text_message FAILED: %s", _send_exc, exc_info=True)
+                    logger.error(
+                        "WhatsApp task: send_text_message failed error_type=%s",
+                        type(_send_exc).__name__,
+                    )
                     raise
-                logger.info("WhatsApp task: reply sent to %s", from_number)
+                logger.info("WhatsApp task: reply sent")
             elif chat_result.response == "[human_mode]":
-                logger.info("WhatsApp task: human_mode active, skipping AI reply for %s", from_number)
+                logger.info("WhatsApp task: human_mode active, skipping AI reply")
             else:
                 logger.warning("WhatsApp task: empty response from orchestrator for lead_id=%s", lead.id)
 
@@ -197,7 +244,10 @@ def process_whatsapp_message(
             try:
                 await wa.mark_as_read(wamid)
             except Exception as _read_exc:
-                logger.warning("WhatsApp task: mark_as_read FAILED (non-fatal): %s", _read_exc)
+                logger.warning(
+                    "WhatsApp task: mark_as_read failed error_type=%s",
+                    type(_read_exc).__name__,
+                )
             logger.info("WhatsApp task: completed successfully for wamid=%s", wamid)
 
         try:
@@ -209,9 +259,8 @@ def process_whatsapp_message(
         asyncio.run(_run())
     except Exception as exc:
         logger.error(
-            "WhatsApp task failed (attempt %d): %s",
+            "WhatsApp task failed attempt=%d error_type=%s",
             self.request.retries + 1,
-            exc,
-            exc_info=True,
+            type(exc).__name__,
         )
         raise self.retry(exc=exc)

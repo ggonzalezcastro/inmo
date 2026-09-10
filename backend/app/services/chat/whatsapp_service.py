@@ -18,8 +18,6 @@ logger = logging.getLogger(__name__)
 class WhatsAppService:
     """Minimal WhatsApp Cloud API client for outbound operations."""
 
-    BASE_URL = "https://graph.facebook.com/v18.0"
-
     def __init__(
         self,
         phone_number_id: Optional[str] = None,
@@ -39,7 +37,10 @@ class WhatsAppService:
             logger.warning("WhatsAppService: access_token is not set — messages will fail")
 
     def _api_url(self) -> str:
-        return f"{self.BASE_URL}/{self._phone_number_id}"
+        return (
+            f"https://graph.facebook.com/"
+            f"{settings.META_GRAPH_API_VERSION}/{self._phone_number_id}"
+        )
 
     def _headers(self) -> Dict[str, str]:
         return {
@@ -57,8 +58,8 @@ class WhatsAppService:
             "text": {"body": text},
         }
         logger.info(
-            "WhatsApp sending to=%s via phone_number_id=%s text=%r",
-            to, self._phone_number_id, text[:60],
+            "WhatsApp send_text_message started phone_number_id=%s",
+            self._phone_number_id,
         )
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
@@ -68,11 +69,11 @@ class WhatsAppService:
             )
         if response.status_code != 200:
             logger.error(
-                "WhatsApp send_text_message FAILED status=%s body=%s",
-                response.status_code, response.text,
+                "WhatsApp send_text_message failed status=%s",
+                response.status_code,
             )
         else:
-            logger.info("WhatsApp send_text_message OK to=%s", to)
+            logger.info("WhatsApp send_text_message completed")
         return response.json()
 
     async def mark_as_read(self, wamid: str) -> Dict[str, Any]:
@@ -89,5 +90,5 @@ class WhatsAppService:
                 json=payload,
             )
         if response.status_code != 200:
-            logger.error("WhatsApp mark_as_read failed: %s", response.text)
+            logger.error("WhatsApp mark_as_read failed status=%s", response.status_code)
         return response.json()

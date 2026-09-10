@@ -15,6 +15,9 @@ const LoginPage = lazy(() =>
 const RegisterPage = lazy(() =>
   import('@/features/auth/components/RegisterPage').then((m) => ({ default: m.RegisterPage }))
 )
+const LegalPage = lazy(() =>
+  import('@/features/legal').then((m) => ({ default: m.LegalPage }))
+)
 
 // ── Feature pages (lazy) ────────────────────────────────────────────────────
 const DashboardPage = lazy(() =>
@@ -22,6 +25,9 @@ const DashboardPage = lazy(() =>
 )
 const LeadsPage = lazy(() =>
   import('@/features/leads').then((m) => ({ default: m.LeadsPage }))
+)
+const TasksPage = lazy(() =>
+  import('@/features/tasks').then((m) => ({ default: m.TasksPage }))
 )
 const PipelinePage = lazy(() =>
   import('@/features/pipeline').then((m) => ({ default: m.PipelinePage }))
@@ -53,14 +59,20 @@ const ChatPage = lazy(() =>
 const ConversationsPage = lazy(() =>
   import('@/features/conversations').then((m) => ({ default: m.ConversationsPage }))
 )
+const MetaInboxPage = lazy(() =>
+  import('@/features/meta').then((m) => ({ default: m.MetaInboxPage }))
+)
+const MetaChannelsPage = lazy(() =>
+  import('@/features/meta').then((m) => ({ default: m.MetaChannelsPage }))
+)
+const MetaAdsPage = lazy(() =>
+  import('@/features/meta').then((m) => ({ default: m.MetaAdsPage }))
+)
 const SuperAdminPage = lazy(() =>
   import('@/features/super-admin').then((m) => ({ default: m.SuperAdminPage }))
 )
 const ObservabilityPage = lazy(() =>
   import('@/features/observability').then((m) => ({ default: m.ObservabilityPage }))
-)
-const PropertiesPage = lazy(() =>
-  import('@/features/properties').then((m) => ({ default: m.PropertiesPage }))
 )
 const ProjectsPage = lazy(() =>
   import('@/features/projects').then((m) => ({ default: m.ProjectsPage }))
@@ -114,6 +126,10 @@ export const router = createBrowserRouter([
   { path: '/login', element: <SuspenseWrapper><LoginPage /></SuspenseWrapper> },
   { path: '/register', element: <SuspenseWrapper><RegisterPage /></SuspenseWrapper> },
   { path: '/403', element: <ForbiddenPage /> },
+  { path: '/privacy', element: <SuspenseWrapper><LegalPage /></SuspenseWrapper> },
+  { path: '/terms', element: <SuspenseWrapper><LegalPage /></SuspenseWrapper> },
+  { path: '/support', element: <SuspenseWrapper><LegalPage /></SuspenseWrapper> },
+  { path: '/data-deletion', element: <SuspenseWrapper><LegalPage /></SuspenseWrapper> },
 
   // Protected layout
   {
@@ -127,6 +143,10 @@ export const router = createBrowserRouter([
       {
         path: '/leads',
         element: <SuspenseWrapper><LeadsPage /></SuspenseWrapper>,
+      },
+      {
+        path: '/tasks',
+        element: <SuspenseWrapper><TasksPage /></SuspenseWrapper>,
       },
       {
         path: '/pipeline',
@@ -200,6 +220,18 @@ export const router = createBrowserRouter([
       {
         path: '/conversations',
         element: <SuspenseWrapper><ConversationsPage /></SuspenseWrapper>,
+      },
+      {
+        path: '/meta-inbox',
+        element: <SuspenseWrapper><MetaInboxPage /></SuspenseWrapper>,
+      },
+      {
+        path: '/my-channels',
+        element: <SuspenseWrapper><MetaChannelsPage /></SuspenseWrapper>,
+      },
+      {
+        path: '/meta-ads',
+        element: <SuspenseWrapper><MetaAdsPage /></SuspenseWrapper>,
       },
       {
         path: '/costs',

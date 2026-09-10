@@ -13,16 +13,15 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select, text, and_, Float, cast, literal_column
+from sqlalchemy import Float, cast, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.middleware.auth import get_current_user
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.models.agent_event import AgentEvent
 from app.models.lead import Lead
 from app.models.chat_message import ChatMessage
-from app.models.llm_call import LLMCall
 from app.models.observability_alert import ObservabilityAlert
 
 logger = logging.getLogger(__name__)
@@ -58,7 +57,7 @@ def _period_delta(period: str) -> timedelta:
 
 @router.get("/overview")
 async def get_overview(
-    period: str = Query("24h", regex="^(1h|24h|7d|30d)$"),
+    period: str = Query("24h", pattern="^(1h|24h|7d|30d)$"),
     broker_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -540,7 +539,7 @@ async def search_conversations(
 
 @router.get("/agents/performance")
 async def get_agent_performance(
-    period: str = Query("7d", regex="^(24h|7d|30d)$"),
+    period: str = Query("7d", pattern="^(24h|7d|30d)$"),
     broker_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -590,7 +589,7 @@ async def get_agent_performance(
 
 @router.get("/handoffs/flow")
 async def get_handoff_flow(
-    period: str = Query("7d", regex="^(24h|7d|30d)$"),
+    period: str = Query("7d", pattern="^(24h|7d|30d)$"),
     broker_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -619,7 +618,7 @@ async def get_handoff_flow(
 
 @router.get("/handoffs/escalations")
 async def get_escalations(
-    period: str = Query("7d", regex="^(24h|7d|30d)$"),
+    period: str = Query("7d", pattern="^(24h|7d|30d)$"),
     status: Optional[str] = None,
     broker_id: Optional[int] = None,
     limit: int = Query(50, ge=1, le=200),
@@ -661,7 +660,7 @@ async def get_escalations(
 
 @router.get("/costs/by-agent")
 async def costs_by_agent(
-    period: str = Query("7d", regex="^(24h|7d|30d)$"),
+    period: str = Query("7d", pattern="^(24h|7d|30d)$"),
     broker_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -835,7 +834,7 @@ def _fmt_alert(alert: ObservabilityAlert) -> Dict:
 
 @router.get("/rag/top-chunks")
 async def rag_top_chunks(
-    period: str = Query("7d", regex="^(24h|7d|30d)$"),
+    period: str = Query("7d", pattern="^(24h|7d|30d)$"),
     broker_id: Optional[int] = None,
     limit: int = Query(10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
@@ -850,7 +849,7 @@ async def rag_top_chunks(
 
 @router.get("/rag/gaps")
 async def rag_knowledge_gaps(
-    period: str = Query("7d", regex="^(24h|7d|30d)$"),
+    period: str = Query("7d", pattern="^(24h|7d|30d)$"),
     broker_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -882,7 +881,7 @@ async def rag_knowledge_gaps(
 
 @router.get("/rag/property-search-effectiveness")
 async def property_search_effectiveness(
-    period: str = Query("7d", regex="^(24h|7d|30d)$"),
+    period: str = Query("7d", pattern="^(24h|7d|30d)$"),
     broker_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),

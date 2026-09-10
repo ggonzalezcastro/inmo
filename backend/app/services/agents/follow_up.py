@@ -33,7 +33,7 @@ class _SafeFormatMap(dict):
 # G13: Declare all stages owned by FollowUpAgent so the supervisor's
 # _STAGE_TO_AGENT lookup routes correctly without relying solely on
 # the current_agent sticky field.
-_OWN_STAGES: set = {"agendado", "seguimiento", "referidos", "ganado", "perdido"}
+_OWN_STAGES: set = {"agendado", "seguimiento", "referidos", "perdido"}
 _OWN_CONV_STATES = {"COMPLETED"}
 
 # Handoff tool — LLM calls this when the lead wants to reschedule or book a new visit.

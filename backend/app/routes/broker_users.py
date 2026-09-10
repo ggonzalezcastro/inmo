@@ -202,10 +202,24 @@ async def update_broker_user(
         user.role = UserRole[update_data["role"].upper()]
         del update_data["role"]
     
+    was_active = bool(user.is_active)
+    requested_deactivation = update_data.get("is_active") is False and was_active
+    if requested_deactivation:
+        update_data.pop("is_active", None)
+
     for key, value in update_data.items():
         setattr(user, key, value)
-    
-    await db.commit()
+
+    if requested_deactivation:
+        from app.services.meta.offboarding import MetaExecutiveOffboardingService
+
+        await MetaExecutiveOffboardingService.offboard(
+            db,
+            user=user,
+            performed_by_user_id=current_user.get("user_id") or current_user.get("id"),
+        )
+    else:
+        await db.commit()
     await db.refresh(user)
     
     return {
@@ -259,13 +273,19 @@ async def delete_broker_user(
     if user.role == UserRole.SUPERADMIN and user_role != "SUPERADMIN":
         raise HTTPException(status_code=403, detail="No puedes desactivar usuarios superadmin")
     
-    # Deactivate instead of delete
-    user.is_active = False
-    await db.commit()
+    # Deactivate instead of delete, preserving channel history and returning
+    # active leads/tasks to the unassigned queue.
+    from app.services.meta.offboarding import MetaExecutiveOffboardingService
+
+    offboarding = await MetaExecutiveOffboardingService.offboard(
+        db,
+        user=user,
+        performed_by_user_id=current_user.get("user_id") or current_user.get("id"),
+    )
     
     logger.info(f"User deactivated: {user.id} - {user.email} by {user_role} {current_user.get('email')}")
     
     return {
-        "message": "Usuario desactivado exitosamente"
+        "message": "Usuario desactivado exitosamente",
+        "offboarding": offboarding,
     }
-

@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "source": "backend/app/services/meta/onboarding.py::CHANNEL_CONFIG",
+  "last_reconciled_with_code": "2026-09-09",
+  "portal_reconciliation": {
+    "status": "pending_external",
+    "instruction": "Confirm each permission and its current dependencies in Meta App Review immediately before recording."
+  },
+  "reviewer_access": {
+    "status": "pending_external",
+    "delivery": "Provide the staging URL and CRM credentials only in Meta App Review secure fields; never commit them."
+  },
+  "demo_data": {
+    "status": "pending_external",
+    "profile": "AR-BASELINE-01",
+    "instruction": "Prepare the isolated staging broker and sandbox asset inventory defined in reviewer-runbook.md."
+  },
+  "internal_review": {
+    "status": "pending_external",
+    "instruction": "A reviewer who did not prepare the evidence must complete every written path unaided."
+  },
+  "permissions": [
+    {
+      "permission": "business_management",
+      "oauth_flows": ["business", "whatsapp"],
+      "written_path": "permission-paths.md#business_management",
+      "video": {"filename": "business_management.mp4", "status": "pending_recording", "sha256": null, "submission_reference": null}
+    },
+    {
+      "permission": "whatsapp_business_management",
+      "oauth_flows": ["whatsapp"],
+      "written_path": "permission-paths.md#whatsapp_business_management",
+      "video": {"filename": "whatsapp_business_management.mp4", "status": "pending_recording", "sha256": null, "submission_reference": null}
+    },
+    {
+      "permission": "whatsapp_business_messaging",
+      "oauth_flows": ["whatsapp"],
+      "written_path": "permission-paths.md#whatsapp_business_messaging",
+      "video": {"filename": "whatsapp_business_messaging.mp4", "status": "pending_recording", "sha256": null, "submission_reference": null}
+    },
+    {
+      "permission": "instagram_business_basic",
+      "oauth_flows": ["instagram"],
+      "written_path": "permission-paths.md#instagram_business_basic",
+      "video": {"filename": "instagram_business_basic.mp4", "status": "pending_recording", "sha256": null, "submission_reference": null}
+    },
+    {
+      "permission": "instagram_business_manage_messages",
+      "oauth_flows": ["instagram"],
+      "written_path": "permission-paths.md#instagram_business_manage_messages",
+      "video": {"filename": "instagram_business_manage_messages.mp4", "status": "pending_recording", "sha256": null, "submission_reference": null}
+    },
+    {
+      "permission": "pages_show_list",
+      "oauth_flows": ["business", "messenger"],
+      "written_path": "permission-paths.md#pages_show_list",
+      "video": {"filename": "pages_show_list.mp4", "status": "pending_recording", "sha256": null, "submission_reference": null}
+    },
+    {
+      "permission": "pages_read_engagement",
+      "oauth_flows": ["business", "messenger"],
+      "written_path": "permission-paths.md#pages_read_engagement",
+      "video": {"filename": "pages_read_engagement.mp4", "status": "pending_recording", "sha256": null, "submission_reference": null}
+    },
+    {
+      "permission": "pages_manage_metadata",
+      "oauth_flows": ["business", "messenger"],
+      "written_path": "permission-paths.md#pages_manage_metadata",
+      "video": {"filename": "pages_manage_metadata.mp4", "status": "pending_recording", "sha256": null, "submission_reference": null}
+    },
+    {
+      "permission": "pages_messaging",
+      "oauth_flows": ["business", "messenger"],
+      "written_path": "permission-paths.md#pages_messaging",
+      "video": {"filename": "pages_messaging.mp4", "status": "pending_recording", "sha256": null, "submission_reference": null}
+    },
+    {
+      "permission": "instagram_basic",
+      "oauth_flows": ["business"],
+      "written_path": "permission-paths.md#instagram_basic",
+      "video": {"filename": "instagram_basic.mp4", "status": "pending_recording", "sha256": null, "submission_reference": null}
+    },
+    {
+      "permission": "instagram_manage_messages",
+      "oauth_flows": ["business"],
+      "written_path": "permission-paths.md#instagram_manage_messages",
+      "video": {"filename": "instagram_manage_messages.mp4", "status": "pending_recording", "sha256": null, "submission_reference": null}
+    },
+    {
+      "permission": "ads_read",
+      "oauth_flows": ["business"],
+      "written_path": "permission-paths.md#ads_read",
+      "video": {"filename": "ads_read.mp4", "status": "pending_recording", "sha256": null, "submission_reference": null}
+    },
+    {
+      "permission": "ads_management",
+      "oauth_flows": ["business"],
+      "written_path": "permission-paths.md#ads_management",
+      "video": {"filename": "ads_management.mp4", "status": "pending_recording", "sha256": null, "submission_reference": null}
+    },
+    {
+      "permission": "leads_retrieval",
+      "oauth_flows": ["business"],
+      "written_path": "permission-paths.md#leads_retrieval",
+      "video": {"filename": "leads_retrieval.mp4", "status": "pending_recording", "sha256": null, "submission_reference": null}
+    }
+  ]
+}

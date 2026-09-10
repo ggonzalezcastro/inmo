@@ -57,20 +57,22 @@ def _make_signature(body: bytes, secret: str = WEBHOOK_SECRET) -> str:
 @pytest.fixture(scope="module")
 def client():
     """TestClient wired to a minimal FastAPI app with the WhatsApp router."""
+    from app.features.whatsapp import routes as routes_module
+
     with (
-        patch("app.core.config.Settings.WHATSAPP_VERIFY_TOKEN", VERIFY_TOKEN, create=True),
-        patch("app.core.config.Settings.WHATSAPP_WEBHOOK_SECRET", WEBHOOK_SECRET, create=True),
-        patch("app.config.settings") as mock_settings,
+        patch.object(
+            routes_module.settings,
+            "WHATSAPP_VERIFY_TOKEN",
+            VERIFY_TOKEN,
+        ),
+        patch.object(
+            routes_module.settings,
+            "WHATSAPP_WEBHOOK_SECRET",
+            WEBHOOK_SECRET,
+        ),
     ):
-        mock_settings.WHATSAPP_VERIFY_TOKEN = VERIFY_TOKEN
-        mock_settings.WHATSAPP_WEBHOOK_SECRET = WEBHOOK_SECRET
-        mock_settings.WHATSAPP_ACCESS_TOKEN = "fake-token"
-        mock_settings.WHATSAPP_PHONE_NUMBER_ID = "123456789"
-
-        from app.features.whatsapp.routes import router
-
         app = FastAPI()
-        app.include_router(router, prefix="/webhooks/whatsapp")
+        app.include_router(routes_module.router, prefix="/webhooks/whatsapp")
         yield TestClient(app)
 
 

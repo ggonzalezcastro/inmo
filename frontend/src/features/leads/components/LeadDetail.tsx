@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { RefreshCw, X, Loader2, MessageSquare, Plus, Tag, Phone } from 'lucide-react'
+import { RefreshCw, X, Loader2, MessageSquare, Plus, Tag, Phone, Megaphone } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Button } from '@/shared/components/ui/button'
@@ -18,7 +18,8 @@ import { usePermissions } from '@/shared/hooks/usePermissions'
 import type { Lead } from '../types'
 import { useVapiCall, StartCallDialog, ActiveCallOverlay } from '@/features/voice'
 import type { CallMode, CallPurpose } from '@/features/voice'
-import { DealPanel } from '@/features/deals/components/DealPanel'
+import { LeadFollowUpPanel } from './LeadFollowUpPanel'
+import { ContactabilityBadge } from './ContactabilityBadge'
 
 interface LeadDetailProps {
   lead: Lead
@@ -56,8 +57,10 @@ export function LeadDetail({ lead, onClose, onUpdate }: LeadDetailProps) {
   const [tagInput, setTagInput] = useState('')
   const [isSavingTags, setIsSavingTags] = useState(false)
   const [showStartCall, setShowStartCall] = useState(false)
+  const [activeTab, setActiveTab] = useState('datos')
+  const [openSuggestedTask, setOpenSuggestedTask] = useState(false)
   const tagInputRef = useRef<HTMLInputElement>(null)
-  const { isAdmin } = usePermissions()
+  const { isAdmin, isSuperAdmin } = usePermissions()
   const meta = lead.lead_metadata ?? {}
   const calificacion = meta.calificacion
   const dicomStatus = meta.dicom_status
@@ -120,7 +123,7 @@ export function LeadDetail({ lead, onClose, onUpdate }: LeadDetailProps) {
   }
 
   return (
-    <div className="w-80 border-l border-border bg-white flex flex-col h-full">
+    <div className="fixed inset-0 z-40 flex h-full w-full flex-col border-l border-border bg-white shadow-2xl sm:static sm:z-auto sm:w-[440px] sm:shrink-0 sm:shadow-none">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-border">
         <div className="flex-1 min-w-0">
@@ -138,19 +141,85 @@ export function LeadDetail({ lead, onClose, onUpdate }: LeadDetailProps) {
         <StatusBadge status={lead.status} />
         <PipelineStageBadge stage={lead.pipeline_stage} />
         {calificacion && <QualificationBadge calificacion={calificacion} />}
+        <ContactabilityBadge contactability={lead.contactability} showScore />
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="datos" className="flex-1 flex flex-col overflow-hidden">
-        <TabsList className="mx-4 mt-2 h-8 text-xs grid grid-cols-3">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+        <TabsList className="mx-4 mt-2 h-8 text-xs grid grid-cols-4">
           <TabsTrigger value="datos" className="text-xs">Datos</TabsTrigger>
           <TabsTrigger value="perfil" className="text-xs">Perfil</TabsTrigger>
           {isAdmin && <TabsTrigger value="financiero" className="text-xs">Financiero</TabsTrigger>}
           {!isAdmin && <TabsTrigger value="tags" className="text-xs">Tags</TabsTrigger>}
+          <TabsTrigger value="seguimiento" className="text-xs">Seguimiento</TabsTrigger>
         </TabsList>
 
         {/* Tab: Datos personales */}
         <TabsContent value="datos" className="flex-1 overflow-y-auto px-4 pb-4 mt-0">
+          {Boolean(lead.meta_origin || meta.meta_origin) && (
+            <div className="mt-3 mb-3 rounded-xl border border-blue-200 bg-blue-50/70 p-3.5">
+              <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-blue-700"><Megaphone className="h-3.5 w-3.5" /> Origen Meta Ads</p>
+              <p className="mt-1.5 text-xs font-semibold text-blue-950">Campaña {String((lead.meta_origin || meta.meta_origin as Lead['meta_origin'])?.campaign_id || 'sin identificador')}</p>
+              <p className="mt-0.5 text-[11px] text-blue-700">Formulario o conversación atribuida y conservada como primera/última fuente.</p>
+            </div>
+          )}
+          {lead.contactability && (
+            <div className={`mt-3 mb-3 rounded-xl border p-3.5 ${
+              lead.contactability.level === 'critical'
+                ? 'border-rose-200 bg-rose-50/70'
+                : lead.contactability.level === 'difficult'
+                  ? 'border-orange-200 bg-orange-50/70'
+                  : 'border-slate-200 bg-slate-50/70'
+            }`}>
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                    Riesgo de contacto
+                  </p>
+                  <div className="mt-1.5">
+                    <ContactabilityBadge contactability={lead.contactability} showScore />
+                  </div>
+                </div>
+                {lead.contactability.attempt_count > 0 && (
+                  <div className="text-right">
+                    <p className="text-lg font-bold tabular-nums text-slate-800">
+                      {lead.contactability.attempt_count}
+                    </p>
+                    <p className="text-[10px] text-slate-500">intentos</p>
+                  </div>
+                )}
+              </div>
+
+              <ul className="mt-3 space-y-1">
+                {lead.contactability.reasons.map((reason) => (
+                  <li key={reason} className="flex gap-2 text-xs text-slate-700">
+                    <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-400" />
+                    <span>{reason}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="mt-3 border-t border-black/5 pt-3">
+                <p className="text-[11px] leading-relaxed text-slate-600">
+                  <span className="font-semibold text-slate-800">Sugerencia: </span>
+                  {lead.contactability.suggested_action}
+                </p>
+                {!isSuperAdmin && ['intermittent', 'difficult', 'critical'].includes(lead.contactability.level) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpenSuggestedTask(true)
+                      setActiveTab('seguimiento')
+                    }}
+                    className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-800"
+                  >
+                    <Plus className="h-3 w-3" /> Crear tarea de seguimiento
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="divide-y divide-border">
             <DetailRow label="Teléfono" value={<a href={`tel:${lead.phone}`} className="text-blue-600 hover:underline">{lead.phone}</a>} />
             <DetailRow label="Email" value={lead.email ? <a href={`mailto:${lead.email}`} className="text-blue-600 hover:underline truncate block max-w-[140px]">{lead.email}</a> : null} />
@@ -280,6 +349,15 @@ export function LeadDetail({ lead, onClose, onUpdate }: LeadDetailProps) {
             </div>
           </TabsContent>
         )}
+
+        <TabsContent value="seguimiento" className="flex-1 overflow-y-auto px-4 pb-4 mt-0">
+          <LeadFollowUpPanel
+            lead={lead}
+            readOnly={isSuperAdmin}
+            openTaskOnMount={openSuggestedTask}
+            onTaskDialogOpened={() => setOpenSuggestedTask(false)}
+          />
+        </TabsContent>
       </Tabs>
 
       {/* Footer actions */}

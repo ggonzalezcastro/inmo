@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useDropzone } from 'react-dropzone';
+import { useDropzone, type FileRejection } from 'react-dropzone';
 import type { DealDetail, DealDocument, SlotRequirement } from '../types';
 import { useDealsStore } from '../store/dealsStore';
 import { RejectDocumentModal } from './RejectDocumentModal';
@@ -33,7 +33,7 @@ function SlotDropZone({ dealId, slotKey, slotIndex, disabled }: SlotDropZoneProp
   const [error, setError] = useState<string | null>(null);
 
   const onDrop = useCallback(
-    async (accepted: File[], rejected: { file: File; errors: { message: string }[] }[]) => {
+    async (accepted: File[], rejected: FileRejection[]) => {
       if (rejected.length > 0) {
         const msg = rejected[0].errors[0]?.message ?? 'Archivo no válido';
         setError(msg);

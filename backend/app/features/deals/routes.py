@@ -91,9 +91,17 @@ async def get_metrics(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    role = current_user.get("role", "")
+    role = str(current_user.get("role", "")).upper()
     effective_broker_id = broker_id if role == "SUPERADMIN" else current_user.get("broker_id")
-    return await get_deal_metrics(db, broker_id=effective_broker_id, date_from=date_from, date_to=date_to)
+    raw_user_id = current_user.get("id") or current_user.get("user_id")
+    agent_id = int(raw_user_id) if role == "AGENT" and raw_user_id is not None else None
+    return await get_deal_metrics(
+        db,
+        broker_id=effective_broker_id,
+        date_from=date_from,
+        date_to=date_to,
+        agent_id=agent_id,
+    )
 
 
 # ── POST /api/deals — Create deal ────────────────────────────────────────────
@@ -252,6 +260,12 @@ async def advance_stage(
     except DealError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
     await db.commit()
+    if body.to_stage == "escritura_firmada":
+        from app.tasks.referral_tasks import enqueue_referral_outreach
+        from app.tasks.meta_tasks import send_meta_purchase_conversion
+
+        enqueue_referral_outreach(deal.lead_id, deal.broker_id)
+        send_meta_purchase_conversion.delay(deal.id)
     await db.refresh(deal)
     return await _enrich(db, DealRead.model_validate(deal), deal)
 

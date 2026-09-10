@@ -20,6 +20,24 @@ from app.services.pipeline.advancement_service import actualizar_pipeline_stage
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+@pytest.fixture(autouse=True)
+def _encryption_key(monkeypatch):
+    """Exercise the encrypted path regardless of the developer's local env."""
+    from app.core import encryption
+
+    monkeypatch.setenv("SECRET_KEY", "regression-test-secret-key-32-bytes")
+    encryption._fernet_instance = None
+    yield
+    encryption._fernet_instance = None
+
+
+def _db_result(first=None) -> AsyncMock:
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalars.return_value.first.return_value = first
+    db.execute.return_value = result
+    return db
+
 def _make_lead(pipeline_stage: str, metadata: dict, lead_score: int = 54) -> MagicMock:
     lead = MagicMock()
     lead.id = 17
@@ -66,8 +84,7 @@ class TestQualificationServiceDecryption:
     async def test_calificado_with_plaintext_metadata(self):
         """Baseline: plaintext fields → CALIFICADO."""
         lead = _make_lead("calificacion_financiera", _plaintext_metadata())
-        db = AsyncMock()
-        db.execute.return_value.scalars.return_value.first.return_value = None  # no broker config
+        db = _db_result()  # no broker config
 
         result = await calcular_calificacion_financiera(db, lead, broker_id=1)
         assert result == "CALIFICADO", f"Expected CALIFICADO, got {result}"
@@ -76,8 +93,7 @@ class TestQualificationServiceDecryption:
     async def test_calificado_with_encrypted_metadata(self):
         """Bug fix: encrypted fields must be decrypted → still CALIFICADO, not NO_CALIFICADO."""
         lead = _make_lead("calificacion_financiera", _encrypted_metadata())
-        db = AsyncMock()
-        db.execute.return_value.scalars.return_value.first.return_value = None  # no broker config
+        db = _db_result()  # no broker config
 
         result = await calcular_calificacion_financiera(db, lead, broker_id=1)
         assert result == "CALIFICADO", (
@@ -89,8 +105,7 @@ class TestQualificationServiceDecryption:
     async def test_no_calificado_not_returned_for_qualified_lead_with_encryption(self):
         """Encrypted fields must never produce NO_CALIFICADO for a qualified lead."""
         lead = _make_lead("calificacion_financiera", _encrypted_metadata())
-        db = AsyncMock()
-        db.execute.return_value.scalars.return_value.first.return_value = None
+        db = _db_result()
 
         result = await calcular_calificacion_financiera(db, lead, broker_id=1)
         assert result != "NO_CALIFICADO", (
@@ -106,8 +121,7 @@ class TestQualificationServiceDecryption:
             "morosidad_amount": 0,
         }
         lead = _make_lead("calificacion_financiera", encrypt_metadata_fields(raw))
-        db = AsyncMock()
-        db.execute.return_value.scalars.return_value.first.return_value = None
+        db = _db_result()
 
         result = await calcular_calificacion_financiera(db, lead, broker_id=1)
         assert result == "NO_CALIFICADO"
@@ -121,18 +135,16 @@ class TestActualizarPipelineStageDecryption:
     async def test_does_not_move_to_perdido_with_encrypted_metadata(self):
         """Encrypted dicom_status/monthly_income must not trigger perdido."""
         lead = _make_lead("calificacion_financiera", _encrypted_metadata())
-        db = AsyncMock()
+        db = _db_result()
 
         # Mock BrokerConfigService to return CALIFICADO
         with patch(
-            "app.services.pipeline.advancement_service.BrokerConfigService"
+            "app.services.broker.BrokerConfigService"
         ) as mock_cfg, patch(
             "app.services.pipeline.advancement_service.move_lead_to_stage"
         ) as mock_move:
             mock_cfg.calcular_calificacion_financiera = AsyncMock(return_value="CALIFICADO")
             # No appointment — CALIFICADO without appointment should NOT move to perdido
-            db.execute.return_value.scalars.return_value.first.return_value = None
-
             await actualizar_pipeline_stage(db, lead)
 
             # Must never be called with "perdido"
@@ -146,18 +158,16 @@ class TestActualizarPipelineStageDecryption:
     async def test_advances_to_agendado_when_appointment_exists(self):
         """CALIFICADO lead with appointment → agendado."""
         lead = _make_lead("calificacion_financiera", _encrypted_metadata())
-        db = AsyncMock()
-
         mock_appointment = MagicMock()
+        db = _db_result(mock_appointment)
 
         with patch(
-            "app.services.pipeline.advancement_service.BrokerConfigService"
+            "app.services.broker.BrokerConfigService"
         ) as mock_cfg, patch(
             "app.services.pipeline.advancement_service.move_lead_to_stage",
             new_callable=AsyncMock,
         ) as mock_move:
             mock_cfg.calcular_calificacion_financiera = AsyncMock(return_value="CALIFICADO")
-            db.execute.return_value.scalars.return_value.first.return_value = mock_appointment
             mock_move.return_value = lead
 
             await actualizar_pipeline_stage(db, lead)

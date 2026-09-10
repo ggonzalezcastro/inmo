@@ -7,6 +7,8 @@ from typing import Dict, Any, List, Type
 from app.services.chat.base_provider import BaseChatProvider
 from app.services.chat.telegram_provider import TelegramProvider
 from app.services.chat.whatsapp_provider import WhatsAppProvider
+from app.services.chat.instagram_provider import InstagramProvider
+from app.services.chat.messenger_provider import MessengerProvider
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +19,8 @@ class ChatProviderFactory:
     _providers: Dict[str, Type[BaseChatProvider]] = {
         "telegram": TelegramProvider,
         "whatsapp": WhatsAppProvider,
+        "instagram": InstagramProvider,
+        "facebook": MessengerProvider,
     }
 
     @classmethod

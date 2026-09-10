@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Plus, Upload } from 'lucide-react'
 import { Button } from '@/shared/components/ui/button'
 import { PageHeader } from '@/shared/components/common/PageHeader'
@@ -12,6 +14,7 @@ import { LeadDetail } from './LeadDetail'
 import { ImportCSVDialog } from './ImportCSVDialog'
 import { BrokerFilterBar, type SelectedBroker } from '@/shared/components/filters/BrokerFilterBar'
 import type { Lead } from '../types'
+import { leadsService } from '../services/leads.service'
 
 export function LeadsPage() {
   const { isAdmin, isSuperAdmin } = usePermissions()
@@ -22,6 +25,32 @@ export function LeadsPage() {
   const [editTarget, setEditTarget] = useState<Lead | null>(null)
   const [viewTarget, setViewTarget] = useState<Lead | null>(null)
   const [showImport, setShowImport] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialContactability = useRef(searchParams.get('contactability')).current
+  const didApplyInitialContactability = useRef(false)
+
+  useEffect(() => {
+    if (didApplyInitialContactability.current) return
+    didApplyInitialContactability.current = true
+    if (initialContactability) {
+      setFilter('contactability', initialContactability)
+    }
+  }, [initialContactability, setFilter])
+
+  useEffect(() => {
+    const leadId = Number(searchParams.get('lead'))
+    if (!leadId || viewTarget?.id === leadId) return
+    leadsService.getLead(leadId).then(setViewTarget).catch(() => {})
+  }, [searchParams, viewTarget?.id])
+
+  const closeLeadDetail = () => {
+    setViewTarget(null)
+    if (searchParams.has('lead')) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('lead')
+      setSearchParams(next, { replace: true })
+    }
+  }
 
   const page = Math.floor((filters.skip ?? 0) / (filters.limit ?? 20)) + 1
   const limit = filters.limit ?? 20
@@ -96,7 +125,7 @@ export function LeadsPage() {
       {viewTarget && (
         <LeadDetail
           lead={viewTarget}
-          onClose={() => setViewTarget(null)}
+          onClose={closeLeadDetail}
           onUpdate={(updated) => {
             updateLead(updated.id, updated)
             setViewTarget(updated)

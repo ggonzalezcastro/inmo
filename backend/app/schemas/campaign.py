@@ -1,7 +1,7 @@
 """
 Campaign schemas for API validation
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
@@ -50,6 +50,7 @@ class CampaignBase(BaseModel):
     triggered_by: Optional[CampaignTriggerEnum] = CampaignTriggerEnum.MANUAL
     trigger_condition: Optional[Dict[str, Any]] = Field(default_factory=dict)
     max_contacts: Optional[int] = Field(None, ge=1)
+    is_referral_campaign: bool = False
 
 
 class CampaignCreate(CampaignBase):
@@ -64,9 +65,12 @@ class CampaignUpdate(BaseModel):
     triggered_by: Optional[CampaignTriggerEnum] = None
     trigger_condition: Optional[Dict[str, Any]] = None
     max_contacts: Optional[int] = Field(None, ge=1)
+    is_referral_campaign: Optional[bool] = None
 
 
 class CampaignResponse(CampaignBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     status: CampaignStatusEnum
     broker_id: int
@@ -76,10 +80,6 @@ class CampaignResponse(CampaignBase):
     updated_at: datetime
     steps: List["CampaignStepResponse"] = []
     
-    class Config:
-        from_attributes = True
-
-
 class CampaignStepBase(BaseModel):
     step_number: int = Field(..., ge=1)
     action: CampaignStepActionEnum
@@ -108,16 +108,16 @@ class CampaignStepUpdate(BaseModel):
 
 
 class CampaignStepResponse(CampaignStepBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     campaign_id: int
     created_at: datetime
     updated_at: datetime
     
-    class Config:
-        from_attributes = True
-
-
 class CampaignLogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     campaign_id: int
     lead_id: int
@@ -127,10 +127,6 @@ class CampaignLogResponse(BaseModel):
     created_at: datetime
     executed_at: Optional[datetime] = None
     
-    class Config:
-        from_attributes = True
-
-
 class CampaignListResponse(BaseModel):
     data: List[CampaignResponse]
     total: int
@@ -148,6 +144,4 @@ class CampaignStatsResponse(BaseModel):
     skipped: int
     success_rate: float
     failure_rate: float
-
-
 

@@ -57,7 +57,16 @@ from app.routes.agent_model_configs import router as agent_model_configs_router
 from app.features.deals.routes_meta import router as deals_meta_router
 from app.features.deals.routes import router as deals_router
 from app.features.deals.routes_documents import router as deal_documents_router
+from app.features.payments.routes import router as payments_router
+from app.features.meta.routes import router as meta_router
+from app.features.meta.webhooks import router as meta_webhooks_router
+from app.features.meta.inbox_routes import router as meta_inbox_router
+from app.features.meta.ads_routes import router as meta_ads_router
 from app.features.files.routes import router as files_router
+from app.routes.lead_follow_up import (
+    lead_follow_up_router,
+    tasks_router as lead_tasks_router,
+)
 from app.celery_app import celery_app
 
 
@@ -320,10 +329,14 @@ app.add_middleware(
 # Trusted host middleware
 allowed_hosts = ["localhost", "127.0.0.1"]
 if settings.ENVIRONMENT == "production":
-    # In production, add your actual domain(s) here
+    # Accept explicit custom domains plus Railway-generated service domains.
     import os
     production_hosts = os.getenv('ALLOWED_HOSTS', '').split(',')
     allowed_hosts.extend([h.strip() for h in production_hosts if h.strip()])
+    for railway_domain_key in ('RAILWAY_PUBLIC_DOMAIN', 'RAILWAY_PRIVATE_DOMAIN'):
+        railway_domain = os.getenv(railway_domain_key, '').strip()
+        if railway_domain:
+            allowed_hosts.append(railway_domain)
 
 app.add_middleware(
     TrustedHostMiddleware,
@@ -363,8 +376,11 @@ async def health_check():
 # Include routers (from app.features)
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(leads_router, prefix="/api/v1/leads", tags=["leads"])
+app.include_router(lead_follow_up_router, prefix="/api/v1/leads", tags=["lead-follow-up"])
+app.include_router(lead_tasks_router, prefix="/api/v1/tasks", tags=["lead-tasks"])
 app.include_router(webhooks_router, prefix="/webhooks", tags=["webhooks"])
 app.include_router(whatsapp_router, prefix="/webhooks/whatsapp", tags=["whatsapp"])
+app.include_router(meta_webhooks_router, prefix="/webhooks/meta", tags=["meta-webhooks"])
 app.include_router(telegram_router, prefix="/api/v1/telegram", tags=["telegram"])
 app.include_router(chat_router, prefix="/api/v1/chat", tags=["chat"])
 app.include_router(appointments_router, prefix="/api/v1/appointments", tags=["appointments"])
@@ -392,10 +408,13 @@ app.include_router(agent_model_configs_router, prefix="/api/v1/admin/agent-model
 app.include_router(deals_meta_router)
 app.include_router(deals_router)
 app.include_router(deal_documents_router)
+app.include_router(payments_router)
+app.include_router(meta_router, prefix="/api/v1/meta", tags=["meta"])
+app.include_router(meta_inbox_router, prefix="/api/v1/meta", tags=["meta-inbox"])
+app.include_router(meta_ads_router, prefix="/api/v1/meta", tags=["meta-ads"])
 app.include_router(files_router)
 
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
-

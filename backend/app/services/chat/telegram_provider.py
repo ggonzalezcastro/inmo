@@ -2,6 +2,7 @@
 Telegram Bot API chat provider.
 """
 import httpx
+import inspect
 import logging
 from typing import Optional, Dict, Any, List
 
@@ -51,6 +52,8 @@ class TelegramProvider(BaseChatProvider):
 
                 if response.status_code == 200:
                     result = response.json()
+                    if inspect.isawaitable(result):
+                        result = await result
                     message_id = str(result["result"]["message_id"])
                     return SendMessageResult(
                         success=True,

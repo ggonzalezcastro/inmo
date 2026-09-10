@@ -11,6 +11,9 @@ from app.tasks import sentiment_tasks
 from app.tasks import dlq_tasks
 from app.tasks import human_timeout_tasks
 from app.tasks import alert_evaluator
+from app.tasks import lead_task_reminders
+from app.tasks import referral_tasks
+from app.tasks import meta_tasks
 
 __all__ = [
     "telegram_tasks",
@@ -22,4 +25,7 @@ __all__ = [
     "dlq_tasks",
     "human_timeout_tasks",
     "alert_evaluator",
+    "lead_task_reminders",
+    "referral_tasks",
+    "meta_tasks",
 ]

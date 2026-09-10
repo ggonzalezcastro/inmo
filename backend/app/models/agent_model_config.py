@@ -11,7 +11,7 @@ from app.models.base import Base, IdMixin, TimestampMixin
 
 
 # Valid values — kept in sync with AgentType enum and factory provider names
-VALID_AGENT_TYPES = {"qualifier", "property", "scheduler", "follow_up"}
+VALID_AGENT_TYPES = {"qualifier", "property", "scheduler", "follow_up", "referral"}
 VALID_PROVIDERS = {"gemini", "claude", "openai", "openrouter"}
 
 
@@ -27,7 +27,7 @@ class AgentModelConfig(Base, IdMixin, TimestampMixin):
         index=True,
     )
 
-    # Which agent this config applies to: qualifier | property | scheduler | follow_up
+    # Which agent this config applies to: qualifier | property | scheduler | follow_up | referral
     agent_type = Column(String(20), nullable=False)
 
     # LLM provider: gemini | claude | openai

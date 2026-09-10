@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from datetime import datetime, timedelta
+from datetime import UTC, datetime
 from typing import Dict, Optional, List, Any
 from app.models.lead import Lead
 from app.models.telegram_message import TelegramMessage
@@ -132,13 +132,19 @@ class ScoringService:
                     return 30
         penalties = 0
         if lead.last_contacted:
-            days_since = (datetime.utcnow() - lead.last_contacted).days
+            # PostgreSQL returns timezone-aware values for this column while
+            # SQLite and older rows may still be naive. Compare like with like.
+            last_contacted = lead.last_contacted
+            now = (
+                datetime.now(last_contacted.tzinfo)
+                if last_contacted.tzinfo is not None
+                else datetime.now(UTC).replace(tzinfo=None)
+            )
+            days_since = (now - last_contacted).days
             if days_since > 60:
                 penalties += 5
         metadata = lead.lead_metadata or {}
         if "invalid" in str(metadata.get("status", "")).lower():
             penalties += 10
         return penalties
-
-
 

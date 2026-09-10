@@ -75,7 +75,6 @@ export default function PipelineBoard({ onLeadClick }) {
   useEffect(() => {
     // Refetch when filters change
     fetchAllStages();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.assignedTo, filters.campaign, filters.dateFrom, filters.dateTo, filters.search]);
 
   // Real-time updates for pipeline
@@ -419,4 +418,3 @@ function StageColumn({ stage, leads, onLeadClick }) {
     </div>
   );
 }
-

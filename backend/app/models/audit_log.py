@@ -1,7 +1,7 @@
 """
 Audit log model for tracking changes
 """
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, JSON, Index
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, JSON, Index, func
 from sqlalchemy.orm import relationship
 from app.models.base import Base, IdMixin
 
@@ -38,7 +38,7 @@ class AuditLog(Base, IdMixin):
     user_agent = Column(String(255), nullable=True)
     
     # Timestamp
-    timestamp = Column(DateTime(timezone=True), server_default="now()", nullable=False, index=True)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
     
     # Relationships
     user = relationship("User", foreign_keys=[user_id])
@@ -52,6 +52,5 @@ class AuditLog(Base, IdMixin):
     
     def __repr__(self):
         return f"<AuditLog id={self.id} action={self.action} resource={self.resource_type}:{self.resource_id}>"
-
 
 

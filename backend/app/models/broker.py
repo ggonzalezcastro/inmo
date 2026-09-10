@@ -21,6 +21,8 @@ class Broker(Base, IdMixin, TimestampMixin):
     service_zones = Column(JSONB, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     priority_assignment_enabled = Column(Boolean, default=False, nullable=False)
+    # Per-tenant rollout switches for the Meta ecosystem. Secrets never live here.
+    meta_features = Column(JSONB, default=dict, nullable=False)
 
     # Commercial plan — nullable so existing brokers don't break before plan assignment
     plan_id = Column(Integer, ForeignKey("broker_plans.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -32,6 +34,7 @@ class Broker(Base, IdMixin, TimestampMixin):
     lead_config = relationship("BrokerLeadConfig", back_populates="broker", uselist=False, cascade="all, delete-orphan")
     voice_config = relationship("BrokerVoiceConfig", back_populates="broker", uselist=False, cascade="all, delete-orphan")
     chat_config = relationship("BrokerChatConfig", back_populates="broker", uselist=False, cascade="all, delete-orphan")
+    payment_config = relationship("BrokerPaymentConfig", back_populates="broker", uselist=False, cascade="all, delete-orphan")
     chat_messages = relationship("ChatMessage", back_populates="broker", cascade="all, delete-orphan")
     voice_templates = relationship("AgentVoiceTemplate", back_populates="broker", cascade="all, delete-orphan")
     prompt_versions = relationship("PromptVersion", back_populates="broker", cascade="all, delete-orphan")
@@ -169,4 +172,3 @@ class BrokerLeadConfig(Base, IdMixin, TimestampMixin):
     
     def __repr__(self):
         return f"<BrokerLeadConfig broker_id={self.broker_id}>"
-

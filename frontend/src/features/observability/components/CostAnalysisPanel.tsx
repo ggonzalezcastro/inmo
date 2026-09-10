@@ -123,7 +123,7 @@ export function CostAnalysisPanel() {
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis dataKey="agente" tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${v}`} />
-              <Tooltip formatter={(v: number) => [`$${v.toFixed(5)}`, 'Costo USD']} />
+              <Tooltip formatter={(v) => [`$${Number(v ?? 0).toFixed(5)}`, 'Costo USD']} />
               <Bar dataKey="costo" name="Costo USD" radius={[4, 4, 0, 0]}>
                 {chartData.map((entry) => (
                   <Cell

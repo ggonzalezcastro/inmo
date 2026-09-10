@@ -1,22 +1,14 @@
 import { useEffect, useState } from 'react'
-import { TrendingUp, Wallet, Handshake, BadgeCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { usePermissions } from '@/shared/hooks/usePermissions'
 import { BrokerFilterBar, type SelectedBroker } from '@/shared/components/filters/BrokerFilterBar'
-import { KPICard } from '@/features/dashboard/components/KPICard'
 import { getErrorMessage } from '@/shared/types/api'
 import { dealsApi, type DealMetrics } from '../services/dealsApi'
 import { DealsByStageChart } from '../components/DealsByStageChart'
 import { DealUFTrendChart } from '../components/DealUFTrendChart'
+import { SalesInsightsPanel } from '../components/SalesInsightsPanel'
+import { SalesKPIGrid } from '../components/SalesKPIGrid'
 import { PeriodSelector, type DateRange } from '../components/PeriodSelector'
-
-function formatUF(v: number) {
-  if (v === 0) return '0 UF'
-  if (v >= 1000) {
-    return v.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' UF'
-  }
-  return v.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 1 }) + ' UF'
-}
 
 function defaultRange(): DateRange {
   const today = new Date()
@@ -85,37 +77,7 @@ export function VentasStatsPage() {
       {/* ── Period selector ── */}
       <PeriodSelector value={period} onChange={setPeriod} />
 
-      {/* ── KPI Cards — 2 cols mobile → 4 cols lg ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KPICard
-          title="UF en Pipeline"
-          value={isLoading ? '—' : formatUF(metrics?.uf_en_pipeline ?? 0)}
-          subtitle="deals activos"
-          icon={TrendingUp}
-          variant="dark"
-        />
-        <KPICard
-          title="UF Cerradas"
-          value={isLoading ? '—' : formatUF(metrics?.uf_cerradas ?? 0)}
-          subtitle="escrituras firmadas"
-          icon={Wallet}
-          variant="light"
-        />
-        <KPICard
-          title="Deals Activos"
-          value={isLoading ? '—' : metrics?.total_active_deals ?? 0}
-          subtitle="sin cancelados"
-          icon={Handshake}
-          variant="light"
-        />
-        <KPICard
-          title="Aprobación Banco"
-          value={isLoading ? '—' : `${metrics?.bank_approval_rate ?? 0}%`}
-          subtitle="tasa de aprobación"
-          icon={BadgeCheck}
-          variant="light"
-        />
-      </div>
+      <SalesKPIGrid metrics={metrics} isLoading={isLoading} />
 
       {/* ── Charts ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -125,9 +87,12 @@ export function VentasStatsPage() {
         />
         <DealUFTrendChart
           data={metrics?.uf_trend ?? []}
+          monthlyData={metrics?.monthly_trend ?? []}
           isLoading={isLoading}
         />
       </div>
+
+      <SalesInsightsPanel metrics={metrics} isLoading={isLoading} />
     </div>
   )
 }

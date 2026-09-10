@@ -3,17 +3,14 @@ Tests for voice provider abstraction: types, factory, webhook normalization.
 Run with: pytest tests/services/test_voice_providers.py -v
 """
 import pytest
-pytestmark = pytest.mark.asyncio
 
 from app.services.voice.types import (
     VoiceProviderType,
     CallEventType,
     WebhookEvent,
-    CallStatusResult,
     MakeCallRequest,
 )
-from app.services.voice.base_provider import BaseVoiceProvider
-from app.services.voice.factory import get_voice_provider, register_voice_provider
+from app.services.voice.factory import get_voice_provider
 from app.services.voice.providers.vapi.provider import VapiProvider
 from app.services.voice.providers.bland.provider import BlandProvider
 from app.services.voice.call_service import _webhook_event_to_legacy

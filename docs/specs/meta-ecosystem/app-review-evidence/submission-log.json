@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "app_review_request_reference": null,
+  "business_verification": "pending_external",
+  "data_use_checkup": "pending_external",
+  "app_mode": "development",
+  "last_updated": "2026-09-09",
+  "permissions": [
+    {"permission": "business_management", "status": "not_submitted", "attempts": []},
+    {"permission": "whatsapp_business_management", "status": "not_submitted", "attempts": []},
+    {"permission": "whatsapp_business_messaging", "status": "not_submitted", "attempts": []},
+    {"permission": "instagram_business_basic", "status": "not_submitted", "attempts": []},
+    {"permission": "instagram_business_manage_messages", "status": "not_submitted", "attempts": []},
+    {"permission": "pages_show_list", "status": "not_submitted", "attempts": []},
+    {"permission": "pages_read_engagement", "status": "not_submitted", "attempts": []},
+    {"permission": "pages_manage_metadata", "status": "not_submitted", "attempts": []},
+    {"permission": "pages_messaging", "status": "not_submitted", "attempts": []},
+    {"permission": "instagram_basic", "status": "not_submitted", "attempts": []},
+    {"permission": "instagram_manage_messages", "status": "not_submitted", "attempts": []},
+    {"permission": "ads_read", "status": "not_submitted", "attempts": []},
+    {"permission": "ads_management", "status": "not_submitted", "attempts": []},
+    {"permission": "leads_retrieval", "status": "not_submitted", "attempts": []}
+  ]
+}

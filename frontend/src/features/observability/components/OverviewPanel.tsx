@@ -210,9 +210,10 @@ export function OverviewPanel() {
                   cx="50%"
                   cy="50%"
                   outerRadius={70}
-                  label={({ agent, percent }) =>
-                    `${agent} ${(percent * 100).toFixed(0)}%`
-                  }
+                  label={(props) => {
+                    const item = props.payload as { agent?: string } | undefined
+                    return `${item?.agent ?? ''} ${(Number(props.percent ?? 0) * 100).toFixed(0)}%`
+                  }}
                   labelLine={false}
                 >
                   {pieData.map((entry, index) => (

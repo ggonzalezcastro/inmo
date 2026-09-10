@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Dict, Any
 from app.models.telegram_message import TelegramMessage, MessageDirection, MessageStatus
 from app.models.activity_log import ActivityLog
@@ -48,7 +48,7 @@ class ActivityService:
             lead_id=lead_id,
             action_type=action_type,
             details=details,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(UTC).replace(tzinfo=None)
         )
         
         db.add(activity)

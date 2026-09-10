@@ -78,13 +78,6 @@ const UNIT_FILTERS: (keyof ProjectFilters)[] = [
   'orientation', 'min_floor', 'max_floor',
 ]
 
-function hasActiveFilters(filters: ProjectFilters): boolean {
-  const checkKeys: (keyof ProjectFilters)[] = [
-    'status', 'commune', 'name', 'developer', ...UNIT_FILTERS,
-  ]
-  return checkKeys.some((k) => filters[k] !== '' && filters[k] != null)
-}
-
 function hasActiveUnitFilters(filters: ProjectFilters): boolean {
   return UNIT_FILTERS.some((k) => filters[k] !== '' && filters[k] != null)
 }

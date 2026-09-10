@@ -10,12 +10,12 @@ from app.middleware.auth import get_current_user
 from app.middleware.permissions import Permissions
 from app.middleware.plan_limits import check_lead_limit, invalidate_plan_cache
 from app.services.leads import LeadService, ScoringService
+from app.services.leads.contactability_service import ContactabilityService, LEVELS
 from app.services.pipeline import PipelineService
 from app.schemas.lead import LeadCreate, LeadUpdate, LeadResponse, LeadDetailResponse
 from app.core.encryption import decrypt_metadata_fields
 from sqlalchemy.future import select
 from app.models.lead import Lead
-from app.models.user import User
 
 
 router = APIRouter()
@@ -31,10 +31,17 @@ def _safe_metadata(raw) -> dict:
     return decrypt_metadata_fields(raw) or {}
 
 
-def _build_lead_response(lead: Lead, meta: dict) -> LeadResponse:
+def _build_lead_response(
+    lead: Lead,
+    meta: dict,
+    contactability: Optional[dict] = None,
+) -> LeadResponse:
     """Build a LeadResponse from a Lead ORM object and pre-decrypted metadata."""
     return LeadResponse(
         id=lead.id,
+        broker_id=lead.broker_id,
+        assigned_to=lead.assigned_to,
+        assigned_agent_name=lead.assigned_agent.name if lead.assigned_agent else None,
         phone=lead.phone,
         name=lead.name,
         email=lead.email,
@@ -46,6 +53,7 @@ def _build_lead_response(lead: Lead, meta: dict) -> LeadResponse:
         last_contacted=lead.last_contacted,
         created_at=lead.created_at,
         updated_at=lead.updated_at,
+        contactability=contactability,
     )
 
 
@@ -57,6 +65,10 @@ async def list_leads(
     search: str = Query(""),
     pipeline_stage: str = Query(""),
     dicom_status: str = Query("", description="Filter by DICOM status: clean, has_debt, unknown"),
+    contactability: str = Query(
+        "",
+        description="Filter by contactability level; accepts comma-separated values",
+    ),
     created_from: str = Query("", description="ISO date string, e.g. 2026-01-01"),
     created_to: str = Query("", description="ISO date string, e.g. 2026-12-31"),
     broker_id: Optional[int] = Query(None, description="Filter by broker (superadmin only)"),
@@ -72,8 +84,9 @@ async def list_leads(
     """
     try:
         user_role = current_user.get("role", "").upper()
-        user_id = int(current_user.get("user_id"))
-        broker_id = current_user.get("broker_id")
+        user_id = int(current_user.get("user_id") or current_user.get("id"))
+        requested_broker_id = broker_id
+        user_broker_id = current_user.get("broker_id")
 
         # Build kwargs for service call — filter at DB level for all plain columns.
         # dicom_status is handled in-memory below since it's encrypted in JSONB.
@@ -92,29 +105,49 @@ async def list_leads(
             service_kwargs["assigned_to"] = user_id
         elif user_role == "SUPERADMIN":
             # Superadmin: filter by broker_id if provided, else see all
-            if broker_id:
-                service_kwargs["broker_id"] = broker_id
+            if requested_broker_id:
+                service_kwargs["broker_id"] = requested_broker_id
         else:
             # ADMIN sees their broker's leads
-            user_broker_id = current_user.get("broker_id")
             if user_broker_id:
                 service_kwargs["broker_id"] = user_broker_id
 
-        if dicom_status:
-            # Must fetch all matching records first, then filter by decrypted DICOM value.
-            # We skip pagination at DB level and do it in-memory after decryption.
+        selected_contactability = {
+            value.strip() for value in contactability.split(",") if value.strip()
+        }
+        if selected_contactability - set(LEVELS):
+            raise ValueError("Nivel de contactabilidad inválido")
+
+        if dicom_status or selected_contactability:
+            # Encrypted metadata and computed contactability require in-memory filtering.
             leads, _ = await LeadService.get_leads(db, skip=0, limit=10_000, **service_kwargs)
+            contactability_by_id = await ContactabilityService.calculate_for_leads(db, leads)
             filtered_leads = []
             for lead in leads:
                 meta = _safe_metadata(lead.lead_metadata)
-                if meta.get("dicom_status") == dicom_status:
-                    filtered_leads.append((lead, meta))
+                metric = contactability_by_id[lead.id]
+                if dicom_status and meta.get("dicom_status") != dicom_status:
+                    continue
+                if selected_contactability and metric["level"] not in selected_contactability:
+                    continue
+                filtered_leads.append((lead, meta, metric))
             total = len(filtered_leads)
             page = filtered_leads[skip: skip + limit]
-            lead_responses = [_build_lead_response(lead, meta) for lead, meta in page]
+            lead_responses = [
+                _build_lead_response(lead, meta, metric)
+                for lead, meta, metric in page
+            ]
         else:
             leads, total = await LeadService.get_leads(db, skip=skip, limit=limit, **service_kwargs)
-            lead_responses = [_build_lead_response(lead, _safe_metadata(lead.lead_metadata)) for lead in leads]
+            contactability_by_id = await ContactabilityService.calculate_for_leads(db, leads)
+            lead_responses = [
+                _build_lead_response(
+                    lead,
+                    _safe_metadata(lead.lead_metadata),
+                    contactability_by_id[lead.id],
+                )
+                for lead in leads
+            ]
 
         return {
             "data": [lr.model_dump(by_alias=True) for lr in lead_responses],
@@ -124,6 +157,23 @@ async def list_leads(
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/contactability/summary", response_model=dict)
+async def get_contactability_summary(
+    broker_id: Optional[int] = Query(None, description="Filter by broker (superadmin only)"),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    role = str(current_user.get("role", "")).upper()
+    raw_user_id = current_user.get("user_id") or current_user.get("id")
+    assigned_to = int(raw_user_id) if role == "AGENT" and raw_user_id is not None else None
+    effective_broker_id = broker_id if role == "SUPERADMIN" else current_user.get("broker_id")
+    return await ContactabilityService.summary(
+        db,
+        broker_id=effective_broker_id,
+        assigned_to=assigned_to,
+    )
 
 
 @router.get("/{lead_id}", response_model=LeadDetailResponse)
@@ -149,9 +199,15 @@ async def get_lead(
         .limit(10)
     )
     activities = activities_result.scalars().all()
+    contactability = (
+        await ContactabilityService.calculate_for_leads(db, [lead])
+    )[lead.id]
     
     lead_dict = {
         "id": lead.id,
+        "broker_id": lead.broker_id,
+        "assigned_to": lead.assigned_to,
+        "assigned_agent_name": lead.assigned_agent.name if lead.assigned_agent else None,
         "phone": lead.phone,
         "name": lead.name,
         "email": lead.email,
@@ -171,7 +227,8 @@ async def get_lead(
                 "created_at": act.timestamp.isoformat() if act.timestamp else None
             }
             for act in activities
-        ]
+        ],
+        "contactability": contactability,
     }
     
     return LeadDetailResponse(**lead_dict)
@@ -186,11 +243,18 @@ async def create_lead(
 ):
     """Create new lead"""
     try:
-        lead = await LeadService.create_lead(db, lead_data)
         broker_id = current_user.get("broker_id")
+        lead = await LeadService.create_lead(db, lead_data, broker_id=broker_id)
         if broker_id:
             await invalidate_plan_cache(broker_id)
-        return _build_lead_response(lead, _safe_metadata(lead.lead_metadata))
+        contactability = (
+            await ContactabilityService.calculate_for_leads(db, [lead])
+        )[lead.id]
+        return _build_lead_response(
+            lead,
+            _safe_metadata(lead.lead_metadata),
+            contactability,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -207,7 +271,14 @@ async def update_lead(
         lead = await LeadService.update_lead(db, lead_id, lead_data)
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
-        return _build_lead_response(lead, _safe_metadata(lead.lead_metadata))
+        contactability = (
+            await ContactabilityService.calculate_for_leads(db, [lead])
+        )[lead.id]
+        return _build_lead_response(
+            lead,
+            _safe_metadata(lead.lead_metadata),
+            contactability,
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -233,47 +304,14 @@ async def assign_lead(
     db: AsyncSession = Depends(get_db)
 ):
     """Assign lead to an agent (admin only)"""
-    agent_id = request.get("agent_id")
-    if not agent_id:
-        raise HTTPException(status_code=400, detail="agent_id is required")
-    """Assign lead to an agent (admin only)"""
-    # Get lead
-    result = await db.execute(
-        select(Lead).where(Lead.id == lead_id)
-    )
-    lead = result.scalars().first()
-    
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found")
-    
-    # Verify agent belongs to same broker
-    broker_id = current_user.get("broker_id")
-    if broker_id:
-        agent_result = await db.execute(
-            select(User).where(User.id == agent_id, User.broker_id == broker_id)
-        )
-        agent = agent_result.scalars().first()
-        if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found or doesn't belong to your broker")
-    
-    # Assign lead
-    lead.assigned_to = agent_id
-    await db.commit()
-    await db.refresh(lead)
-    
-    # Log activity
-    from app.services.shared import ActivityService
-    await ActivityService.log_activity(
+    from app.services.leads.assignment_service import LeadAssignmentService
+
+    return await LeadAssignmentService.assign(
         db,
         lead_id=lead_id,
-        action_type="assignment",
-        details={
-            "assigned_to": agent_id,
-            "assigned_by": current_user.get("user_id")
-        }
+        agent_id=request.get("agent_id"),
+        current_user=current_user,
     )
-    
-    return {"message": "Lead assigned successfully", "lead_id": lead_id, "agent_id": agent_id}
 
 
 @router.put("/{lead_id}/pipeline")
@@ -392,7 +430,11 @@ async def bulk_import_leads(
                 tags=tags
             )
             
-            await LeadService.create_lead(db, lead_data)
+            await LeadService.create_lead(
+                db,
+                lead_data,
+                broker_id=current_user.get("broker_id"),
+            )
             imported += 1
         except ValueError:
             duplicates += 1
@@ -404,4 +446,3 @@ async def bulk_import_leads(
         "duplicates": duplicates,
         "invalid": invalid
     }
-

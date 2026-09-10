@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, JSON, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, JSON, DateTime, ForeignKey, func
 from sqlalchemy.orm import relationship
 from app.models.base import Base, IdMixin
 
@@ -25,7 +25,7 @@ class ActivityLog(Base, IdMixin):
     # Timestamp
     timestamp = Column(
         DateTime(timezone=True),
-        server_default="now()",
+        server_default=func.now(),
         nullable=False,
         index=True
     )
@@ -35,4 +35,3 @@ class ActivityLog(Base, IdMixin):
     
     def __repr__(self):
         return f"<ActivityLog id={self.id} lead_id={self.lead_id} action={self.action_type}>"
-

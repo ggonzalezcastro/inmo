@@ -23,12 +23,11 @@ import { toast } from 'sonner'
 import { Button } from '@/shared/components/ui/button'
 import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
-import { Badge } from '@/shared/components/ui/badge'
 import { Textarea } from '@/shared/components/ui/textarea'
 import { LoadingSpinner } from '@/shared/components/common/LoadingSpinner'
 import { getErrorMessage } from '@/shared/types/api'
 import { useAuthStore } from '@/features/auth/store/authStore'
-import { settingsService, type QualificationConfig, type ScoringConfig, type IncomeTier, type AgentPromptsConfig, type AvailabilitySlot, type AppointmentBlock, DEFAULT_SCORING_CONFIG } from '../services/settings.service'
+import { settingsService, type QualificationConfig, type IncomeTier, type AgentPromptsConfig, type AvailabilitySlot, type AppointmentBlock, DEFAULT_SCORING_CONFIG } from '../services/settings.service'
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const blue   = '#1A56DB'
@@ -338,8 +337,8 @@ export function SettingsPage() {
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {([
-              { key: 'min_income_calificado', badge: 'CALIFICADO', badgeBg: '#DCFCE7', badgeText: '#166534', badgeBorder: '#BBF7D0', sub: 'DICOM limpio requerido' },
-              { key: 'min_income_potencial',  badge: 'POTENCIAL',  badgeBg: '#FEF3C7', badgeText: '#92400E', badgeBorder: '#FDE68A', sub: 'Acepta DICOM con deuda' },
+              { key: 'min_income_calificado', badge: 'CALIFICADO', badgeBg: '#DCFCE7', badgeText: '#166534', badgeBorder: '#BBF7D0', sub: 'DICOM limpio requerido', icon: false },
+              { key: 'min_income_potencial',  badge: 'POTENCIAL',  badgeBg: '#FEF3C7', badgeText: '#92400E', badgeBorder: '#FDE68A', sub: 'Acepta DICOM con deuda', icon: false },
               { key: 'max_acceptable_debt',   badge: 'DEUDA MÁX',  badgeBg: '#FEE2E2', badgeText: '#991B1B', badgeBorder: '#FECACA', sub: 'Si supera → NO califica', icon: true },
             ] as const).map(({ key, badge, badgeBg, badgeText, badgeBorder, sub, icon }) => (
               <div key={key} className="rounded-xl border p-4 space-y-3" style={{ borderColor: border, background: '#fff' }}>
@@ -438,9 +437,9 @@ export function SettingsPage() {
           {/* DICOM points */}
           <div className="mt-4 grid grid-cols-2 gap-3">
             {([
-              { field: 'dicom_clean_pts' as const, label: 'DICOM Limpio', color: '#DCFCE7', textColor: '#166534', dot: '#22C55E', description: 'Sin deudas registradas' },
-              { field: 'dicom_has_debt_pts' as const, label: 'DICOM con Deuda', color: '#FEF3C7', textColor: '#92400E', dot: '#F59E0B', description: 'Deuda ≤ límite aceptable' },
-            ]).map(({ field, label, color, textColor, dot, description }) => (
+              { field: 'dicom_clean_pts' as const, label: 'DICOM Limpio', textColor: '#166534', dot: '#22C55E', description: 'Sin deudas registradas' },
+              { field: 'dicom_has_debt_pts' as const, label: 'DICOM con Deuda', textColor: '#92400E', dot: '#F59E0B', description: 'Deuda ≤ límite aceptable' },
+            ]).map(({ field, label, textColor, dot, description }) => (
               <div key={field} className="rounded-xl border p-4 bg-white" style={{ borderColor: border }}>
                 <div className="flex items-center gap-1.5 mb-2">
                   <span className="h-2 w-2 rounded-full" style={{ background: dot }} />
@@ -587,7 +586,7 @@ export function SettingsPage() {
             value={cfg.timezone}
             onChange={e => set('timezone', e.target.value)}
             className="w-full rounded-lg border px-3 py-2 text-sm text-[#111827] focus:outline-none focus:ring-2"
-            style={{ borderColor: border, background: '#fff', focusRingColor: blue }}
+            style={{ borderColor: border, background: '#fff' }}
           >
             <option value="America/Santiago">🇨🇱 América/Santiago (Chile)</option>
             <option value="America/Lima">🇵🇪 América/Lima (Perú)</option>

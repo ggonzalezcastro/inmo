@@ -99,3 +99,42 @@ export interface ReviewRequest {
   decision: string;
   notes?: string;
 }
+
+export type PaymentStatus =
+  | 'created'
+  | 'pending'
+  | 'approved'
+  | 'failed'
+  | 'aborted'
+  | 'cancelled'
+  | 'error';
+
+export interface Payment {
+  id: number;
+  deal_id: number;
+  broker_id: number;
+  amount: number;
+  status: PaymentStatus;
+  provider: string;
+  environment: string;
+  buy_order: string;
+  authorization_code: string | null;
+  card_last4: string | null;
+  payment_type_code: string | null;
+  installments_number: number | null;
+  transaction_date: string | null;
+  committed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  pay_url: string | null;
+}
+
+export interface PaymentLinkResponse {
+  payment_id: number;
+  deal_id: number;
+  buy_order: string;
+  amount: number;
+  status: PaymentStatus;
+  pay_url: string;
+  environment: string;
+}

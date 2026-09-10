@@ -1,7 +1,7 @@
 """
 Pydantic schemas for broker configuration
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, Dict, List, Any
 
 
@@ -30,10 +30,9 @@ class BrokerUpdate(BaseModel):
 
 
 class BrokerResponse(BrokerBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
-    
-    class Config:
-        from_attributes = True
 
 
 class PromptConfigUpdate(BaseModel):
@@ -68,5 +67,4 @@ class LeadConfigUpdate(BaseModel):
     alert_on_qualified: Optional[bool] = None
     alert_score_threshold: Optional[int] = None
     alert_email: Optional[str] = None
-
 

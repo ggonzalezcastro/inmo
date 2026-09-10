@@ -21,7 +21,7 @@ class TestAuthEndpoints:
             "/auth/register",
             json={
                 "email": "newuser@example.com",
-                "password": "securepassword123",
+                "password": "Securepassword123!",
                 "broker_name": "Test Broker"
             }
         )
@@ -38,7 +38,7 @@ class TestAuthEndpoints:
             "/auth/register",
             json={
                 "email": test_user.email,  # Already exists
-                "password": "anotherpassword123",
+                "password": "Anotherpassword123!",
                 "broker_name": "Another Broker"
             }
         )
@@ -87,7 +87,7 @@ class TestAuthEndpoints:
     async def test_protected_endpoint_without_token(self, client: AsyncClient):
         """Test protected endpoint rejects request without token"""
         response = await client.get("/api/v1/leads")
-        assert response.status_code == 403  # Forbidden or 401
+        assert response.status_code == 401
     
     @pytest.mark.asyncio
     async def test_protected_endpoint_with_valid_token(

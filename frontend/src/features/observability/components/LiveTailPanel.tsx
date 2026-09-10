@@ -33,7 +33,7 @@ const EVENT_TYPES = [
   'pipeline_stage',
 ] as const
 
-const AGENT_TYPES = ['qualifier', 'scheduler', 'follow_up', 'property', 'supervisor'] as const
+const AGENT_TYPES = ['qualifier', 'scheduler', 'follow_up', 'referral', 'property', 'supervisor'] as const
 
 const EVENT_COLORS: Record<string, string> = {
   agent_selected: 'text-blue-400',

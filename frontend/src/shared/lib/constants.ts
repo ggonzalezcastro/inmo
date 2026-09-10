@@ -63,4 +63,5 @@ export const AGENT_TYPE_LABELS: Record<string, string> = {
   qualifier: 'Calificador',
   scheduler: 'Agendador',
   follow_up: 'Seguimiento',
+  referral: 'Referidos',
 }

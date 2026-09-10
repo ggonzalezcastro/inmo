@@ -19,6 +19,7 @@ from app.models.campaign import (
 )
 from app.models.lead import Lead
 from app.models.user import User
+from app.shared.pipeline_stages import PIPELINE_STAGE_WON
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +37,14 @@ class CampaignService:
         triggered_by: CampaignTrigger = CampaignTrigger.MANUAL,
         trigger_condition: Optional[Dict[str, Any]] = None,
         max_contacts: Optional[int] = None,
-        created_by: Optional[int] = None
+        created_by: Optional[int] = None,
+        is_referral_campaign: bool = False,
     ) -> Campaign:
         """Create a new campaign"""
+
+        if is_referral_campaign:
+            triggered_by = CampaignTrigger.STAGE_CHANGE
+            trigger_condition = {"stage": PIPELINE_STAGE_WON}
 
         campaign = Campaign(
             name=name,
@@ -48,6 +54,7 @@ class CampaignService:
             triggered_by=triggered_by,
             trigger_condition=trigger_condition or {},
             max_contacts=max_contacts,
+            is_referral_campaign=is_referral_campaign,
             broker_id=broker_id,
             created_by=created_by
         )
@@ -207,6 +214,9 @@ class CampaignService:
 
         if not lead:
             raise ValueError(f"Lead {lead_id} not found")
+
+        if campaign.broker_id != lead.broker_id:
+            raise ValueError("Campaign and lead must belong to the same broker")
 
         # Check if campaign already applied (avoid duplicates)
         existing_logs_result = await db.execute(

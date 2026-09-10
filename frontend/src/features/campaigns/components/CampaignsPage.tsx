@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, type CSSProperties } from 'react'
 import {
   Plus, Trash2, MessageSquare, Phone, ArrowRight, Clock,
-  Zap, Loader2, Send, Pause, Play, CheckCircle,
+  Loader2, Send, Pause, Play, CheckCircle,
   X, AlertCircle, Users, Sparkles, RefreshCw, Megaphone,
   TrendingUp, Activity, Target,
 } from 'lucide-react'
@@ -27,7 +27,6 @@ const BLUE_BORDER = '#BFCFFF'
 const BORDER    = '#E2EAF4'
 const BORDER2   = '#D1D9E6'
 const BG        = '#F8FAFC'
-const SURFACE   = '#FFFFFF'
 const TEXT      = '#111827'
 const TEXT2     = '#374151'
 const MUTED     = '#6B7280'
@@ -59,7 +58,7 @@ function StatusBadge({ status }: { status: CampaignStatus }) {
 }
 
 // ── Step type config ──────────────────────────────────────────────────────────
-const STEP_TYPES: Record<StepAction, { label: string; icon: React.FC<{ className?: string }>; color: string; bg: string; border: string }> = {
+const STEP_TYPES: Record<StepAction, { label: string; icon: React.FC<{ className?: string; style?: CSSProperties }>; color: string; bg: string; border: string }> = {
   send_message:     { label: 'Enviar mensaje', icon: MessageSquare, color: '#1A56DB', bg: '#EBF2FF', border: '#BFCFFF' },
   make_call:        { label: 'Llamada',         icon: Phone,         color: '#059669', bg: '#D1FAE5', border: '#6EE7B7' },
   update_stage:     { label: 'Cambiar etapa',   icon: ArrowRight,    color: '#7C3AED', bg: '#EDE9FE', border: '#C4B5FD' },
@@ -80,6 +79,7 @@ const TRIGGERS: { value: CampaignTrigger; label: string; desc: string }[] = [
 ]
 
 const STAGES = ['entrada','perfilamiento','calificacion_financiera','potencial','agendado','ganado','perdido']
+type LocalStep = CreateStepDto & { _localId: string }
 
 // ── TriggerConfig ─────────────────────────────────────────────────────────────
 function TriggerConfig({
@@ -166,7 +166,7 @@ function SavedStepRow({
   onSaved: (updated: CampaignStep) => void
 }) {
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState<Partial<CampaignStepCreate>>({})
+  const [draft, setDraft] = useState<Partial<CreateStepDto>>({})
   const [saving, setSaving] = useState(false)
 
   const handleEdit = () => {
@@ -395,10 +395,10 @@ function StepCard({
                   onChange={e => onChange({ message_text: e.target.value })}
                   placeholder="Escribe el mensaje que se enviará al lead…"
                   rows={3}
-                  className="w-full text-xs border rounded-xl px-3 py-2 resize-none outline-none transition-colors"
+                  className="w-full text-xs border rounded-xl px-3 py-2 resize-none outline-none transition-colors placeholder:text-slate-400"
                   style={{
                     background: BG, borderColor: BORDER2,
-                    color: TEXT, placeholder: PLACEHOLDER,
+                    color: TEXT,
                   }}
                   onFocus={e => e.target.style.borderColor = BLUE}
                   onBlur={e => e.target.style.borderColor = BORDER2}
@@ -606,6 +606,7 @@ export function CampaignsPage() {
   const [editChannel, setEditChannel] = useState<CampaignChannel>('whatsapp')
   const [editTrigger, setEditTrigger] = useState<CampaignTrigger>('manual')
   const [editCondition, setEditCondition] = useState<Record<string, unknown>>({})
+  const [editIsReferral, setEditIsReferral] = useState(false)
   const [localSteps, setLocalSteps] = useState<(CreateStepDto & { _localId: string })[]>([])
 
   const [saving, setSaving] = useState(false)
@@ -614,6 +615,7 @@ export function CampaignsPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [newName, setNewName] = useState('')
   const [newChannel, setNewChannel] = useState<CampaignChannel>('whatsapp')
+  const [newIsReferral, setNewIsReferral] = useState(false)
   const [creating, setCreating] = useState(false)
 
   const [applyLeadId, setApplyLeadId] = useState('')
@@ -633,16 +635,18 @@ export function CampaignsPage() {
   const selectCampaign = useCallback((c: Campaign) => {
     setSelected(c); setEditName(c.name); setEditDesc(c.description ?? '')
     setEditChannel(c.channel); setEditTrigger(c.triggered_by)
-    setEditCondition(c.trigger_condition ?? {}); setLocalSteps([])
+    setEditCondition(c.trigger_condition ?? {}); setEditIsReferral(c.is_referral_campaign ?? false)
+    setLocalSteps([])
   }, [])
 
   const handleSave = async () => {
     if (!selected) return
     setSaving(true)
     try {
-      const updated = await campaignsService.update(selected.id, {
+      await campaignsService.update(selected.id, {
         name: editName, description: editDesc || undefined,
         channel: editChannel, triggered_by: editTrigger, trigger_condition: editCondition,
+        is_referral_campaign: editIsReferral,
       })
       for (const s of localSteps) {
         const { _localId, ...dto } = s
@@ -707,9 +711,13 @@ export function CampaignsPage() {
     if (!newName.trim()) return
     setCreating(true)
     try {
-      const c = await campaignsService.create({ name: newName.trim(), channel: newChannel })
+      const c = await campaignsService.create({
+        name: newName.trim(),
+        channel: newChannel,
+        is_referral_campaign: newIsReferral,
+      })
       setCampaigns(prev => [c, ...prev])
-      selectCampaign(c); setShowCreate(false); setNewName('')
+      selectCampaign(c); setShowCreate(false); setNewName(''); setNewIsReferral(false)
       toast.success('Campaña creada')
     } catch (e) { toast.error(getErrorMessage(e)) }
     finally { setCreating(false) }
@@ -812,6 +820,9 @@ export function CampaignsPage() {
                           <span className="text-[10px]" style={{ color: PLACEHOLDER }}>
                             {c.steps?.length ?? 0} paso{(c.steps?.length ?? 0) !== 1 ? 's' : ''}
                           </span>
+                          {c.is_referral_campaign && (
+                            <span className="text-[10px] font-semibold text-violet-600">Referidos</span>
+                          )}
                         </div>
                       </div>
                       <button
@@ -934,12 +945,42 @@ export function CampaignsPage() {
 
               {/* Trigger */}
               <div className="space-y-2">
+                <label className="flex items-start gap-3 rounded-xl border bg-white p-4 cursor-pointer" style={{ borderColor: editIsReferral ? '#C4B5FD' : BORDER2 }}>
+                  <input
+                    type="checkbox"
+                    checked={editIsReferral}
+                    onChange={e => {
+                      const checked = e.target.checked
+                      setEditIsReferral(checked)
+                      if (checked) {
+                        setEditTrigger('stage_change')
+                        setEditCondition({ stage: 'ganado' })
+                      } else {
+                        setEditTrigger('manual')
+                        setEditCondition({})
+                      }
+                    }}
+                    className="mt-0.5 h-4 w-4 accent-violet-600"
+                  />
+                  <span>
+                    <span className="block text-xs font-semibold" style={{ color: TEXT }}>Campaña de referidos</span>
+                    <span className="block mt-0.5 text-[11px] leading-4" style={{ color: MUTED }}>
+                      Se usará automáticamente cuando un lead pase a ganado. Solo puede existir una activa por broker.
+                    </span>
+                  </span>
+                </label>
                 <label className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: MUTED }}>Disparador</label>
-                <TriggerConfig
-                  trigger={editTrigger}
-                  condition={editCondition}
-                  onChange={(t, c) => { setEditTrigger(t); setEditCondition(c) }}
-                />
+                {editIsReferral ? (
+                  <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-xs text-violet-700">
+                    Se activa exclusivamente al entrar en la etapa ganado.
+                  </div>
+                ) : (
+                  <TriggerConfig
+                    trigger={editTrigger}
+                    condition={editCondition}
+                    onChange={(t, c) => { setEditTrigger(t); setEditCondition(c) }}
+                  />
+                )}
               </div>
 
               {/* Flow builder */}
@@ -1107,6 +1148,18 @@ export function CampaignsPage() {
                   ))}
                 </div>
               </div>
+              <label className="flex items-start gap-3 rounded-xl border p-3 cursor-pointer" style={{ borderColor: newIsReferral ? '#C4B5FD' : BORDER2, background: newIsReferral ? '#F5F3FF' : '#FFFFFF' }}>
+                <input
+                  type="checkbox"
+                  checked={newIsReferral}
+                  onChange={e => setNewIsReferral(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-violet-600"
+                />
+                <span>
+                  <span className="block text-xs font-semibold" style={{ color: TEXT }}>Usar para pedir referidos</span>
+                  <span className="block text-[11px] mt-0.5" style={{ color: MUTED }}>Se activará solo cuando un lead sea ganado.</span>
+                </span>
+              </label>
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"

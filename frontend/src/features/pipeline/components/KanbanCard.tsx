@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Clock, User, Bot, AlertTriangle, CalendarCheck, CheckCircle2 } from 'lucide-react'
+import { Clock, User, Bot, AlertTriangle, CalendarCheck, CheckCircle2, Megaphone } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
 import { StatusBadge } from '@/shared/components/common/StatusBadge'
 import { ScoreBadge } from '@/shared/components/common/ScoreBadge'
@@ -124,6 +124,11 @@ export function KanbanCard({ lead, isInactive, incomeTiers, onClick }: KanbanCar
         {humanMode && (
           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#DBEAFE] text-[#1D4ED8]">
             <User className="h-2.5 w-2.5" /> Humano
+          </span>
+        )}
+        {(lead.meta_origin?.source === 'meta' || meta.meta_origin?.source === 'meta') && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+            <Megaphone className="h-2.5 w-2.5" /> Meta Ads
           </span>
         )}
       </div>

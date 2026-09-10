@@ -79,8 +79,8 @@ export interface QualificationConfig {
   // Full custom prompt (overrides all other prompt sections when set)
   full_custom_prompt?: string
   // Legacy field weights (used by 'weights' tab — kept for backward compat)
-  field_weights?: Record<string, number>
-  field_priority?: string[]
+  field_weights: Record<string, number>
+  field_priority: string[]
   // Assignment mode
   priority_assignment_enabled?: boolean
 }
@@ -254,5 +254,4 @@ export const settingsService = {
     })
   },
 }
-
 

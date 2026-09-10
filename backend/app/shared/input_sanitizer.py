@@ -46,6 +46,14 @@ _INJECTION_PATTERNS: list[tuple[str, str]] = [
     # Términos de jailbreak muy específicos
     (r"jailbreak", "jailbreak attempt"),
     (r"(?-i:\bDAN\b)", "DAN jailbreak — solo mayúsculas"),
+    # Instruction replacement / persona override in English. These phrases are
+    # narrow enough to avoid blocking ordinary Spanish real-estate messages.
+    (r"\bignore\s+(?:all\s+)?previous\s+instructions\b", "instruction override"),
+    (r"\bdisregard\s+(?:all\s+)?previous\s+(?:instructions|context)\b", "instruction override"),
+    (r"\bforget\s+(?:all|previous)\s+instructions\b", "instruction override"),
+    (r"\bact\s+as(?:\s+if\s+you\s+are)?\s+(?:an?\s+)?(?:system|unrestricted\s+AI)\b", "role override"),
+    (r"\bpretend\s+you\s+are\s+(?:a\s+)?different\s+assistant\b", "role override"),
+    (r"\byou\s+are\s+now\s+(?:a\s+)?(?:different\s+AI|DAN)\b", "role override"),
 ]
 
 # Compile patterns once at module load

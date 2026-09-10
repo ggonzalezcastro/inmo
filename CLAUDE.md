@@ -151,8 +151,10 @@ AgentSupervisor.process(message, AgentContext, db)
     │       └── hands off via tool_call
     ├── SchedulerAgent   — stage: calificacion_financiera
     │       └── hands off via tool_call on appointment confirmation
-    └── FollowUpAgent    — stages: agendado, seguimiento, referidos
-            └── hands off via tool_call for rescheduling
+    ├── FollowUpAgent    — stages: agendado, seguimiento, referidos
+    │       └── hands off via tool_call for rescheduling
+    └── ReferralAgent    — stage: ganado only
+            └── records referred contacts as separate leads; never overwrites the buyer
 ```
 
 #### Routing Strategy (Phase 3.1 — Tool-based Handoffs)
@@ -181,6 +183,9 @@ entrada → perfilamiento → calificacion_financiera → agendado → seguimien
 ```
 
 Stage transitions trigger WebSocket broadcasts (`ws_manager.broadcast`) and activity log entries.
+Entering `ganado` queues one idempotent referral outreach: an active broker campaign
+marked as a referral campaign takes precedence; otherwise a short, non-invasive
+name-and-phone request is sent through the last supported chat channel.
 
 ### Celery Tasks (`app/tasks/`)
 

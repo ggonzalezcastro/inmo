@@ -20,6 +20,7 @@ const DEFAULT_FILTERS: LeadFilters = {
   status: '',
   pipeline_stage: '',
   dicom_status: '',
+  contactability: '',
   created_from: '',
   created_to: '',
   skip: 0,

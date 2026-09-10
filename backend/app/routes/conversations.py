@@ -17,6 +17,7 @@ from app.models.lead import Lead
 from app.models.chat_message import ChatMessage, ChatProvider, MessageDirection, MessageStatus
 from app.models.user import User
 from app.services.chat.service import ChatService
+from app.core.config import settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -447,6 +448,8 @@ async def disable_do_not_reply(
 
 
 
+@router.post("/leads/{lead_id}/messages")
+@router.post("/leads/{lead_id}/human-message")
 async def send_human_message(
     lead_id: int,
     body: HumanMessageInput,
@@ -463,6 +466,15 @@ async def send_human_message(
 
     if not lead.human_mode:
         raise HTTPException(status_code=400, detail="Lead is not in human mode")
+
+    role = str(current_user.get("role") or "").upper()
+    raw_uid = current_user.get("user_id") or current_user.get("id")
+    try:
+        uid = int(raw_uid) if raw_uid is not None else None
+    except (TypeError, ValueError):
+        uid = None
+    if role == "AGENT" and uid not in {lead.assigned_to, lead.human_assigned_to}:
+        raise HTTPException(status_code=403, detail="Solo puedes responder tus leads asignados")
 
     provider_name, channel_user_id = await _get_lead_channel(db, lead_id)
 
@@ -487,6 +499,45 @@ async def send_human_message(
         if not agent_display_name:
             return text
         return f"*{agent_display_name}:*\n{text}"
+
+    if settings.META_WHATSAPP_ASSET_ROUTING_ENABLED:
+        from app.services.meta.outbound import MetaOutboundError, MetaOutboundService
+
+        conversation = await MetaOutboundService.conversation_for_lead(
+            db,
+            broker_id=int(current_user.get("broker_id")),
+            lead_id=lead_id,
+            preferred_channel=provider_name,
+        )
+        if conversation and conversation.channel in {"whatsapp", "instagram", "facebook"}:
+            try:
+                outbound = await MetaOutboundService.send_for_conversation(
+                    db,
+                    broker_id=int(current_user.get("broker_id")),
+                    conversation_id=conversation.id,
+                    message_text=(
+                        _format_with_agent(body.text)
+                        if conversation.channel == "whatsapp"
+                        else body.text
+                    ),
+                    sent_by_user_id=uid,
+                    generation_mode="manual",
+                )
+            except MetaOutboundError as exc:
+                raise HTTPException(
+                    status_code=exc.status_code,
+                    detail={"code": exc.code, "message": str(exc)},
+                ) from exc
+            if not outbound.provider_result.success:
+                raise HTTPException(
+                    status_code=502,
+                    detail={
+                        "code": "META_SEND_FAILED",
+                        "message": "Meta no pudo enviar el mensaje",
+                        "message_id": outbound.message.id,
+                    },
+                )
+            return {"ok": True, "message_id": outbound.message.id}
 
     if not provider_name or provider_name in ("webchat", "ChatProvider.WEBCHAT") or channel_user_id == "0":
         # No real channel — just log the message without sending
@@ -516,6 +567,11 @@ async def send_human_message(
             logger.warning("Failed to send human message: %s", send_result.error)
 
     # Always log the message to DB (even if send failed — agent wants the record)
+    effective_status = (
+        MessageStatus.SENT
+        if send_result is None or getattr(send_result, "success", False)
+        else MessageStatus.FAILED
+    )
     msg = ChatMessage(
         lead_id=lead_id,
         broker_id=current_user.get("broker_id"),
@@ -523,8 +579,10 @@ async def send_human_message(
         channel_user_id=channel_user_id or "0",
         message_text=body.text,
         direction=MessageDirection.OUTBOUND,
-        status=MessageStatus.SENT,
+        status=effective_status,
         ai_response_used=False,
+        sent_by_user_id=uid,
+        generation_mode="manual",
     )
     db.add(msg)
     await db.commit()

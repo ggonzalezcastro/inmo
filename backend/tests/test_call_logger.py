@@ -101,10 +101,19 @@ async def test_log_llm_call_swallows_import_error():
 async def test_log_llm_call_success_path():
     """Happy path — writes a row and commits."""
     mock_db = AsyncMock()
+    mock_db.add = MagicMock()
     mock_db.__aenter__ = AsyncMock(return_value=mock_db)
     mock_db.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.database.AsyncSessionLocal", return_value=mock_db):
+    mock_engine = MagicMock()
+    mock_engine.dispose = AsyncMock()
+    with patch(
+        "sqlalchemy.ext.asyncio.create_async_engine",
+        return_value=mock_engine,
+    ), patch(
+        "sqlalchemy.ext.asyncio.async_sessionmaker",
+        return_value=lambda: mock_db,
+    ):
         await log_llm_call(
             provider="claude",
             model="claude-sonnet-4-6",

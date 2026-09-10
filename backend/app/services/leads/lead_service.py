@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import and_, or_, func
+from sqlalchemy.orm import selectinload
 from typing import Optional, List, Dict, Tuple
 from datetime import datetime, timezone
 import re
@@ -42,11 +43,11 @@ class LeadService:
         """
         Validate phone number
 
-        Allows placeholders that start with 'web_chat_', 'whatsapp_' or '+569999'
+        Allows placeholders that start with 'web_chat_', 'whatsapp_', 'meta_' or '+569999'
         (these are temporary placeholders that will be replaced with real phones)
         """
         # Allow placeholders (web_chat_*, whatsapp_* or +569999*)
-        if phone.startswith("web_chat_") or phone.startswith("whatsapp_") or phone.startswith("+569999"):
+        if phone.startswith(("web_chat_", "whatsapp_", "meta_", "+569999")):
             return True, phone
 
         normalized = LeadService.normalize_phone(phone)
@@ -162,7 +163,7 @@ class LeadService:
         count_result = await db.execute(count_query)
         total_count = count_result.scalar() or 0
 
-        query = select(Lead)
+        query = select(Lead).options(selectinload(Lead.assigned_agent))
         if filters:
             query = query.where(and_(*filters))
         query = query.order_by(Lead.lead_score.desc()).offset(skip).limit(limit)
@@ -176,7 +177,9 @@ class LeadService:
     async def get_lead(db: AsyncSession, lead_id: int) -> Optional[Lead]:
         """Get single lead"""
         result = await db.execute(
-            select(Lead).where(Lead.id == lead_id)
+            select(Lead)
+            .options(selectinload(Lead.assigned_agent))
+            .where(Lead.id == lead_id)
         )
         return result.scalars().first()
 

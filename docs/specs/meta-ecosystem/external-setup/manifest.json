@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "last_local_check_at": "2026-09-09",
+  "tasks": {
+    "0.1": {
+      "status": "pending_external",
+      "evidence_reference": null,
+      "blocking_condition": "Signed business ownership, administrator and 2FA evidence is unavailable."
+    },
+    "0.2": {
+      "status": "pending_external",
+      "evidence_reference": null,
+      "blocking_condition": "Legal approval and unauthenticated production HTTPS verification are unavailable."
+    },
+    "0.3": {
+      "status": "pending_external",
+      "evidence_reference": null,
+      "blocking_condition": "Meta App Dashboard access and product configuration evidence are unavailable."
+    },
+    "0.4": {
+      "status": "pending_external",
+      "evidence_reference": null,
+      "blocking_condition": "Deployed domains, redirects and real webhook challenge evidence are unavailable."
+    },
+    "0.5": {
+      "status": "pending_external",
+      "evidence_reference": null,
+      "blocking_condition": "The non-production Meta sandbox asset inventory is unavailable."
+    },
+    "0.6": {
+      "status": "pending_external",
+      "evidence_reference": null,
+      "blocking_condition": "The local environment has no complete Meta configuration and no staging/production secret references were supplied."
+    },
+    "5.6": {
+      "status": "pending_external",
+      "evidence_reference": null,
+      "blocking_condition": "A real professional Instagram sandbox asset and reviewed permissions are unavailable."
+    },
+    "6.6": {
+      "status": "pending_external",
+      "evidence_reference": null,
+      "blocking_condition": "A real Facebook Page sandbox asset and reviewed permissions are unavailable."
+    },
+    "12.2": {
+      "status": "deferred",
+      "evidence_reference": null,
+      "blocking_condition": "Representative volume, peak-load profile and production-equivalent environment are not available."
+    },
+    "12.4": {
+      "status": "pending_external",
+      "evidence_reference": null,
+      "blocking_condition": "Railway CLI is unauthenticated and no linked deployment evidence is available."
+    }
+  }
+}

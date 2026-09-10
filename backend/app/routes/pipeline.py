@@ -6,9 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import and_
 from typing import Optional
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from app.database import get_db
 from app.middleware.auth import get_current_user
+from app.middleware.permissions import Permissions
 from app.services.pipeline import PipelineService
 from app.services.shared import ActivityService
 from pydantic import BaseModel
@@ -126,61 +127,18 @@ async def auto_advance_lead_stage(
 async def assign_lead_agent(
     lead_id: int,
     request: AssignAgentRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(Permissions.require_admin),
     db: AsyncSession = Depends(get_db)
 ):
     """Assign or unassign an agent to a lead"""
-    try:
-        from sqlalchemy.future import select as sa_select
-        from app.models.lead import Lead
-        from app.models.user import User
+    from app.services.leads.assignment_service import LeadAssignmentService
 
-        result = await db.execute(sa_select(Lead).where(Lead.id == lead_id))
-        lead = result.scalars().first()
-        if not lead:
-            raise HTTPException(status_code=404, detail="Lead not found")
-
-        old_agent_id = lead.assigned_to
-        lead.assigned_to = request.agent_id
-        await db.commit()
-
-        agent_name = None
-        if request.agent_id:
-            agent_result = await db.execute(sa_select(User).where(User.id == request.agent_id))
-            agent = agent_result.scalars().first()
-            if agent:
-                agent_name = agent.name
-
-        await ActivityService.log_activity(
-            db,
-            lead_id=lead_id,
-            action_type="agent_assigned",
-            details={
-                "old_agent_id": old_agent_id,
-                "new_agent_id": request.agent_id,
-                "agent_name": agent_name,
-                "assigned_by": current_user.get("user_id"),
-            },
-        )
-
-        try:
-            from app.core.websocket_manager import ws_manager
-            if lead.broker_id:
-                await ws_manager.broadcast(lead.broker_id, "lead_assigned", {
-                    "lead_id": lead_id,
-                    "agent_id": request.agent_id,
-                    "agent_name": agent_name,
-                })
-        except Exception as ws_exc:
-            logger.debug("[WS] lead_assigned broadcast error: %s", ws_exc)
-
-        return {"message": "Agent assigned", "lead_id": lead_id, "agent_id": request.agent_id, "agent_name": agent_name}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error assigning agent: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    return await LeadAssignmentService.assign(
+        db,
+        lead_id=lead_id,
+        agent_id=request.agent_id,
+        current_user=current_user,
+    )
 
 
 @router.get("/agents")
@@ -369,6 +327,36 @@ async def get_stage_metrics(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/management-dashboard")
+async def get_management_dashboard(
+    broker_id: Optional[int] = Query(None),
+    date_from: date = Query(default_factory=lambda: date.today() - timedelta(days=29)),
+    date_to: date = Query(default_factory=date.today),
+    agent_id: Optional[int] = Query(None),
+    project_id: Optional[int] = Query(None),
+    source: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Commercial and task KPIs for broker management, with drill-down records."""
+    if date_to < date_from:
+        raise HTTPException(status_code=422, detail="La fecha final no puede ser anterior a la inicial")
+    if (date_to - date_from).days > 366:
+        raise HTTPException(status_code=422, detail="El período máximo es de 12 meses")
+    from app.services.pipeline.management_dashboard_service import ManagementDashboardService
+
+    return await ManagementDashboardService.get_metrics(
+        db,
+        current_user,
+        broker_id=broker_id,
+        date_from=date_from,
+        date_to=date_to,
+        agent_id=agent_id,
+        project_id=project_id,
+        source=source,
+    )
+
+
 @router.get("/stages/{stage}/inactive")
 async def get_inactive_leads_in_stage(
     stage: str,
@@ -420,5 +408,3 @@ async def get_inactive_leads_in_stage(
     except Exception as e:
         logger.error(f"Error getting inactive leads: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
-

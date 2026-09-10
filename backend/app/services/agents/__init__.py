@@ -6,6 +6,7 @@ Agents
 - QualifierAgent  — collects lead data + financial qualification
 - SchedulerAgent  — converts qualified leads into booked visits
 - FollowUpAgent   — post-visit engagement and referrals
+- ReferralAgent   — won-lead referral capture
 - AgentSupervisor — routes messages to the correct specialist
 
 Feature flag
@@ -33,6 +34,7 @@ from app.services.agents.base import BaseAgent, register_agent, get_agent
 from app.services.agents.qualifier import QualifierAgent
 from app.services.agents.scheduler import SchedulerAgent
 from app.services.agents.follow_up import FollowUpAgent
+from app.services.agents.referral import ReferralAgent
 from app.services.agents.property import PropertyAgent
 from app.services.agents.supervisor import AgentSupervisor
 
@@ -40,12 +42,14 @@ from app.services.agents.supervisor import AgentSupervisor
 qualifier_agent_instance = QualifierAgent()
 scheduler_agent_instance = SchedulerAgent()
 follow_up_agent_instance = FollowUpAgent()
+referral_agent_instance = ReferralAgent()
 property_agent_instance = PropertyAgent()
 
 # Register all agents
 register_agent(qualifier_agent_instance)
 register_agent(scheduler_agent_instance)
 register_agent(follow_up_agent_instance)
+register_agent(referral_agent_instance)
 register_agent(property_agent_instance)
 
 
@@ -57,6 +61,7 @@ def get_priority_agents() -> list[BaseAgent]:
     Kept for reference only.
     """
     return [
+        referral_agent_instance,
         follow_up_agent_instance,
         property_agent_instance,
         scheduler_agent_instance,
@@ -90,6 +95,10 @@ def build_context(
     call_purpose: str | None = None,
     message_id: int | None = None,
     conversation_id: int | None = None,
+    meta_asset_id: int | None = None,
+    channel_identity_id: int | None = None,
+    messaging_window_expires_at=None,
+    ai_mode: str = "suggestion",
 ) -> AgentContext:
     """
     Convenience factory: build an AgentContext from a Lead ORM object.
@@ -156,6 +165,11 @@ def build_context(
             "_skill_scheduler_extension": (broker_overrides or {}).get("skill_scheduler"),
             "_skill_follow_up_extension": (broker_overrides or {}).get("skill_follow_up"),
             "_skill_property_extension": (broker_overrides or {}).get("skill_property"),
+            # Won-lead referral workflow state
+            "referral_status": metadata.get("referral_status"),
+            "referral_lead_ids": metadata.get("referral_lead_ids", []),
+            "referral_outreach_route": metadata.get("referral_outreach_route"),
+            "referral_outreach_status": metadata.get("referral_outreach_status"),
         },
         message_history=_history,
         current_agent=_parse_agent_type(metadata.get("current_agent")),
@@ -165,6 +179,10 @@ def build_context(
         call_purpose=call_purpose,
         message_id=message_id,
         conversation_id=conversation_id,
+        meta_asset_id=meta_asset_id,
+        channel_identity_id=channel_identity_id,
+        messaging_window_expires_at=messaging_window_expires_at,
+        ai_mode=ai_mode,
         property_preferences={
             k: v for k, v in {
                 "property_type": metadata.get("property_type"),
@@ -195,11 +213,13 @@ __all__ = [
     "QualifierAgent",
     "SchedulerAgent",
     "FollowUpAgent",
+    "ReferralAgent",
     "PropertyAgent",
     "build_context",
     "get_priority_agents",
     "qualifier_agent_instance",
     "scheduler_agent_instance",
     "follow_up_agent_instance",
+    "referral_agent_instance",
     "property_agent_instance",
 ]

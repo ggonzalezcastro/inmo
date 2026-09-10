@@ -6,7 +6,7 @@ from app.tasks.base import DLQTask
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.future import select
 from sqlalchemy import and_, or_
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import logging
 from app.config import settings
@@ -184,6 +184,13 @@ async def _resolve_message(campaign, step, lead) -> str:
         return step.message_text
     # AI-generated message placeholder
     if step.use_ai_message:
+        if campaign.is_referral_campaign:
+            greeting = f"Hola {lead.name}," if lead.name else "Hola,"
+            return (
+                f"{greeting} gracias nuevamente por confiar en nosotros. "
+                "Si conoces a alguien que esté buscando una propiedad y te acomoda compartirlo, "
+                "puedes enviarme su nombre y teléfono. Sin compromiso 😊"
+            )
         return f"Hola {lead.name or 'estimado/a'}, te contactamos para seguir apoyándote en tu búsqueda de propiedad."
     # Template
     raise ValueError("Step has no message_text, use_ai_message=False, and no template_id")
@@ -226,17 +233,38 @@ async def _execute_send_message(db: AsyncSession, campaign, step, lead, log):
         log.status = CampaignLogStatus.SENT
         log.response = {"channel": "telegram", "result": result}
     elif channel == "whatsapp":
-        # WhatsApp integration placeholder
         phone = lead.phone
         if not phone:
             raise ValueError("Lead has no phone for WhatsApp")
-        # TODO: integrate WhatsApp service
+        from app.services.chat.service import ChatService
+        result = await ChatService.send_message(
+            db=db,
+            broker_id=campaign.broker_id,
+            provider_name="whatsapp",
+            channel_user_id=phone,
+            message_text=message_text,
+            lead_id=lead.id,
+        )
+        if not result.success:
+            raise ValueError(result.error or "WhatsApp send failed")
         log.status = CampaignLogStatus.SENT
-        log.response = {"channel": "whatsapp", "phone": phone, "message": message_text}
-        logger.info("WhatsApp message queued for lead %s: %s", lead.id, message_text[:60])
+        log.response = {"channel": "whatsapp", "message_id": result.message_id}
     else:
         log.status = CampaignLogStatus.FAILED
         log.response = {"error": f"Channel '{channel}' not yet supported"}
+
+    if campaign.is_referral_campaign and log.status == CampaignLogStatus.SENT:
+        referral_meta = dict(lead.lead_metadata or {})
+        referral_meta.update({
+            "referral_status": referral_meta.get("referral_status") or "pending",
+            "referral_outreach_status": "asked",
+            "referral_outreach_route": "campaign",
+            "referral_campaign_id": campaign.id,
+            "referral_asked_at": datetime.now(timezone.utc).isoformat(),
+            "current_agent": "referral",
+        })
+        lead.lead_metadata = referral_meta
+        db.add(lead)
 
 
 async def _execute_make_call(db: AsyncSession, campaign, step, lead, log):
@@ -336,6 +364,10 @@ def check_trigger_campaigns():
 
             for campaign in campaigns:
                 if campaign.triggered_by == CampaignTrigger.MANUAL:
+                    continue
+                if campaign.is_referral_campaign:
+                    # Referral campaigns are event-driven exactly once on the
+                    # transition to won, never swept hourly.
                     continue
                 try:
                     query = _build_eligible_leads_query(campaign)

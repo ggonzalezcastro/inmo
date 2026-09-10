@@ -174,7 +174,7 @@ class TestPropertyAgentZeroResults:
         with patch(
             "app.services.agents.property.execute_property_search",
             new_callable=AsyncMock,
-            return_value=[],
+            return_value=([], 0),
         ), patch(
             "app.services.agents.property.LLMServiceFacade.generate_response_with_function_calling",
             new_callable=AsyncMock,
@@ -264,7 +264,7 @@ async def _run_with_zero_results(agent: PropertyAgent, ctx: AgentContext, db):
         with patch(
             "app.services.agents.property.execute_property_search",
             new_callable=AsyncMock,
-            return_value=[],
+            return_value=([], 0),
         ), patch(
             "app.services.agents.property.LLMServiceFacade.generate_response_with_function_calling",
             new_callable=AsyncMock,

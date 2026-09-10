@@ -36,6 +36,7 @@ from app.services.agents.types import (
     AgentType,
     HandoffSignal,
 )
+from app.shared.pipeline_stages import PIPELINE_STAGE_WON
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ _STAGE_TO_AGENT: Dict[str, AgentType] = {
     "agendado": AgentType.FOLLOW_UP,
     "seguimiento": AgentType.FOLLOW_UP,
     "referidos": AgentType.FOLLOW_UP,
-    "ganado": AgentType.FOLLOW_UP,
+    PIPELINE_STAGE_WON: AgentType.REFERRAL,
     "perdido": AgentType.FOLLOW_UP,
 }
 
@@ -268,20 +269,12 @@ class AgentSupervisor:
 
             # Apply context updates
             updated_data = {**current_context.lead_data, **(response.context_updates or {})}
-            current_context = AgentContext(
-                lead_id=current_context.lead_id,
-                broker_id=current_context.broker_id,
-                pipeline_stage=current_context.pipeline_stage,
-                conversation_state=current_context.conversation_state,
+            current_context = dataclasses.replace(
+                current_context,
                 lead_data=updated_data,
-                message_history=current_context.message_history,
                 current_agent=agent.agent_type,
                 handoff_count=hops,
-                property_preferences=current_context.property_preferences,
-                human_release_note=current_context.human_release_note,
                 last_agent_note=response.metadata.get("agent_note") if response.metadata else current_context.last_agent_note,
-                current_frustration=current_context.current_frustration,
-                tone_hint=current_context.tone_hint,
             )
 
             # Check for handoff
@@ -324,21 +317,12 @@ class AgentSupervisor:
                 updated_history = updated_history + [
                     {"role": "assistant", "content": response.message}
                 ]
-            current_context = AgentContext(
-                lead_id=current_context.lead_id,
-                broker_id=current_context.broker_id,
-                pipeline_stage=current_context.pipeline_stage,
-                conversation_state=current_context.conversation_state,
+            current_context = dataclasses.replace(
+                current_context,
                 lead_data=handoff_data,
                 message_history=updated_history,
                 current_agent=handoff.target_agent,
                 handoff_count=hops + 1,
-                pre_analysis=current_context.pre_analysis,  # preserve so target agent has intent/fields
-                property_preferences=current_context.property_preferences,
-                human_release_note=current_context.human_release_note,
-                last_agent_note=current_context.last_agent_note,
-                current_frustration=current_context.current_frustration,
-                tone_hint=current_context.tone_hint,
             )
             hops += 1
 
@@ -391,6 +375,12 @@ class AgentSupervisor:
             context.current_agent.value if context.current_agent else None,
             context.lead_id,
         )
+
+        # Won is terminal for the sales conversation. Always select the
+        # referral specialist, even if another agent was sticky before closing.
+        if context.pipeline_stage == PIPELINE_STAGE_WON:
+            return get_agent(AgentType.REFERRAL)
+
         if intent == "property_search":
             prop_agent = get_agent(AgentType.PROPERTY)
             if prop_agent:

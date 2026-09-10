@@ -54,12 +54,46 @@ from app.models.broker_plan import BrokerPlan
 from app.models.agent_event import AgentEvent
 from app.models.property import Property
 from app.models.project import Project
-from app.models.conversation import Conversation
+from app.models.conversation import Conversation, ConversationReadState
 from app.models.escalation_brief import EscalationBrief
 from app.models.observability_alert import ObservabilityAlert
 from app.models.agent_model_config import AgentModelConfig
 from app.models.deal import Deal, DEAL_STAGES, DELIVERY_TYPES
 from app.models.deal_document import DealDocument, DOCUMENT_STATUSES
+from app.models.payment import Payment, PAYMENT_STATUSES
+from app.models.broker_payment_config import BrokerPaymentConfig
+from app.models.lead_follow_up import (
+    LeadAdvisory,
+    LeadNote,
+    LeadTask,
+    ADVISORY_CHANNELS,
+    TASK_STATUSES,
+    TASK_STATUS_OPEN,
+    TASK_STATUS_COMPLETED,
+    REMINDER_OFFSETS_MINUTES,
+)
+from app.models.meta import (
+    ChannelIdentity,
+    MetaAsset,
+    MetaAssignmentConflict,
+    MetaConnection,
+    MetaCredential,
+    MetaMessageTemplate,
+    MetaWebhookEvent,
+)
+from app.models.meta_ads import (
+    META_AD_CAMPAIGN_STATUSES,
+    MetaAd,
+    MetaAdCampaign,
+    MetaAdCreative,
+    MetaAdInsightDaily,
+    MetaAdsPolicy,
+    MetaAdSet,
+    MetaConversionEvent,
+    MetaLeadAttribution,
+    MetaLeadForm,
+    MetaSyncRun,
+)
 
 __all__ = [
     "Base",
@@ -111,6 +145,7 @@ __all__ = [
     "Property",
     "Project",
     "Conversation",
+    "ConversationReadState",
     "EscalationBrief",
     "ObservabilityAlert",
     "AgentModelConfig",
@@ -122,5 +157,33 @@ __all__ = [
     "DELIVERY_TYPES",
     "DealDocument",
     "DOCUMENT_STATUSES",
+    "Payment",
+    "PAYMENT_STATUSES",
+    "BrokerPaymentConfig",
+    "LeadNote",
+    "LeadAdvisory",
+    "LeadTask",
+    "ADVISORY_CHANNELS",
+    "TASK_STATUSES",
+    "TASK_STATUS_OPEN",
+    "TASK_STATUS_COMPLETED",
+    "REMINDER_OFFSETS_MINUTES",
+    "MetaConnection",
+    "MetaCredential",
+    "MetaMessageTemplate",
+    "MetaAsset",
+    "ChannelIdentity",
+    "MetaWebhookEvent",
+    "MetaAssignmentConflict",
+    "META_AD_CAMPAIGN_STATUSES",
+    "MetaAdsPolicy",
+    "MetaAdCampaign",
+    "MetaAdSet",
+    "MetaAdCreative",
+    "MetaAd",
+    "MetaLeadForm",
+    "MetaLeadAttribution",
+    "MetaAdInsightDaily",
+    "MetaSyncRun",
+    "MetaConversionEvent",
 ]
-

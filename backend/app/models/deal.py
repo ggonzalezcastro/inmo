@@ -103,6 +103,11 @@ class Deal(Base, IdMixin, TimestampMixin):
         back_populates="deal",
         cascade="all, delete-orphan",
     )
+    payments = relationship(
+        "Payment",
+        back_populates="deal",
+        cascade="all, delete-orphan",
+    )
 
     # ── Indices ───────────────────────────────────────────────────────────────
     __table_args__ = (

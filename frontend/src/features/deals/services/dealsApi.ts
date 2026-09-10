@@ -4,10 +4,59 @@ export interface DealMetrics {
   deals_by_stage: Record<string, number>
   uf_en_pipeline: number
   uf_cerradas: number
+  clp_cerradas: number
   total_active_deals: number
   deals_closed: number
   bank_approval_rate: number
-  uf_trend: { week: string; week_start: string; uf: number }[]
+  avg_ticket_uf: number
+  avg_ticket_clp: number
+  reservations_period: number
+  promises_signed_period: number
+  cancellations_period: number
+  cancellation_rate: number
+  avg_sales_cycle_days: number | null
+  avg_reservation_to_close_days: number | null
+  sales_this_week: SalesComparison
+  sales_this_month: SalesComparison
+  uf_trend: WeeklySalesPoint[]
+  monthly_trend: MonthlySalesPoint[]
+  sales_by_project: ProjectSales[]
+}
+
+export interface SalesComparison {
+  sales: number
+  uf: number
+  clp: number
+  previous_sales: number
+  previous_uf: number
+  sales_delta_percent: number | null
+  uf_delta_percent: number | null
+  date_from: string
+  date_to: string
+}
+
+export interface WeeklySalesPoint {
+  week: string
+  week_start: string
+  sales: number
+  uf: number
+  clp: number
+}
+
+export interface MonthlySalesPoint {
+  month: string
+  month_start: string
+  sales: number
+  uf: number
+  clp: number
+}
+
+export interface ProjectSales {
+  project_id: number | null
+  project_name: string
+  sales: number
+  uf: number
+  clp: number
 }
 
 import type {
@@ -19,6 +68,8 @@ import type {
   CancelDealRequest,
   ReviewRequest,
   SlotRequirement,
+  Payment,
+  PaymentLinkResponse,
 } from '../types';
 
 export const dealsApi = {
@@ -81,6 +132,15 @@ export const dealsApi = {
     deliveryType?: string,
   ): Promise<{ slots: SlotRequirement[]; delivery_type: string }> =>
     apiClient.get('/api/deals/slots-meta', { params: { delivery_type: deliveryType } }),
+
+  createPaymentLink: (dealId: number, data: { amount: number }): Promise<PaymentLinkResponse> =>
+    apiClient.post(`/api/deals/${dealId}/payment-link`, data),
+
+  getPayments: (dealId: number): Promise<Payment[]> =>
+    apiClient.get(`/api/deals/${dealId}/payments`),
+
+  cancelPayment: (dealId: number, paymentId: number): Promise<Payment> =>
+    apiClient.post(`/api/deals/${dealId}/payments/${paymentId}/cancel`, {}),
 
   getMetrics: (params?: {
     broker_id?: number | null

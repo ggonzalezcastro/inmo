@@ -148,7 +148,9 @@ class TestChatLLMIntegration:
     ):
         """Test that chat extracts lead information from message"""
         # Mock the analysis response
-        with patch("app.services.chat_orchestrator_service.LLMServiceFacade.analyze_lead_qualification") as mock_analyze:
+        with patch(
+            "app.services.chat.orchestrator.LLMServiceFacade.analyze_lead_qualification"
+        ) as mock_analyze:
             mock_analyze.return_value = {
                 "qualified": "maybe",
                 "interest_level": 7,

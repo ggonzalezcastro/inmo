@@ -1,7 +1,7 @@
 import re
 import bleach
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
-from typing import Optional, List, Any
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from typing import List, Optional
 from datetime import datetime
 from enum import Enum
 
@@ -27,6 +27,29 @@ class LeadStatusEnum(str, Enum):
     HOT = "hot"
     CONVERTED = "converted"
     LOST = "lost"
+
+
+class ContactabilityLevel(str, Enum):
+    CONTACTABLE = "contactable"
+    INTERMITTENT = "intermittent"
+    DIFFICULT = "difficult"
+    CRITICAL = "critical"
+    INSUFFICIENT_DATA = "insufficient_data"
+    NOT_APPLICABLE = "not_applicable"
+
+
+class ContactabilityMetrics(BaseModel):
+    score: Optional[int] = None
+    level: ContactabilityLevel
+    reasons: List[str] = Field(default_factory=list)
+    suggested_action: str
+    attempt_count: int = 0
+    unanswered_attempts: int = 0
+    no_answer_calls: int = 0
+    failed_messages: int = 0
+    no_shows: int = 0
+    last_attempt_at: Optional[datetime] = None
+    last_response_at: Optional[datetime] = None
 
 
 class LeadBase(BaseModel):
@@ -88,7 +111,13 @@ class LeadUpdate(BaseModel):
 
 
 class LeadResponse(LeadBase):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
     id: int
+    phone: Optional[str] = None
+    broker_id: Optional[int] = None
+    assigned_to: Optional[int] = None
+    assigned_agent_name: Optional[str] = None
     status: LeadStatusEnum
     lead_score: float
     pipeline_stage: Optional[str] = None
@@ -100,6 +129,11 @@ class LeadResponse(LeadBase):
     response_metrics: Optional[dict] = Field(
         default=None,
         description="Bot→lead reply turnaround metrics (avg, fast_reply_count, is_fast_responder, ...).",
+    )
+    contactability: Optional[ContactabilityMetrics] = None
+    meta_origin: Optional[dict] = Field(
+        default=None,
+        description="Resumen de la última atribución Meta, sin sobrescribir el primer origen histórico.",
     )
     
     @model_validator(mode='before')
@@ -121,6 +155,13 @@ class LeadResponse(LeadBase):
                     metadata_value = {}
             data = {
                 'id': data.id,
+                'broker_id': getattr(data, 'broker_id', None),
+                'assigned_to': getattr(data, 'assigned_to', None),
+                'assigned_agent_name': (
+                    getattr(getattr(data, 'assigned_agent', None), 'name', None)
+                    if getattr(data, 'assigned_to', None)
+                    else None
+                ),
                 'phone': data.phone,
                 'name': getattr(data, 'name', None),
                 'email': getattr(data, 'email', None),
@@ -132,6 +173,7 @@ class LeadResponse(LeadBase):
                 'created_at': data.created_at,
                 'updated_at': data.updated_at,
                 'metadata': metadata_value,
+                'meta_origin': metadata_value.get('meta_origin'),
             }
 
         if isinstance(data, dict):
@@ -160,15 +202,11 @@ class LeadResponse(LeadBase):
             # Promote response_metrics from metadata to top-level field.
             if data.get('response_metrics') is None:
                 data['response_metrics'] = metadata_value.get('response_metrics')
+            if data.get('meta_origin') is None:
+                data['meta_origin'] = metadata_value.get('meta_origin')
 
         return data
     
-    class Config:
-        from_attributes = True
-        populate_by_name = True  # Allow both 'metadata' and 'lead_metadata'
-
-
 class LeadDetailResponse(LeadResponse):
     lead_score_components: dict
     recent_activities: List[dict] = []
-

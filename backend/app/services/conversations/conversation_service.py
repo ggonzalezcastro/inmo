@@ -35,18 +35,23 @@ class ConversationService:
         lead_id: int,
         broker_id: int,
         channel: str,
+        meta_asset_id: Optional[int] = None,
+        channel_identity_id: Optional[int] = None,
     ) -> Conversation:
         """
         Return the active conversation for this lead+channel, creating one if needed.
         """
+        filters = [
+            Conversation.lead_id == lead_id,
+            Conversation.broker_id == broker_id,
+            Conversation.channel == channel,
+            Conversation.status.in_(["active", "human_mode"]),
+        ]
+        if meta_asset_id is not None:
+            filters.append(Conversation.meta_asset_id == meta_asset_id)
         result = await db.execute(
             select(Conversation)
-            .where(
-                Conversation.lead_id == lead_id,
-                Conversation.broker_id == broker_id,
-                Conversation.channel == channel,
-                Conversation.status.in_(["active", "human_mode"]),
-            )
+            .where(*filters)
             .order_by(Conversation.started_at.desc())
             .limit(1)
         )
@@ -57,6 +62,8 @@ class ConversationService:
                 lead_id=lead_id,
                 broker_id=broker_id,
                 channel=channel,
+                meta_asset_id=meta_asset_id,
+                channel_identity_id=channel_identity_id,
                 status="active",
                 started_at=datetime.now(timezone.utc),
             )
@@ -67,6 +74,8 @@ class ConversationService:
                 conv.id, lead_id, channel,
             )
 
+        elif channel_identity_id is not None and conv.channel_identity_id is None:
+            conv.channel_identity_id = channel_identity_id
         return conv
 
     @staticmethod

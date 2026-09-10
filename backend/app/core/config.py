@@ -91,6 +91,55 @@ class Settings(BaseSettings):
     WHATSAPP_VERIFY_TOKEN: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
     WHATSAPP_WEBHOOK_SECRET: str = os.getenv("WHATSAPP_WEBHOOK_SECRET", "")
 
+    # Meta platform (multi-tenant WhatsApp, Instagram, Messenger and Ads)
+    META_APP_ID: str = os.getenv("META_APP_ID", "")
+    META_APP_SECRET: str = os.getenv("META_APP_SECRET", "")
+    META_GRAPH_API_VERSION: str = os.getenv("META_GRAPH_API_VERSION", "v26.0")
+    META_WEBHOOK_VERIFY_TOKEN: str = os.getenv(
+        "META_WEBHOOK_VERIFY_TOKEN", WHATSAPP_VERIFY_TOKEN
+    )
+    META_OAUTH_REDIRECT_BASE_URL: str = os.getenv(
+        "META_OAUTH_REDIRECT_BASE_URL", "http://localhost:8000/api/v1/meta"
+    )
+    META_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID: str = os.getenv(
+        "META_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID", ""
+    )
+    META_CREDENTIAL_ENCRYPTION_KEY: str = os.getenv(
+        "META_CREDENTIAL_ENCRYPTION_KEY", ""
+    )
+    META_RAW_WEBHOOK_RETENTION_DAYS: int = int(
+        os.getenv("META_RAW_WEBHOOK_RETENTION_DAYS", "7")
+    )
+    META_FEATURE_ENABLED: bool = os.getenv(
+        "META_FEATURE_ENABLED", "false"
+    ).lower() == "true"
+    META_BROKER_DEFAULT_ENABLED: bool = os.getenv(
+        "META_BROKER_DEFAULT_ENABLED", "false"
+    ).lower() == "true"
+    META_WHATSAPP_ASSET_ROUTING_ENABLED: bool = os.getenv(
+        "META_WHATSAPP_ASSET_ROUTING_ENABLED", "false"
+    ).lower() == "true"
+    # Temporary rollback path during the Meta canary. Keep enabled until task
+    # 12.9 proves zero legacy reads through two stable releases.
+    META_WHATSAPP_LEGACY_FALLBACK_ENABLED: bool = os.getenv(
+        "META_WHATSAPP_LEGACY_FALLBACK_ENABLED", "true"
+    ).lower() == "true"
+    META_INSTAGRAM_ENABLED: bool = os.getenv(
+        "META_INSTAGRAM_ENABLED", "false"
+    ).lower() == "true"
+    META_MESSENGER_ENABLED: bool = os.getenv(
+        "META_MESSENGER_ENABLED", "false"
+    ).lower() == "true"
+    META_ADS_ENABLED: bool = os.getenv(
+        "META_ADS_ENABLED", "false"
+    ).lower() == "true"
+    META_LEAD_ADS_ENABLED: bool = os.getenv(
+        "META_LEAD_ADS_ENABLED", "false"
+    ).lower() == "true"
+    META_CONVERSIONS_API_ENABLED: bool = os.getenv(
+        "META_CONVERSIONS_API_ENABLED", "false"
+    ).lower() == "true"
+
     # Celery
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
@@ -106,6 +155,9 @@ class Settings(BaseSettings):
     GOOGLE_OAUTH_REDIRECT_URI: str = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "http://localhost:8000/api/broker/calendar/callback")
     # Frontend URL — used to redirect after OAuth flow completes
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    # Base path the SPA is served under (e.g. "/app"); used to build post-payment
+    # redirects. Empty = served at root.
+    FRONTEND_BASE_PATH: str = os.getenv("FRONTEND_BASE_PATH", "")
 
     # Microsoft Outlook Calendar (Azure App Registration)
     MICROSOFT_CLIENT_ID: str = os.getenv("MICROSOFT_CLIENT_ID", "")
@@ -136,6 +188,24 @@ class Settings(BaseSettings):
     # Other voice providers (for future use)
     BLAND_API_KEY: str = os.getenv("BLAND_API_KEY", "")
     RETELL_API_KEY: str = os.getenv("RETELL_API_KEY", "")
+
+    # ── Transbank Webpay Plus ────────────────────────────────────────────────
+    # Per-broker credentials live in broker_payment_configs (see BrokerPaymentConfig).
+    # These are ONLY the shared INTEGRATION (test) fallback used when a broker has
+    # not configured its own credentials. They are Transbank's public integration
+    # credentials — NOT production. Phase 1: every broker runs against integration.
+    TRANSBANK_DEFAULT_COMMERCE_CODE: str = os.getenv(
+        "TRANSBANK_DEFAULT_COMMERCE_CODE", "597055555532"
+    )
+    TRANSBANK_DEFAULT_API_KEY: str = os.getenv(
+        "TRANSBANK_DEFAULT_API_KEY",
+        "579B532A7440BB0C9079DED94D31EA1615BACEB56610332264630D42D0A36B1C",
+    )
+    # Phase 1 kill-switch: force all brokers to integration regardless of their
+    # per-broker environment setting. Flip to "false" in phase 2 to allow production.
+    TRANSBANK_FORCE_INTEGRATION: bool = (
+        os.getenv("TRANSBANK_FORCE_INTEGRATION", "true").lower() == "true"
+    )
 
     # ── Pipecat voice stack (autonomous / handoff / copilot / coaching) ─────
     # TTS provider: "elevenlabs" (lowest latency w/ flash v2.5) | "deepgram" | "fish_audio"
@@ -194,12 +264,12 @@ class Settings(BaseSettings):
     SENTRY_PROJECT: str = os.getenv("SENTRY_PROJECT", "")
 
     # Storage
-    STORAGE_DRIVER: str = "railway_volume"  # "railway_volume" | "local" | "s3" (future)
-    STORAGE_VOLUME_PATH: str = "/data/deals"
-    STORAGE_LOCAL_PATH: str = "./.local-storage"  # only for driver=local
-    STORAGE_SIGNING_SECRET: str = ""  # HMAC secret; falls back to SECRET_KEY if empty
-    STORAGE_PRESIGN_TTL_SEC: int = 600
-    STORAGE_MAX_FILE_MB: int = 15
+    STORAGE_DRIVER: str = os.getenv("STORAGE_DRIVER", "local")
+    STORAGE_VOLUME_PATH: str = os.getenv("STORAGE_VOLUME_PATH", "/data/deals")
+    STORAGE_LOCAL_PATH: str = os.getenv("STORAGE_LOCAL_PATH", "./.local-storage")
+    STORAGE_SIGNING_SECRET: str = os.getenv("STORAGE_SIGNING_SECRET", "")
+    STORAGE_PRESIGN_TTL_SEC: int = int(os.getenv("STORAGE_PRESIGN_TTL_SEC", "600"))
+    STORAGE_MAX_FILE_MB: int = int(os.getenv("STORAGE_MAX_FILE_MB", "15"))
 
     # Environment
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"

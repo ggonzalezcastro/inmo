@@ -9,8 +9,8 @@ Authentication
 --------------
 The client sends a JWT token as the first text message after connecting:
     {"token": "<jwt>"}
-If the token is invalid or the user doesn't belong to the requested broker,
-the connection is closed with code 4001.
+If the token is invalid, the user doesn't belong to the requested broker, or
+the path user ID differs from the token subject, the connection closes with 4001.
 
 Client → Server messages
 -------------------------
@@ -52,7 +52,7 @@ router = APIRouter()
 _HEARTBEAT_INTERVAL = 30  # seconds
 
 
-async def _authenticate(ws: WebSocket, broker_id: int):
+async def _authenticate(ws: WebSocket, broker_id: int, requested_user_id: str):
     """
     Wait up to 10 s for the client to send ``{"token": "<jwt>"}``.
     Returns the decoded payload dict, or None on failure.
@@ -71,6 +71,12 @@ async def _authenticate(ws: WebSocket, broker_id: int):
 
         role = (payload.get("role") or "").upper()
         user_broker_id = payload.get("broker_id")
+        authenticated_user_id = payload.get("sub")
+
+        # The targeted Redis channel is keyed by user ID. Never trust the path
+        # value alone, otherwise a user could subscribe to a colleague's alerts.
+        if authenticated_user_id is None or str(authenticated_user_id) != str(requested_user_id):
+            return None
 
         if role == "SUPERADMIN":
             return payload
@@ -98,7 +104,7 @@ async def websocket_endpoint(ws: WebSocket, broker_id: int, user_id: str):
     """
     await ws.accept()
 
-    user = await _authenticate(ws, broker_id)
+    user = await _authenticate(ws, broker_id, user_id)
     if not user:
         try:
             await ws.close(code=4001, reason="Unauthorized")
@@ -106,13 +112,14 @@ async def websocket_endpoint(ws: WebSocket, broker_id: int, user_id: str):
             pass
         return
 
-    await ws_manager.connect(broker_id, user_id, ws)
+    authenticated_user_id = str(user["sub"])
+    await ws_manager.connect(broker_id, authenticated_user_id, ws)
 
     try:
         # Confirm connection
         await ws.send_json({
             "event": "connected",
-            "data": {"broker_id": broker_id, "user_id": user_id},
+            "data": {"broker_id": broker_id, "user_id": authenticated_user_id},
         })
 
         while True:
@@ -133,6 +140,6 @@ async def websocket_endpoint(ws: WebSocket, broker_id: int, user_id: str):
     except WebSocketDisconnect:
         pass
     except Exception as exc:
-        logger.debug("[WS] Error broker=%s user=%s: %s", broker_id, user_id, exc)
+        logger.debug("[WS] Error broker=%s user=%s: %s", broker_id, authenticated_user_id, exc)
     finally:
-        await ws_manager.disconnect(broker_id, user_id, ws)
+        await ws_manager.disconnect(broker_id, authenticated_user_id, ws)

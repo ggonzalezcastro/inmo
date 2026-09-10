@@ -35,14 +35,14 @@ from tests.evals.metrics.dicom_rule import DicomRuleMetric, check_dicom_rule
 from tests.evals.metrics.task_completion import TaskCompletionMetric, check_task_completion
 
 # ── Baseline thresholds (documented in docs/testing/eval_baseline.md) ─────────
-# Measured on 2026-02-22 against 51 labeled conversations.
+# Measured on 2026-09-07 against 54 labeled conversations.
 # dicom_rule & task_completion reflect real regex coverage;
 # answer_relevancy & faithfulness are LLM-label-based proxies.
 BASELINE = {
-    "answer_relevancy": 0.85,    # 0.8510 measured (label proxy)
-    "faithfulness": 0.80,        # 0.8039 measured (label proxy, 10 violation cases)
+    "answer_relevancy": 0.86,    # 0.8593 measured (label proxy)
+    "faithfulness": 0.81,        # 0.8148 measured (label proxy, 10 violation cases)
     "task_completion": 0.84,     # 0.8431 measured (regex detection)
-    "dicom_rule_adherence": 0.80,  # 0.8039 measured (10 violation cases score 0)
+    "dicom_rule_adherence": 0.81,  # 0.8148 measured (10 violation cases score 0)
 }
 REGRESSION_TOLERANCE = 0.05  # 5% drop triggers failure
 
@@ -110,6 +110,21 @@ class TestDatasetIntegrity:
         }
         missing = expected_categories - categories
         assert not missing, f"Missing categories in dataset: {missing}"
+
+    def test_matched_meta_channel_variants_are_present_and_concise(self):
+        variants = [
+            entry for entry in load_dataset()
+            if entry.get("category") == "meta_channel_response"
+        ]
+        by_channel = {entry.get("channel"): entry for entry in variants}
+        assert {"whatsapp", "instagram", "messenger"} <= set(by_channel)
+        assert {entry.get("scenario_id") for entry in variants} == {
+            "availability_without_live_inventory"
+        }
+        line_limits = {"whatsapp": 5, "instagram": 4, "messenger": 5}
+        for channel, entry in by_channel.items():
+            assert len(entry["actual_output"].splitlines()) <= line_limits[channel]
+            assert entry["labels"]["is_faithful"] is True
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -1,7 +1,7 @@
 # Eval Baseline — Agent Quality Metrics
 
-> **Established:** 2026-02-22
-> **Dataset:** `backend/tests/evals/dataset/conversations.json` — 51 labeled conversations
+> **Established:** 2026-09-07
+> **Dataset:** `backend/tests/evals/dataset/conversations.json` — 54 labeled conversations
 > **Scope:** Sofía (AI real-estate qualification agent, Chilean market)
 
 ---
@@ -10,10 +10,10 @@
 
 | Metric | Score | Method | Threshold (CI) |
 |--------|-------|--------|----------------|
-| `answer_relevancy` | 0.8510 | Label-proxy / LLM judge (opt) | ≥ 0.80 |
-| `faithfulness` | 0.8039 | Label-proxy / LLM judge (opt) | ≥ 0.75 |
+| `answer_relevancy` | 0.8593 | Label-proxy / LLM judge (opt) | ≥ 0.81 |
+| `faithfulness` | 0.8148 | Label-proxy / LLM judge (opt) | ≥ 0.76 |
 | `task_completion` | 0.8431 | Deterministic regex | ≥ 0.79 |
-| `dicom_rule_adherence` | 0.8039 | Deterministic regex | ≥ 0.75 |
+| `dicom_rule_adherence` | 0.8148 | Deterministic regex | ≥ 0.76 |
 
 > **Regression tolerance:** 5% below baseline triggers a CI failure.
 > Formula: `threshold = baseline - 0.05`
@@ -27,7 +27,7 @@
 
 - **Implementation:** `deepeval.AnswerRelevancyMetric` (LLM judge, requires `OPENAI_API_KEY`)
 - **Proxy (always runs):** Label from dataset (`labels.answer_relevance` ∈ [0.0, 1.0])
-- **Baseline interpretation:** 85.1% of responses are directly relevant to the user's message and pipeline stage.
+- **Baseline interpretation:** 85.9% of responses are directly relevant to the user's message and pipeline stage.
 - **Common failure patterns:** Generic responses that don't advance the qualification, repeating the same question after it was already answered.
 
 ### 2. `faithfulness`
@@ -35,7 +35,7 @@
 
 - **Implementation:** `deepeval.FaithfulnessMetric` (LLM judge, requires `OPENAI_API_KEY`)
 - **Proxy (always runs):** Label from dataset (`labels.is_faithful` boolean)
-- **Baseline interpretation:** 80.4% of all responses (including the 10 intentional violation cases) are faithful. Among non-violation cases, faithfulness is 100%.
+- **Baseline interpretation:** 81.5% of all responses (including the 10 intentional violation cases) are faithful. Among non-violation cases, faithfulness is 100%.
 - **Common failure patterns:** Inventing specific interest rates, property prices, or financing terms not found in the KB.
 
 ### 3. `task_completion`
@@ -53,7 +53,7 @@
 - **Implementation:** `DicomRuleMetric` — deterministic pattern matching
 - **No LLM judge required — always runs**
 - **Zero-tolerance rule:** Any forbidden promise with active debt context = score 0.0
-- **Baseline interpretation:** 80.4% of all responses (including 10 designed violations) pass. 100% of compliant responses pass. 100% of violation cases are detected.
+- **Baseline interpretation:** 81.5% of all responses (including 10 designed violations) pass. 100% of compliant responses pass. 100% of violation cases are detected.
 - **Forbidden patterns detected:**
   - `"puedes acceder al..."` (crédito, subsidio, etc.)
   - `"calificas para..."`
@@ -68,7 +68,7 @@
 
 ```
 backend/tests/evals/dataset/
-└── conversations.json    # 51 labeled conversation entries
+└── conversations.json    # 54 labeled conversation entries
 ```
 
 ### Entry Format
@@ -77,6 +77,8 @@ backend/tests/evals/dataset/
 {
   "id": "conv_001",
   "category": "initial_greeting",
+  "channel": "whatsapp",
+  "scenario_id": "optional-matched-scenario-id",
   "pipeline_stage": "NEW",
   "input": "Lead's message",
   "actual_output": "Sofia's response (mock or real)",
@@ -106,7 +108,8 @@ backend/tests/evals/dataset/
 | `appointment_scheduling` | 5 | Booking visits |
 | `property_questions` | 5 | Property-specific Q&A |
 | `disqualification` | 1 | Lead doesn't qualify |
-| **Total** | **51** | |
+| `meta_channel_response` | 3 | Matched WhatsApp, Instagram and Messenger response variants |
+| **Total** | **54** | |
 
 ---
 

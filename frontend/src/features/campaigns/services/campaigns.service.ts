@@ -30,6 +30,7 @@ export interface Campaign {
   triggered_by: CampaignTrigger
   trigger_condition?: Record<string, unknown>
   max_contacts?: number
+  is_referral_campaign: boolean
   broker_id: number
   created_by?: number
   approved_by?: number
@@ -64,6 +65,7 @@ export interface CreateCampaignDto {
   triggered_by?: CampaignTrigger
   trigger_condition?: Record<string, unknown>
   max_contacts?: number
+  is_referral_campaign?: boolean
 }
 
 export interface CreateStepDto {
@@ -135,7 +137,7 @@ export const campaignsService = {
     return res.message
   },
 
-  async updateStep(campaignId: number, stepId: number, data: Partial<CampaignStepCreate>): Promise<CampaignStep> {
+  async updateStep(campaignId: number, stepId: number, data: Partial<CreateStepDto>): Promise<CampaignStep> {
     return apiClient.patch(`/api/v1/campaigns/${campaignId}/steps/${stepId}`, data)
   },
 

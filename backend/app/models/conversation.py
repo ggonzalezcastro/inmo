@@ -9,6 +9,8 @@ The context_summary JSONB stores a compact snapshot of what the agent knows
 so far, enabling token-efficient context passing (~200-500 tokens vs 5K-20K
 from the full message history).
 """
+from datetime import datetime, timezone
+
 from sqlalchemy import (
     Boolean,
     Column,
@@ -18,6 +20,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
@@ -47,7 +50,21 @@ class Conversation(Base, IdMixin, TimestampMixin):
 
     # ── Channel ───────────────────────────────────────────────────────────────
     channel = Column(String(20), nullable=False)
-    # 'telegram', 'whatsapp', 'webchat'
+    # 'telegram', 'whatsapp', 'instagram', 'facebook', 'webchat'
+    meta_asset_id = Column(
+        Integer,
+        ForeignKey("meta_assets.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    channel_identity_id = Column(
+        Integer,
+        ForeignKey("channel_identities.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    messaging_window_expires_at = Column(DateTime(timezone=True), nullable=True)
+    assignment_conflict = Column(Boolean, nullable=False, default=False)
 
     # ── Status ────────────────────────────────────────────────────────────────
     status = Column(String(20), nullable=False, default="active")
@@ -97,6 +114,8 @@ class Conversation(Base, IdMixin, TimestampMixin):
     lead = relationship("Lead", foreign_keys=[lead_id])
     broker = relationship("Broker", foreign_keys=[broker_id])
     human_agent = relationship("User", foreign_keys=[human_assigned_to])
+    meta_asset = relationship("MetaAsset", foreign_keys=[meta_asset_id])
+    channel_identity = relationship("ChannelIdentity", foreign_keys=[channel_identity_id])
     messages = relationship(
         "ChatMessage",
         back_populates="conversation",
@@ -112,6 +131,7 @@ class Conversation(Base, IdMixin, TimestampMixin):
             postgresql_where="human_mode = true",
         ),
         Index("idx_conv_broker_channel", "broker_id", "channel"),
+        Index("idx_conv_broker_asset_status", "broker_id", "meta_asset_id", "status"),
     )
 
     def __repr__(self) -> str:
@@ -119,3 +139,43 @@ class Conversation(Base, IdMixin, TimestampMixin):
             f"<Conversation id={self.id} lead={self.lead_id} "
             f"channel={self.channel} status={self.status}>"
         )
+
+
+class ConversationReadState(Base, IdMixin, TimestampMixin):
+    """Per-user read cursor used to compute unread messages without guesswork."""
+
+    __tablename__ = "conversation_read_states"
+
+    broker_id = Column(
+        Integer,
+        ForeignKey("brokers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    conversation_id = Column(
+        Integer,
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    last_read_message_id = Column(
+        Integer,
+        ForeignKey("chat_messages.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    read_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "conversation_id",
+            "user_id",
+            name="uq_conversation_read_state_user",
+        ),
+        Index("idx_conversation_read_broker_user", "broker_id", "user_id"),
+    )

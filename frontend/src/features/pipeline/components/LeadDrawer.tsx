@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Copy,
   Check,
+  ListTodo,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/shared/lib/utils'
@@ -28,10 +29,10 @@ import {
 } from '@/shared/components/ui/dropdown-menu'
 import { PIPELINE_STAGES, DICOM_CONFIG } from '@/shared/lib/constants'
 import { chatService, type ChatMessage } from '../services/chat.service'
-import { appointmentService, type Appointment, type CreateAppointmentDto } from '../services/appointment.service'
-import { pipelineService } from '../services/pipeline.service'
 import { getErrorMessage } from '@/shared/types/api'
 import type { Lead } from '@/features/leads/types'
+import { LeadFollowUpPanel } from '@/features/leads/components/LeadFollowUpPanel'
+import { usePermissions } from '@/shared/hooks/usePermissions'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -39,9 +40,10 @@ interface LeadDrawerProps {
   lead: Lead | null
   onClose: () => void
   onMoveStage: (lead: Lead, newStage: string) => void
+  onLeadUpdated?: (lead: Lead) => void
 }
 
-type Tab = 'chat' | 'details' | 'citas'
+type Tab = 'chat' | 'details' | 'follow_up'
 
 // ── Sub-components ───────────────────────────────────────────────────────────
 
@@ -108,17 +110,13 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 // ── Main Component ───────────────────────────────────────────────────────────
 
 export function LeadDrawer({ lead, onClose, onMoveStage }: LeadDrawerProps) {
+  const { isSuperAdmin } = usePermissions()
   const [tab, setTab] = useState<Tab>('chat')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [loadingChat, setLoadingChat] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [appointments, setAppointments] = useState<Appointment[]>([])
-  const [loadingApts, setLoadingApts] = useState(false)
-  const [agents, setAgents] = useState<Array<{ id: number; name: string; email: string }>>([])
-  const [newApt, setNewApt] = useState<Partial<CreateAppointmentDto>>({})
   const chatBottomRef = useRef<HTMLDivElement>(null)
   const drawerRef = useRef<HTMLDivElement>(null)
-  const aptAgentInitRef = useRef(false)
 
   // ── Fetch messages when lead changes ──────────────────────────────────────
   useEffect(() => {
@@ -140,27 +138,6 @@ export function LeadDrawer({ lead, onClose, onMoveStage }: LeadDrawerProps) {
     }
   }, [messages, tab])
 
-  // ── Appointments tab ──────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!lead || tab !== 'citas') return
-    aptAgentInitRef.current = false
-    setLoadingApts(true)
-    Promise.all([
-      appointmentService.getForLead(lead.id),
-      pipelineService.listAgents(),
-    ])
-      .then(([apts, agts]) => {
-        setAppointments(apts)
-        setAgents(agts)
-        if (!aptAgentInitRef.current && agts.length > 0) {
-          setNewApt((prev) => ({ ...prev, agent_id: agts[0].id }))
-          aptAgentInitRef.current = true
-        }
-      })
-      .catch((err) => toast.error(getErrorMessage(err)))
-      .finally(() => setLoadingApts(false))
-  }, [lead?.id, tab])
-
   // ── Close on Escape ───────────────────────────────────────────────────────
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -171,7 +148,7 @@ export function LeadDrawer({ lead, onClose, onMoveStage }: LeadDrawerProps) {
   }, [onClose])
 
   const handleCopyPhone = () => {
-    if (!lead) return
+    if (!lead?.phone) return
     navigator.clipboard.writeText(lead.phone).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
@@ -196,7 +173,7 @@ export function LeadDrawer({ lead, onClose, onMoveStage }: LeadDrawerProps) {
       {/* ── Drawer panel ──────────────────────────────────────────────────── */}
       <div
         ref={drawerRef}
-        className="fixed right-0 top-0 bottom-0 z-50 w-[400px] bg-white border-l border-[#D1D9E6] shadow-2xl flex flex-col"
+        className="fixed bottom-0 right-0 top-0 z-50 flex w-full flex-col border-l border-[#D1D9E6] bg-white shadow-2xl sm:w-[440px]"
         style={{ animation: 'slideInRight 0.22s ease-out' }}
       >
         {/* ── Header ──────────────────────────────────────────────────────── */}
@@ -214,6 +191,7 @@ export function LeadDrawer({ lead, onClose, onMoveStage }: LeadDrawerProps) {
             <div className="flex items-center gap-1.5">
               <button
                 onClick={handleCopyPhone}
+                disabled={!lead.phone}
                 title="Copiar teléfono"
                 className="h-7 px-2 rounded-lg flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-[#F0F4F8] transition-colors"
               >
@@ -222,7 +200,7 @@ export function LeadDrawer({ lead, onClose, onMoveStage }: LeadDrawerProps) {
                 ) : (
                   <Copy className="h-3.5 w-3.5" />
                 )}
-                {copied ? 'Copiado' : lead.phone}
+                {copied ? 'Copiado' : (lead.phone || 'Sin teléfono')}
               </button>
 
               <a
@@ -245,7 +223,7 @@ export function LeadDrawer({ lead, onClose, onMoveStage }: LeadDrawerProps) {
                 </h2>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <Phone className="h-3 w-3 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">{lead.phone}</span>
+                  <span className="text-sm text-muted-foreground">{lead.phone || 'Identidad de canal Meta'}</span>
                 </div>
               </div>
               <ScoreBadge score={lead.lead_score} />
@@ -270,12 +248,13 @@ export function LeadDrawer({ lead, onClose, onMoveStage }: LeadDrawerProps) {
           {([
             { id: 'chat' as Tab, label: 'Chat', icon: MessageSquare },
             { id: 'details' as Tab, label: 'Detalles', icon: FileText },
+            { id: 'follow_up' as Tab, label: 'Seguimiento', icon: ListTodo },
           ] as const).map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setTab(id)}
               className={cn(
-                'flex items-center gap-1.5 px-5 py-3 text-sm font-medium border-b-2 transition-colors',
+                'flex flex-1 items-center justify-center gap-1.5 border-b-2 px-2 py-3 text-xs font-semibold transition-colors',
                 tab === id
                   ? 'border-[#1A56DB] text-[#1A56DB]'
                   : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -372,6 +351,9 @@ export function LeadDrawer({ lead, onClose, onMoveStage }: LeadDrawerProps) {
               <div>
                 <DetailRow label="Creado" value={formatDate(lead.created_at)} />
                 <DetailRow label="Email" value={lead.email} />
+                {Boolean(lead.meta_origin || meta.meta_origin) && (
+                  <DetailRow label="Origen" value={`Meta Ads · ${String((lead.meta_origin || meta.meta_origin as Lead['meta_origin'])?.campaign_id || 'campaña no identificada')}`} />
+                )}
                 <DetailRow label="ID" value={`#${lead.id}`} />
                 {lead.tags && lead.tags.length > 0 && (
                   <DetailRow
@@ -391,6 +373,13 @@ export function LeadDrawer({ lead, onClose, onMoveStage }: LeadDrawerProps) {
                   />
                 )}
               </div>
+            </div>
+          )}
+
+          {/* Follow-up tab */}
+          {tab === 'follow_up' && (
+            <div className="p-4">
+              <LeadFollowUpPanel lead={lead} readOnly={isSuperAdmin} />
             </div>
           )}
         </div>

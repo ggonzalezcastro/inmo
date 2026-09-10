@@ -8,7 +8,6 @@ This file contains reusable fixtures for:
 - Mock services
 """
 import pytest
-import asyncio
 from typing import AsyncGenerator, Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
@@ -36,20 +35,11 @@ def compile_uuid_postgres(type_, compiler, **kw):
 
 @compiles(now, "sqlite")
 def compile_now_sqlite(element, compiler, **kw):
-    print("DEBUG: Compiling now() for SQLite")
     return "datetime('now')"
 
 
 # Use SQLite for testing (in-memory)
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
-
-
-@pytest.fixture(scope="session")
-def event_loop() -> Generator:
-    """Create event loop for async tests"""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest.fixture(scope="function")

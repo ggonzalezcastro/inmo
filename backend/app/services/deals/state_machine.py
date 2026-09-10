@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.deal import Deal
 from app.models.deal_document import DealDocument
+from app.models.payment import Payment
 from app.services.deals.exceptions import DealError
 from app.services.deals.slots import get_all_required_slots_for_promesa
 
@@ -22,6 +23,18 @@ GuardFn = Callable[..., None]
 
 
 async def _guard_draft_to_reserva(deal: Deal, db: AsyncSession) -> None:
+    # An approved Transbank payment stands in for the manual transfer receipt.
+    payment_result = await db.execute(
+        select(Payment.id).where(
+            and_(
+                Payment.deal_id == deal.id,
+                Payment.status == "approved",
+            )
+        )
+    )
+    if payment_result.first():
+        return
+
     result = await db.execute(
         select(DealDocument).where(
             and_(
@@ -33,7 +46,8 @@ async def _guard_draft_to_reserva(deal: Deal, db: AsyncSession) -> None:
     )
     if not result.scalar_one_or_none():
         raise DealError(
-            "Para avanzar a 'reserva' se requiere el comprobante de transferencia.",
+            "Para avanzar a 'reserva' se requiere el comprobante de transferencia "
+            "o un pago Transbank aprobado.",
             status_code=422,
         )
 

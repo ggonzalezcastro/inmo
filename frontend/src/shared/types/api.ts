@@ -6,7 +6,7 @@ export interface PaginatedResponse<T> {
 }
 
 export interface ApiError {
-  detail: string | { msg: string; type: string }[]
+  detail: string | { msg: string; type: string }[] | { message?: string; code?: string }
 }
 
 export function getErrorMessage(error: unknown): string {
@@ -15,6 +15,7 @@ export function getErrorMessage(error: unknown): string {
     const detail = axiosError.response?.data?.detail
     if (typeof detail === 'string') return detail
     if (Array.isArray(detail)) return detail.map((d) => d.msg).join(', ')
+    if (detail && typeof detail === 'object' && 'message' in detail && typeof detail.message === 'string') return detail.message
   }
   if (error instanceof Error) return error.message
   return 'Ha ocurrido un error inesperado'

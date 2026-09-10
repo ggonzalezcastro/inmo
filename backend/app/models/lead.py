@@ -28,7 +28,7 @@ class Lead(Base, IdMixin, TimestampMixin):
     __tablename__ = "leads"
     
     # Basic info
-    phone = Column(String(20), nullable=False, index=True)  # Removed unique=True to allow duplicate phones
+    phone = Column(String(20), nullable=True, index=True)  # Meta identities may not expose a phone
     name = Column(String(100), nullable=True)
     email = Column(String(100), nullable=True)
     
@@ -109,6 +109,23 @@ class Lead(Base, IdMixin, TimestampMixin):
         back_populates="lead",
         cascade="all, delete-orphan"
     )
+    internal_notes = relationship(
+        "LeadNote",
+        back_populates="lead",
+        cascade="all, delete-orphan",
+        order_by="LeadNote.created_at",
+    )
+    follow_up_tasks = relationship(
+        "LeadTask",
+        back_populates="lead",
+        cascade="all, delete-orphan",
+    )
+    advisories = relationship(
+        "LeadAdvisory",
+        back_populates="lead",
+        cascade="all, delete-orphan",
+        order_by="LeadAdvisory.occurred_at",
+    )
     appointments = relationship(
         "Appointment",
         back_populates="lead",
@@ -146,4 +163,3 @@ class Lead(Base, IdMixin, TimestampMixin):
     
     def __repr__(self):
         return f"<Lead id={self.id} phone={self.phone} status={self.status}>"
-

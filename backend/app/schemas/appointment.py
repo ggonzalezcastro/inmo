@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List
 from datetime import datetime, date, time
 from enum import Enum
@@ -48,6 +48,8 @@ class AppointmentUpdate(BaseModel):
 
 
 class AppointmentResponse(AppointmentBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     lead_id: int
     lead_name: Optional[str] = None
@@ -62,10 +64,6 @@ class AppointmentResponse(AppointmentBase):
     cancellation_reason: Optional[str] = None
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
 
 class AppointmentDetailResponse(AppointmentResponse):
     lead_name: Optional[str] = None
@@ -104,14 +102,12 @@ class AvailabilitySlotUpdate(BaseModel):
 
 
 class AvailabilitySlotResponse(AvailabilitySlotBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     agent_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
 
 class AppointmentBlockBase(BaseModel):
     start_time: datetime
@@ -138,14 +134,12 @@ class AppointmentBlockUpdate(BaseModel):
 
 
 class AppointmentBlockResponse(AppointmentBlockBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     agent_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
 
 class AvailableSlotResponse(BaseModel):
     """Response for available time slots"""

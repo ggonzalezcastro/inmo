@@ -32,7 +32,7 @@ export function LeadFormDialog({ open, onOpenChange, lead, onSuccess }: LeadForm
   useEffect(() => {
     if (lead) {
       setName(lead.name)
-      setPhone(lead.phone)
+      setPhone(lead.phone ?? '')
       setEmail(lead.email ?? '')
     } else {
       setName('')

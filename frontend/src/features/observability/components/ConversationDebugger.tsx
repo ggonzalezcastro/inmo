@@ -37,6 +37,7 @@ function agentLabel(a: string | undefined) {
     qualifier: 'Qualifier',
     scheduler: 'Scheduler',
     follow_up: 'Follow-up',
+    referral: 'Referidos',
     property: 'Property',
     supervisor: 'Supervisor',
   }
@@ -52,6 +53,7 @@ const AGENT_COLOR: Record<string, string> = {
   qualifier: 'bg-blue-100 text-blue-700',
   scheduler: 'bg-violet-100 text-violet-700',
   follow_up: 'bg-emerald-100 text-emerald-700',
+  referral: 'bg-violet-100 text-violet-700',
   property: 'bg-amber-100 text-amber-700',
   supervisor: 'bg-slate-100 text-slate-700',
 }

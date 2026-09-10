@@ -1,12 +1,9 @@
-"""
-Pipeline stage constants shared by advancement and metrics services.
-"""
-PIPELINE_STAGES = {
-    "entrada": "Lead inicial - recién recibido",
-    "perfilamiento": "Recopilando información del cliente",
-    "calificacion_financiera": "Validando capacidad financiera",
-    "potencial": "Lead con potencial - requiere seguimiento comercial",
-    "agendado": "Cita agendada",
-    "ganado": "Cliente convertido",
-    "perdido": "Oportunidad perdida",
-}
+"""Backward-compatible re-export of dependency-neutral stage constants."""
+
+from app.shared.pipeline_stages import (
+    PIPELINE_STAGE_ENTRY,
+    PIPELINE_STAGE_WON,
+    PIPELINE_STAGES,
+)
+
+__all__ = ["PIPELINE_STAGE_ENTRY", "PIPELINE_STAGE_WON", "PIPELINE_STAGES"]

@@ -7,11 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List, Optional
 from datetime import datetime
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr
 from app.database import get_db
 from app.middleware.auth import get_current_user
 from app.models.broker import Broker
-from app.models.user import UserRole
 from app.services.audit import log_audit
 import logging
 
@@ -29,6 +28,8 @@ class BrokerCreate(BaseModel):
 
 
 class BrokerResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     slug: Optional[str] = None
@@ -38,10 +39,6 @@ class BrokerResponse(BaseModel):
     service_zones: Optional[dict] = None
     is_active: bool
     created_at: datetime
-
-    class Config:
-        from_attributes = True
-
 
 @router.post("/", response_model=BrokerResponse, status_code=status.HTTP_201_CREATED)
 async def create_broker(
@@ -316,4 +313,3 @@ async def delete_broker(
     logger.info(f"Broker deactivated: {broker_id} by superadmin {current_user.get('email')}")
     
     return None
-

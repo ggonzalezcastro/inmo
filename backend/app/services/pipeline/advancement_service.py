@@ -12,7 +12,7 @@ from sqlalchemy import and_, desc
 from app.models.lead import Lead, LeadStatus
 from app.models.campaign import Campaign, CampaignTrigger
 from app.services.shared import ActivityService
-from app.services.pipeline.constants import PIPELINE_STAGES
+from app.services.pipeline.constants import PIPELINE_STAGES, PIPELINE_STAGE_WON
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +89,9 @@ async def move_lead_to_stage(
             logger.debug("[WS] stage_changed broadcast error: %s", _ws_exc)
 
     await _trigger_stage_campaigns(db, lead, new_stage)
+    if old_stage != new_stage and new_stage == PIPELINE_STAGE_WON and lead.broker_id:
+        from app.tasks.referral_tasks import enqueue_referral_outreach
+        enqueue_referral_outreach(lead.id, lead.broker_id)
     await db.refresh(lead)
     return lead
 
@@ -105,6 +108,8 @@ async def _trigger_stage_campaigns(
                 and_(
                     Campaign.status == "active",
                     Campaign.triggered_by == CampaignTrigger.STAGE_CHANGE,
+                    Campaign.broker_id == lead.broker_id,
+                    Campaign.is_referral_campaign == False,
                 )
             )
         )
@@ -137,6 +142,8 @@ async def _trigger_stage_campaigns(
                 })
                 lead.campaign_history = campaign_history
                 await db.commit()
+                from app.tasks.campaign_executor import execute_campaign_for_lead
+                execute_campaign_for_lead.delay(campaign.id, lead.id)
                 logger.info(
                     f"Campaign {campaign.id} triggered for lead {lead.id} due to stage change to {new_stage}"
                 )

@@ -1,0 +1,70 @@
+name: Meta quality gates
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/meta-quality.yml'
+      - '.env.example'
+      - 'backend/**'
+      - 'config/**'
+      - 'docs/specs/meta-ecosystem/**'
+      - 'docker-compose.yml'
+      - 'frontend/**'
+      - 'railway.json'
+      - 'scripts/check_meta_*.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/meta-quality.yml'
+      - '.env.example'
+      - 'backend/**'
+      - 'config/**'
+      - 'docs/specs/meta-ecosystem/**'
+      - 'docker-compose.yml'
+      - 'frontend/**'
+      - 'railway.json'
+      - 'scripts/check_meta_*.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meta-quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: Meta contracts and traceability
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate external setup contract
+        run: python3 scripts/check_meta_external_setup.py
+      - name: Validate App Review evidence contract
+        run: python3 scripts/check_meta_app_review_evidence.py
+      - name: Validate rollout contract
+        run: python3 scripts/check_meta_rollout.py
+      - name: Validate requirement traceability
+        run: python3 scripts/check_meta_traceability.py
+
+  frontend:
+    name: Frontend quality
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run type-check
+      - run: npm audit --omit=dev --audit-level=high

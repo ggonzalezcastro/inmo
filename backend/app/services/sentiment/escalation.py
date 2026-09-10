@@ -120,7 +120,7 @@ async def _escalate(
     row = result.first()
     if row:
         lead_name = row[0] or row[1] or f"Lead {lead_id}"
-        assigned_to = row[2]
+        assigned_to = row[2] if len(row) > 2 else None
     else:
         lead_name = f"Lead {lead_id}"
         assigned_to = None

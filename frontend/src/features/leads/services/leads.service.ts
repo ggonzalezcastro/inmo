@@ -2,6 +2,13 @@ import { apiClient } from '@/shared/lib/api-client'
 import type { PaginatedResponse } from '@/shared/types/api'
 import type { Lead, LeadFilters, CreateLeadDto, UpdateLeadDto } from '../types'
 
+export interface ContactabilitySummary {
+  counts: Record<string, number>
+  difficult_total: number
+  evaluated_total: number
+  active_total: number
+}
+
 export const leadsService = {
   async getLeads(filters: Partial<LeadFilters> = {}): Promise<PaginatedResponse<Lead>> {
     // Remove empty/undefined values
@@ -13,6 +20,12 @@ export const leadsService = {
 
   async getLead(id: number): Promise<Lead> {
     return apiClient.get(`/api/v1/leads/${id}`)
+  },
+
+  async getContactabilitySummary(brokerId?: number | null): Promise<ContactabilitySummary> {
+    return apiClient.get('/api/v1/leads/contactability/summary', {
+      params: brokerId ? { broker_id: brokerId } : undefined,
+    })
   },
 
   async createLead(data: CreateLeadDto): Promise<Lead> {

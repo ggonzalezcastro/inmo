@@ -49,7 +49,6 @@ async def apply_transition_effects(
     await _update_lead_pipeline(deal, to_stage, db, now)
     await _log_activity(deal, from_stage, to_stage, actor_user_id, db, now)
     await _broadcast(deal, from_stage, to_stage)
-
     record_stage_transition(from_stage=from_stage, to_stage=to_stage)
     _record_time_in_from_stage(deal, from_stage, now)
 

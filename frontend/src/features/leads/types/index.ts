@@ -11,6 +11,28 @@ export type PipelineStage =
 
 export type LeadCalificacion = 'CALIFICADO' | 'POTENCIAL' | 'NO_CALIFICADO'
 
+export type ContactabilityLevel =
+  | 'contactable'
+  | 'intermittent'
+  | 'difficult'
+  | 'critical'
+  | 'insufficient_data'
+  | 'not_applicable'
+
+export interface ContactabilityMetrics {
+  score: number | null
+  level: ContactabilityLevel
+  reasons: string[]
+  suggested_action: string
+  attempt_count: number
+  unanswered_attempts: number
+  no_answer_calls: number
+  failed_messages: number
+  no_shows: number
+  last_attempt_at: string | null
+  last_response_at: string | null
+}
+
 export interface LeadMetadata {
   location?: string
   budget?: string
@@ -36,7 +58,7 @@ export interface NextAppointment {
 
 export interface Lead {
   id: number
-  phone: string
+  phone: string | null
   name: string
   email?: string
   status: LeadStatus
@@ -54,6 +76,16 @@ export interface Lead {
   close_reason?: string | null
   close_reason_detail?: string | null
   response_metrics?: ResponseMetrics | null
+  contactability?: ContactabilityMetrics | null
+  meta_origin?: {
+    source: 'meta'
+    campaign_id?: string | null
+    ad_set_id?: string | null
+    ad_id?: string | null
+    form_id?: string | null
+    project_id?: number | null
+    captured_at?: string
+  } | null
 }
 
 export interface ResponseMetrics {
@@ -88,6 +120,7 @@ export interface LeadFilters {
   status?: LeadStatus | ''
   pipeline_stage?: PipelineStage | ''
   dicom_status?: 'clean' | 'has_debt' | 'unknown' | ''
+  contactability?: ContactabilityLevel | 'difficult,critical' | ''
   created_from?: string
   created_to?: string
   min_score?: number

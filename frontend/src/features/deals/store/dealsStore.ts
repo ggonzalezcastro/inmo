@@ -7,6 +7,8 @@ import type {
   TransitionDealRequest,
   CancelDealRequest,
   ReviewRequest,
+  Payment,
+  PaymentLinkResponse,
 } from '../types';
 import { dealsApi } from '../services/dealsApi';
 
@@ -26,6 +28,12 @@ interface DealsState {
   submitBankReview: (dealId: number, data: ReviewRequest) => Promise<Deal>;
   submitJefaturaReview: (dealId: number, data: ReviewRequest) => Promise<Deal>;
 
+  // Payment actions
+  paymentsByDealId: Record<number, Payment[]>;
+  createPaymentLink: (dealId: number, amount: number) => Promise<PaymentLinkResponse>;
+  loadPayments: (dealId: number) => Promise<void>;
+  cancelPayment: (dealId: number, paymentId: number) => Promise<void>;
+
   // Document actions
   uploadDocument: (dealId: number, slot: string, file: File, slotIndex?: number) => Promise<DealDocument>;
   approveDocument: (dealId: number, docId: number, notes?: string) => Promise<DealDocument>;
@@ -44,6 +52,7 @@ interface DealsState {
 export const useDealsStore = create<DealsState>((set, get) => ({
   dealsByLeadId: {},
   dealDetails: {},
+  paymentsByDealId: {},
   loading: false,
   error: null,
 
@@ -164,6 +173,45 @@ export const useDealsStore = create<DealsState>((set, get) => ({
       return deal;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to submit jefatura review';
+      set({ error: message, loading: false });
+      throw err;
+    }
+  },
+
+  createPaymentLink: async (dealId, amount) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await dealsApi.createPaymentLink(dealId, { amount });
+      set({ loading: false });
+      // Refresh payments list in the background
+      get().loadPayments(dealId).catch(() => {});
+      return res;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create payment link';
+      set({ error: message, loading: false });
+      throw err;
+    }
+  },
+
+  loadPayments: async (dealId) => {
+    try {
+      const payments = await dealsApi.getPayments(dealId);
+      set((state) => ({
+        paymentsByDealId: { ...state.paymentsByDealId, [dealId]: payments },
+      }));
+    } catch {
+      // non-fatal
+    }
+  },
+
+  cancelPayment: async (dealId, paymentId) => {
+    set({ loading: true, error: null });
+    try {
+      await dealsApi.cancelPayment(dealId, paymentId);
+      await get().loadPayments(dealId);
+      set({ loading: false });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to cancel payment';
       set({ error: message, loading: false });
       throw err;
     }
@@ -299,6 +347,9 @@ export const useDealsStore = create<DealsState>((set, get) => ({
         return { dealDetails: updatedDetails, dealsByLeadId: updatedByLead };
       });
       get().loadDealDetail(deal_id).catch(() => {});
+      // A stage change to 'reserva' is usually driven by an approved payment —
+      // refresh payments so the agent sees it live without reloading.
+      get().loadPayments(deal_id).catch(() => {});
     }
   },
 }));

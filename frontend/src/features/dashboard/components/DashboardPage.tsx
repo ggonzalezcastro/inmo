@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 import {
   Search, Plus, Users, GitBranch, CheckCircle,
   MessageSquare, Clock, TrendingUp, CalendarCheck,
-  TrendingUp as TrendUp, Wallet, Handshake, BadgeCheck,
+  MessagesSquare, PhoneOff,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { useNavigate } from 'react-router-dom'
 import { useAuthUser } from '@/features/auth'
 import { usePermissions } from '@/shared/hooks/usePermissions'
 import { dashboardService, type PipelineMetrics } from '../services/dashboard.service'
@@ -16,19 +17,17 @@ import { HotLeadsList } from './HotLeadsList'
 import { WeeklyTrendChart } from './WeeklyTrendChart'
 import { StageBarChart } from './StageBarChart'
 import { StageAvgDaysTable } from './StageAvgDaysTable'
+import { ManagementDashboard } from './ManagementDashboard'
 import { BrokerFilterBar, type SelectedBroker } from '@/shared/components/filters/BrokerFilterBar'
 import { DealsByStageChart } from '@/features/deals/components/DealsByStageChart'
 import { DealUFTrendChart } from '@/features/deals/components/DealUFTrendChart'
+import { SalesInsightsPanel } from '@/features/deals/components/SalesInsightsPanel'
+import { SalesKPIGrid } from '@/features/deals/components/SalesKPIGrid'
 import { PeriodSelector, type DateRange } from '@/features/deals/components/PeriodSelector'
 import { cn } from '@/shared/lib/utils'
 import type { Lead } from '@/features/leads/types'
 
-type Tab = 'leads' | 'ventas'
-
-function formatUF(v: number) {
-  if (v === 0) return '0 UF'
-  return v.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' UF'
-}
+type Tab = 'leads' | 'ventas' | 'jefatura'
 
 function defaultPeriod(): DateRange {
   const today = new Date()
@@ -38,8 +37,9 @@ function defaultPeriod(): DateRange {
 }
 
 export function DashboardPage() {
+  const navigate = useNavigate()
   const user = useAuthUser()
-  const { isSuperAdmin } = usePermissions()
+  const { role, isSuperAdmin } = usePermissions()
   const [activeTab, setActiveTab] = useState<Tab>('leads')
   const [selectedBroker, setSelectedBroker] = useState<SelectedBroker | null>(null)
 
@@ -47,12 +47,12 @@ export function DashboardPage() {
   const [metrics, setMetrics] = useState<PipelineMetrics | null>(null)
   const [hotLeads, setHotLeads] = useState<Lead[]>([])
   const [isLeadsLoading, setIsLeadsLoading] = useState(true)
+  const [difficultContactCount, setDifficultContactCount] = useState(0)
 
   // ── Ventas tab state ──────────────────────────────────────────────────────
   const [dealMetrics, setDealMetrics] = useState<DealMetrics | null>(null)
   const [isDealLoading, setIsDealLoading] = useState(false)
   const [period, setPeriod] = useState<DateRange>(defaultPeriod())
-  const [dealLoaded, setDealLoaded] = useState(false)
 
   const brokerId = selectedBroker?.id ?? null
 
@@ -60,12 +60,14 @@ export function DashboardPage() {
     const load = async () => {
       setIsLeadsLoading(true)
       try {
-        const [m, h] = await Promise.all([
+        const [m, h, contactability] = await Promise.all([
           dashboardService.getMetrics(brokerId),
           dashboardService.getHotLeads(brokerId),
+          dashboardService.getContactabilitySummary(brokerId),
         ])
         setMetrics(m)
         setHotLeads(h)
+        setDifficultContactCount(contactability.difficult_total)
       } catch (error) {
         toast.error(getErrorMessage(error))
       } finally {
@@ -87,7 +89,6 @@ export function DashboardPage() {
           date_to: period.date_to || undefined,
         })
         setDealMetrics(data)
-        setDealLoaded(true)
       } catch (err) {
         toast.error(getErrorMessage(err))
       } finally {
@@ -161,7 +162,7 @@ export function DashboardPage() {
 
         {/* ── Tabs ── */}
         <div className="flex items-end gap-0 border-b border-[#D1D9E6]">
-          {(['leads', 'ventas'] as Tab[]).map((tab) => (
+          {(['leads', 'ventas', 'jefatura'] as Tab[]).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -172,7 +173,7 @@ export function DashboardPage() {
                   : 'border-transparent text-[#6B7280] hover:text-[#374151]'
               )}
             >
-              {tab === 'leads' ? 'Leads' : 'Ventas'}
+              {tab === 'leads' ? 'Leads' : tab === 'ventas' ? 'Ventas' : role === 'agent' ? 'Mi rendimiento' : 'Jefatura'}
             </button>
           ))}
         </div>
@@ -181,8 +182,15 @@ export function DashboardPage() {
       {/* ── TAB: Leads ── */}
       {activeTab === 'leads' && (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-9 gap-3">
             <KPICard title="Total Leads" value={isLeadsLoading ? '—' : totalLeads} subtitle="en el sistema" icon={Users} variant="light" />
+            <KPICard
+              title="Asesorados"
+              value={isLeadsLoading ? '—' : metrics?.advised_leads ?? 0}
+              subtitle={isLeadsLoading ? 'asesorías verificadas' : `${metrics?.advised_rate ?? 0}% del total`}
+              icon={MessagesSquare}
+              variant="light"
+            />
             <KPICard title="Tasa de Cierre" value={isLeadsLoading ? '—' : `${convRate}%`} subtitle="leads ganados" icon={CheckCircle} variant="dark" />
             <KPICard title="En Proceso" value={isLeadsLoading ? '—' : enProceso} subtitle="perfil → agendado" icon={GitBranch} variant="light" />
             <KPICard title="Agendados" value={isLeadsLoading ? '—' : agendados} subtitle="citas programadas" icon={CalendarCheck} variant="light" />
@@ -196,6 +204,20 @@ export function DashboardPage() {
             />
             <KPICard title="Tasa Respuesta" value={isLeadsLoading ? '—' : `${metrics?.response_rate ?? 0}%`} subtitle="leads respondidos" icon={MessageSquare} variant="light" />
             <KPICard title="Tiempo Prom." value={isLeadsLoading ? '—' : `${avgTotalDays}d`} subtitle="por etapa activa" icon={Clock} variant="light" />
+            <button
+              type="button"
+              onClick={() => navigate('/leads?contactability=difficult,critical')}
+              className="flex min-w-0 text-left rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2"
+              aria-label="Ver leads difíciles de contactar"
+            >
+              <KPICard
+                title="Difícil contacto"
+                value={isLeadsLoading ? '—' : difficultContactCount}
+                subtitle="requieren seguimiento"
+                icon={PhoneOff}
+                variant="light"
+              />
+            </button>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -221,18 +243,27 @@ export function DashboardPage() {
         <>
           <PeriodSelector value={period} onChange={setPeriod} />
 
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <KPICard title="UF en Pipeline" value={isDealLoading ? '—' : formatUF(dealMetrics?.uf_en_pipeline ?? 0)} subtitle="deals activos" icon={TrendUp} variant="dark" />
-            <KPICard title="UF Cerradas" value={isDealLoading ? '—' : formatUF(dealMetrics?.uf_cerradas ?? 0)} subtitle="escrituras firmadas" icon={Wallet} variant="light" />
-            <KPICard title="Deals Activos" value={isDealLoading ? '—' : dealMetrics?.total_active_deals ?? 0} subtitle="sin cancelados" icon={Handshake} variant="light" />
-            <KPICard title="Aprobación Banco" value={isDealLoading ? '—' : `${dealMetrics?.bank_approval_rate ?? 0}%`} subtitle="tasa de aprobación" icon={BadgeCheck} variant="light" />
-          </div>
+          <SalesKPIGrid metrics={dealMetrics} isLoading={isDealLoading} />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <DealsByStageChart dealsByStage={dealMetrics?.deals_by_stage ?? {}} isLoading={isDealLoading} />
-            <DealUFTrendChart data={dealMetrics?.uf_trend ?? []} isLoading={isDealLoading} />
+            <DealUFTrendChart
+              data={dealMetrics?.uf_trend ?? []}
+              monthlyData={dealMetrics?.monthly_trend ?? []}
+              isLoading={isDealLoading}
+            />
           </div>
+
+          <SalesInsightsPanel metrics={dealMetrics} isLoading={isDealLoading} />
         </>
+      )}
+
+      {activeTab === 'jefatura' && (
+        <ManagementDashboard
+          brokerId={brokerId}
+          requiresBroker={isSuperAdmin}
+          personal={role === 'agent'}
+        />
       )}
     </div>
   )
