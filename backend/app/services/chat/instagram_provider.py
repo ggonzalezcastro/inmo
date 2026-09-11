@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from app.core.config import settings
 from app.services.chat.base_provider import BaseChatProvider, ChatMessageData, SendMessageResult
 from app.services.meta.client import MetaGraphClient, MetaGraphError
 
@@ -15,7 +16,11 @@ class InstagramProvider(BaseChatProvider):
         self.access_token = config.get("access_token")
         if not self.asset_id or not self.access_token:
             raise ValueError("Instagram asset_id and access_token are required")
-        self.client = MetaGraphClient(access_token=self.access_token)
+        self.client = MetaGraphClient(
+            access_token=self.access_token,
+            app_secret=settings.META_INSTAGRAM_APP_SECRET,
+            base_url="https://graph.instagram.com",
+        )
 
     async def send_message(self, channel_user_id: str, message_text: str, **kwargs: Any) -> SendMessageResult:
         try:
