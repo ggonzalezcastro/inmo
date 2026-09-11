@@ -67,7 +67,11 @@ def redirect_uri(channel: str) -> str:
 def authorization_url(channel: str, state: str) -> str:
     config = CHANNEL_CONFIG[channel]
     params: Dict[str, Any] = {
-        "client_id": settings.META_APP_ID,
+        "client_id": (
+            settings.META_INSTAGRAM_APP_ID
+            if channel == "instagram"
+            else settings.META_APP_ID
+        ),
         "redirect_uri": redirect_uri(channel),
         "response_type": "code",
         "state": state,
@@ -93,8 +97,8 @@ async def exchange_code(
     if channel == "instagram":
         url = "https://api.instagram.com/oauth/access_token"
         data = {
-            "client_id": settings.META_APP_ID,
-            "client_secret": settings.META_APP_SECRET,
+            "client_id": settings.META_INSTAGRAM_APP_ID,
+            "client_secret": settings.META_INSTAGRAM_APP_SECRET,
             "grant_type": "authorization_code",
             "redirect_uri": redirect_uri(channel),
             "code": code,
@@ -119,6 +123,27 @@ async def exchange_code(
         raise ValueError("Meta devolvió una respuesta de autorización inválida") from exc
     if not payload.get("access_token"):
         raise ValueError("Meta no devolvió un access token")
+    if channel == "instagram":
+        short_lived_token = str(payload["access_token"])
+        params = {
+            "grant_type": "ig_exchange_token",
+            "client_secret": settings.META_INSTAGRAM_APP_SECRET,
+            "access_token": short_lived_token,
+        }
+        async with httpx.AsyncClient(transport=transport, timeout=20.0) as client:
+            long_lived_response = await client.get(
+                "https://graph.instagram.com/access_token",
+                params=params,
+            )
+        if long_lived_response.is_error:
+            raise ValueError("Instagram rechazó la conversión a token de larga duración")
+        try:
+            long_lived_payload = long_lived_response.json()
+        except ValueError as exc:
+            raise ValueError("Instagram devolvió una respuesta de token inválida") from exc
+        if not long_lived_payload.get("access_token"):
+            raise ValueError("Instagram no devolvió un token de larga duración")
+        payload = {**payload, **long_lived_payload}
     return payload
 
 
@@ -243,11 +268,24 @@ async def complete_connection(
         expires_at = datetime.now(timezone.utc) + timedelta(
             seconds=int(token_payload["expires_in"])
         )
-    graph = MetaGraphClient(access_token=access_token, transport=transport)
+    graph = MetaGraphClient(
+        access_token=access_token,
+        app_secret=(
+            settings.META_INSTAGRAM_APP_SECRET
+            if channel == "instagram"
+            else settings.META_APP_SECRET
+        ),
+        base_url=(
+            "https://graph.instagram.com"
+            if channel == "instagram"
+            else "https://graph.facebook.com"
+        ),
+        transport=transport,
+    )
 
     if channel == "instagram":
         profile = await graph.get(
-            "https://graph.instagram.com/me",
+            "me",
             params={"fields": "user_id,username,account_type"},
         )
         account_type = str(profile.get("account_type") or "").upper()
@@ -294,7 +332,7 @@ async def complete_connection(
         )
         try:
             await graph.post(
-                f"{principal_id}/subscribed_apps",
+                f"{principal_id}/subscribed_aps",
                 data={"subscribed_fields": "messages,messaging_postbacks"},
             )
             instagram_asset.asset_metadata = {
@@ -360,7 +398,7 @@ async def complete_connection(
                 asset_type="facebook_page",
                 channel="facebook",
                 external_id=str(page["id"]),
-                display_name=page.get("name"),
+                display_name=page.get"name"),
                 owner_type=owner_type,
                 owner_user_id=user_id if owner_type == "executive" else None,
                 capabilities=page_capabilities,
@@ -378,7 +416,7 @@ async def complete_connection(
                 subscribed_fields.append("leadgen")
             try:
                 await page_graph.post(
-                    f"{page['id']}/subscribed_apps",
+                    f"{page['id']}/subscribed_aps",
                     data={"subscribed_fields": ",".join(subscribed_fields)},
                 )
                 page_asset.asset_metadata = {
