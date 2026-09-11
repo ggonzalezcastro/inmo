@@ -41,6 +41,9 @@ def meta_configuration_status() -> dict[str, bool]:
     redirect = urlparse(settings.META_OAUTH_REDIRECT_BASE_URL)
     return {
         "app_credentials": bool(settings.META_APP_ID and settings.META_APP_SECRET),
+        "instagram_app_credentials": bool(
+            settings.META_INSTAGRAM_APP_ID and settings.META_INSTAGRAM_APP_SECRET
+        ),
         "webhook_verify_token": bool(settings.META_WEBHOOK_VERIFY_TOKEN),
         "oauth_redirect_configured": bool(redirect.scheme and redirect.netloc),
         "oauth_redirect_https": redirect.scheme == "https",
@@ -60,17 +63,22 @@ class MetaFeatureFlagService:
             configured.get("enabled", settings.META_BROKER_DEFAULT_ENABLED)
         )
         globals_ = _global_switches()
+        parent_app_configured = bool(settings.META_APP_ID and settings.META_APP_SECRET)
+        instagram_app_configured = bool(
+            settings.META_INSTAGRAM_APP_ID and settings.META_INSTAGRAM_APP_SECRET
+        )
         channels = {
             key: bool(
                 settings.META_FEATURE_ENABLED
                 and tenant_enabled
                 and globals_[key]
                 and configured.get(key, True)
+                and (instagram_app_configured if key == "instagram" else parent_app_configured)
             )
             for key in FEATURE_KEYS
         }
         return {
-            "configured": bool(settings.META_APP_ID and settings.META_APP_SECRET),
+            "configured": parent_app_configured,
             "global_enabled": settings.META_FEATURE_ENABLED,
             "broker_enabled": tenant_enabled,
             "channels": channels,
