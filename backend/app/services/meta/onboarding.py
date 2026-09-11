@@ -332,7 +332,7 @@ async def complete_connection(
         )
         try:
             await graph.post(
-                f"{principal_id}/subscribed_aps",
+                f"{principal_id}/subscribed_apps",
                 data={"subscribed_fields": "messages,messaging_postbacks"},
             )
             instagram_asset.asset_metadata = {
@@ -398,7 +398,7 @@ async def complete_connection(
                 asset_type="facebook_page",
                 channel="facebook",
                 external_id=str(page["id"]),
-                display_name=page.get"name"),
+                display_name=page.get("name"),
                 owner_type=owner_type,
                 owner_user_id=user_id if owner_type == "executive" else None,
                 capabilities=page_capabilities,
@@ -416,7 +416,7 @@ async def complete_connection(
                 subscribed_fields.append("leadgen")
             try:
                 await page_graph.post(
-                    f"{page['id']}/subscribed_aps",
+                    f"{page['id']}/subscribed_apps",
                     data={"subscribed_fields": ",".join(subscribed_fields)},
                 )
                 page_asset.asset_metadata = {
