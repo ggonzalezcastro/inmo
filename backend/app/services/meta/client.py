@@ -54,6 +54,7 @@ def _redact_secrets(message: str, *secrets: Optional[str]) -> str:
 
 class MetaGraphClient:
     BASE_URL = "https://graph.facebook.com"
+    ALLOWED_HOSTS = {"graph.facebook.com", "graph.instagram.com"}
 
     def __init__(
         self,
@@ -61,11 +62,26 @@ class MetaGraphClient:
         *,
         api_version: Optional[str] = None,
         app_secret: Optional[str] = None,
+        base_url: Optional[str] = None,
         transport: Optional[httpx.AsyncBaseTransport] = None,
     ) -> None:
         self.access_token = access_token
         self.api_version = (api_version or settings.META_GRAPH_API_VERSION).lstrip("/")
         self.app_secret = app_secret if app_secret is not None else settings.META_APP_SECRET
+        requested_base_url = (base_url or self.BASE_URL).rstrip("/")
+        parsed_base_url = urlsplit(requested_base_url)
+        if (
+            parsed_base_url.scheme.lower() != "https"
+            or (parsed_base_url.hostname or "").lower() not in self.ALLOWED_HOSTS
+            or parsed_base_url.username is not None
+            or parsed_base_url.password is not None
+            or parsed_base_url.port not in {None, 443}
+            or parsed_base_url.path
+            or parsed_base_url.query
+            or parsed_base_url.fragment
+        ):
+            raise ValueError("Meta Graph base URL is invalid")
+        self.base_url = requested_base_url
         self.transport = transport
 
     def _url(self, path: str) -> str:
@@ -78,14 +94,14 @@ class MetaGraphClient:
                 raise ValueError("Meta Graph pagination URL is invalid") from exc
             if (
                 parsed.scheme.lower() != "https"
-                or host != "graph.facebook.com"
+                or host not in self.ALLOWED_HOSTS
                 or parsed.username is not None
                 or parsed.password is not None
                 or port not in {None, 443}
             ):
-                raise ValueError("Meta Graph pagination URL must use graph.facebook.com")
+                raise ValueError("Meta Graph pagination URL must use an approved Meta Graph host")
             return path
-        return f"{self.BASE_URL}/{self.api_version}/{path.lstrip('/')}"
+        return f"{self.base_url}/{self.api_version}/{path.lstrip('/')}"
 
     def _auth_params(self, token: Optional[str]) -> Dict[str, str]:
         effective_token = token or self.access_token
