@@ -49,14 +49,29 @@ def _confirmation_code(external_user_id: str) -> str:
 
 
 def verify_meta_signature(raw_body: bytes, signature_header: str) -> bool:
-    secret = settings.META_APP_SECRET or settings.WHATSAPP_WEBHOOK_SECRET
-    if not secret:
+    secrets = tuple(
+        dict.fromkeys(
+            secret
+            for secret in (
+                settings.META_APP_SECRET,
+                settings.META_INSTAGRAM_APP_SECRET,
+                settings.WHATSAPP_WEBHOOK_SECRET,
+            )
+            if secret
+        )
+    )
+    if not secrets:
         return settings.ENVIRONMENT != "production"
     if not signature_header.startswith("sha256="):
         return False
     received = signature_header.removeprefix("sha256=").strip()
-    expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
-    return bool(received) and hmac.compare_digest(expected, received)
+    return bool(received) and any(
+        hmac.compare_digest(
+            hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest(),
+            received,
+        )
+        for secret in secrets
+    )
 
 
 @router.get("")
