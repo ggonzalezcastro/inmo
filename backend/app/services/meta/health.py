@@ -83,36 +83,48 @@ class MetaConnectionHealthService:
         previous = connection.status
         now = datetime.now(timezone.utc)
         try:
-            app_access_token = f"{settings.META_APP_ID}|{settings.META_APP_SECRET}"
-            graph = MetaGraphClient(
-                access_token=app_access_token,
-                app_secret="",
-            )
-            response = await graph.get("debug_token", params={"input_token": token})
-            data = response.get("data") or {}
-            if not data.get("is_valid"):
-                connection.status = "revoked"
-                connection.revoked_at = now
-                credential.status = "revoked"
-                connection.last_error_code = "TOKEN_INVALID"
-                connection.last_error_detail = "Meta informó que la autorización ya no es válida"
-            elif data.get("app_id") and str(data["app_id"]) != str(settings.META_APP_ID):
-                connection.status = "error"
-                connection.last_error_code = "WRONG_APP"
-                connection.last_error_detail = "La credencial pertenece a otra aplicación Meta"
-            else:
+            if connection.auth_mode == "instagram_login":
+                graph = MetaGraphClient(
+                    access_token=token,
+                    app_secret=settings.META_INSTAGRAM_APP_SECRET,
+                    base_url="https://graph.instagram.com",
+                )
+                await graph.get("me", params={"fields": "id,username,account_type"})
                 connection.status = "active"
                 connection.revoked_at = None
                 connection.last_error_code = None
                 connection.last_error_detail = None
-                scopes = sorted(set(data.get("scopes") or connection.scopes or []))
-                connection.scopes = scopes
-                credential.scopes = scopes
-                expires_timestamp = data.get("expires_at")
-                if expires_timestamp:
-                    expires_at = datetime.fromtimestamp(int(expires_timestamp), tz=timezone.utc)
-                    connection.expires_at = expires_at
-                    credential.expires_at = expires_at
+            else:
+                app_access_token = f"{settings.META_APP_ID}|{settings.META_APP_SECRET}"
+                graph = MetaGraphClient(
+                    access_token=app_access_token,
+                    app_secret="",
+                )
+                response = await graph.get("debug_token", params={"input_token": token})
+                data = response.get("data") or {}
+                if not data.get("is_valid"):
+                    connection.status = "revoked"
+                    connection.revoked_at = now
+                    credential.status = "revoked"
+                    connection.last_error_code = "TOKEN_INVALID"
+                    connection.last_error_detail = "Meta informó que la autorización ya no es válida"
+                elif data.get("app_id") and str(data["app_id"]) != str(settings.META_APP_ID):
+                    connection.status = "error"
+                    connection.last_error_code = "WRONG_APP"
+                    connection.last_error_detail = "La credencial pertenece a otra aplicación Meta"
+                else:
+                    connection.status = "active"
+                    connection.revoked_at = None
+                    connection.last_error_code = None
+                    connection.last_error_detail = None
+                    scopes = sorted(set(data.get("scopes") or connection.scopes or []))
+                    connection.scopes = scopes
+                    credential.scopes = scopes
+                    expires_timestamp = data.get("expires_at")
+                    if expires_timestamp:
+                        expires_at = datetime.fromtimestamp(int(expires_timestamp), tz=timezone.utc)
+                        connection.expires_at = expires_at
+                        credential.expires_at = expires_at
             connection.last_validated_at = now
             credential.last_validated_at = now
         except MetaGraphError as exc:
@@ -172,7 +184,19 @@ class MetaConnectionHealthService:
             connection_id=connection_id,
             broker_id=broker_id,
         )
-        graph = MetaGraphClient(access_token=token)
+        graph = MetaGraphClient(
+            access_token=token,
+            app_secret=(
+                settings.META_INSTAGRAM_APP_SECRET
+                if connection.auth_mode == "instagram_login"
+                else settings.META_APP_SECRET
+            ),
+            base_url=(
+                "https://graph.instagram.com"
+                if connection.auth_mode == "instagram_login"
+                else "https://graph.facebook.com"
+            ),
+        )
         assets = list((await db.scalars(
             select(MetaAsset).where(
                 MetaAsset.connection_id == connection.id,
