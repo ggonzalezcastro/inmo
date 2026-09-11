@@ -62,7 +62,7 @@ def _owner_for_channel(channel: str, role: str) -> str:
     if role == "ADMIN":
         return "broker"
     if role == "AGENT":
-        return "executive"
+        return "user"
     raise HTTPException(status_code=403, detail="Permiso insuficiente")
 
 

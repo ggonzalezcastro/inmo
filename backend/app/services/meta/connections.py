@@ -34,6 +34,14 @@ def _role(current_user: dict) -> str:
     return str(current_user.get("role") or "").upper()
 
 
+def canonical_owner_type(owner_type: str) -> str:
+    """Normalize the former executive label to the persisted personal owner."""
+    normalized = str(owner_type or "").strip().lower()
+    if normalized == "executive":
+        return "user"
+    return normalized
+
+
 class MetaConnectionService:
     @staticmethod
     async def create_or_update(
@@ -51,12 +59,13 @@ class MetaConnectionService:
         expires_at: Optional[datetime] = None,
         connection_metadata: Optional[dict] = None,
     ) -> MetaConnection:
-        if owner_type not in {"broker", "executive"}:
+        owner_type = canonical_owner_type(owner_type)
+        if owner_type not in {"broker", "user"}:
             raise ValueError("owner_type inválido")
         if owner_type == "broker":
             owner_user_id = None
         elif owner_user_id is None:
-            raise ValueError("Una conexión de ejecutivo requiere owner_user_id")
+            raise ValueError("Una conexión personal requiere owner_user_id")
 
         connection = await db.scalar(
             select(MetaConnection).where(
@@ -249,7 +258,7 @@ class MetaAssetService:
                 )
 
         capabilities = changes.get("capabilities")
-        if asset.owner_type == "executive" and capabilities is not None:
+        if asset.owner_type != "broker" and capabilities is not None:
             forbidden = {"ads", "leadgen"}.intersection(capabilities)
             if forbidden:
                 raise HTTPException(

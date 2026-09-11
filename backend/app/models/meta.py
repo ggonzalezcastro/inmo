@@ -18,7 +18,7 @@ from sqlalchemy.orm import relationship
 from app.models.base import Base, IdMixin, TimestampMixin
 
 
-META_OWNER_TYPES = ("broker", "executive")
+META_OWNER_TYPES = ("broker", "user")
 META_CONNECTION_STATUSES = (
     "pending",
     "active",
@@ -44,7 +44,7 @@ META_CONFLICT_STATUSES = ("open", "resolved", "dismissed")
 
 
 class MetaConnection(Base, IdMixin, TimestampMixin):
-    """OAuth/business authorization root for one broker or executive."""
+    """OAuth/business authorization root for one broker or user."""
 
     __tablename__ = "meta_connections"
 
@@ -102,7 +102,7 @@ class MetaConnection(Base, IdMixin, TimestampMixin):
             name="uq_meta_connection_principal",
         ),
         CheckConstraint(
-            "owner_type IN ('broker', 'executive')",
+            "owner_type IN ('broker', 'user')",
             name="ck_meta_connection_owner_type",
         ),
         CheckConstraint(
@@ -111,7 +111,7 @@ class MetaConnection(Base, IdMixin, TimestampMixin):
         ),
         CheckConstraint(
             "(owner_type = 'broker' AND owner_user_id IS NULL) OR "
-            "(owner_type = 'executive' AND owner_user_id IS NOT NULL)",
+            "(owner_type = 'user' AND owner_user_id IS NOT NULL)",
             name="ck_meta_connection_owner_user",
         ),
         Index("idx_meta_connections_broker_status", "broker_id", "status"),
@@ -180,8 +180,13 @@ class MetaAsset(Base, IdMixin, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("asset_type", "external_id", name="uq_meta_asset_external"),
         CheckConstraint(
-            "owner_type IN ('broker', 'executive')",
+            "owner_type IN ('broker', 'user')",
             name="ck_meta_asset_owner_type",
+        ),
+        CheckConstraint(
+            "(owner_type = 'broker' AND owner_user_id IS NULL) OR "
+            "(owner_type = 'user' AND owner_user_id IS NOT NULL)",
+            name="ck_meta_asset_owner_user",
         ),
         CheckConstraint(
             "approval_status IN ('pending_approval', 'approved', 'rejected')",

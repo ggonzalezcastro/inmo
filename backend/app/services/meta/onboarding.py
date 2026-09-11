@@ -12,9 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.meta_encryption import encrypt_meta_secret
-from app.models.meta import MetaAsset, MetaCredential
+from app.models.meta import MetaAsset, MetaConnection, MetaCredential
 from app.services.meta.client import MetaGraphClient, MetaGraphError
-from app.services.meta.connections import MetaConnectionService
+from app.services.meta.connections import MetaConnectionService, canonical_owner_type
 
 
 CHANNEL_CONFIG = {
@@ -150,23 +150,31 @@ async def exchange_code(
 async def _upsert_asset(
     db: AsyncSession,
     *,
-    broker_id: int,
-    connection_id: int,
+    connection: MetaConnection,
     asset_type: str,
     channel: Optional[str],
     external_id: str,
     display_name: Optional[str],
-    owner_type: str,
-    owner_user_id: Optional[int],
     capabilities: Iterable[str],
     parent_external_id: Optional[str] = None,
     metadata: Optional[dict] = None,
     access_token: Optional[str] = None,
 ) -> MetaAsset:
+    owner_type = canonical_owner_type(connection.owner_type)
+    if owner_type == "broker":
+        owner_user_id = None
+    elif owner_type == "user" and connection.owner_user_id is not None:
+        owner_user_id = int(connection.owner_user_id)
+    else:
+        raise ValueError("La conexión Meta no tiene un propietario válido")
+
+    broker_id = int(connection.broker_id)
+    connection_id = int(connection.id)
+    normalized_external_id = str(external_id)
     asset = await db.scalar(
         select(MetaAsset).where(
             MetaAsset.asset_type == asset_type,
-            MetaAsset.external_id == str(external_id),
+            MetaAsset.external_id == normalized_external_id,
         )
     )
     if asset and asset.broker_id != broker_id:
@@ -176,28 +184,40 @@ async def _upsert_asset(
             broker_id=broker_id,
             connection_id=connection_id,
             asset_type=asset_type,
-            external_id=str(external_id),
+            channel=channel,
+            external_id=normalized_external_id,
+            parent_external_id=parent_external_id,
+            display_name=display_name,
+            owner_type=owner_type,
+            owner_user_id=owner_user_id,
+            capabilities=sorted(set(capabilities)),
+            approval_status="approved" if owner_type == "broker" else "pending_approval",
+            status="active" if owner_type == "broker" else "paused",
+            asset_metadata=metadata or {},
+            last_synced_at=datetime.now(timezone.utc),
         )
         db.add(asset)
-        await db.flush()
     asset.connection_id = connection_id
     asset.channel = channel
     asset.parent_external_id = parent_external_id
     asset.display_name = display_name
     asset.owner_type = owner_type
-    asset.owner_user_id = owner_user_id if owner_type == "executive" else None
+    asset.owner_user_id = owner_user_id
     asset.capabilities = sorted(set(capabilities))
     asset.approval_status = "approved" if owner_type == "broker" else "pending_approval"
     asset.status = "active" if owner_type == "broker" else "paused"
     asset.asset_metadata = metadata or {}
     asset.last_synced_at = datetime.now(timezone.utc)
+    # Required ownership and identity fields must be populated before the first
+    # INSERT. The asset id is needed only by a possible credential below.
+    await db.flush()
 
     if access_token:
         credential = await db.scalar(
             select(MetaCredential).where(
                 MetaCredential.connection_id == connection_id,
                 MetaCredential.subject_type == "asset",
-                MetaCredential.subject_external_id == str(external_id),
+                MetaCredential.subject_external_id == normalized_external_id,
             )
         )
         if not credential:
@@ -206,7 +226,7 @@ async def _upsert_asset(
                 connection_id=connection_id,
                 asset_id=asset.id,
                 subject_type="asset",
-                subject_external_id=str(external_id),
+                subject_external_id=normalized_external_id,
             )
             db.add(credential)
         credential.asset_id = asset.id
@@ -300,12 +320,12 @@ async def complete_connection(
 
     broker_id = int(claims["broker_id"])
     user_id = int(claims["user_id"])
-    owner_type = str(claims["owner_type"])
+    owner_type = canonical_owner_type(str(claims["owner_type"]))
     connection = await MetaConnectionService.create_or_update(
         db,
         broker_id=broker_id,
         owner_type=owner_type,
-        owner_user_id=user_id if owner_type == "executive" else None,
+        owner_user_id=user_id if owner_type == "user" else None,
         connected_by_user_id=user_id,
         auth_mode=CHANNEL_CONFIG[channel]["auth_mode"],
         external_principal_id=principal_id,
@@ -319,14 +339,11 @@ async def complete_connection(
     if channel == "instagram":
         instagram_asset = await _upsert_asset(
             db,
-            broker_id=broker_id,
-            connection_id=connection.id,
+            connection=connection,
             asset_type="instagram_account",
             channel="instagram",
             external_id=principal_id,
             display_name=principal_name,
-            owner_type=owner_type,
-            owner_user_id=user_id if owner_type == "executive" else None,
             capabilities=["messaging"],
             metadata={"account_type": profile.get("account_type")},
         )
@@ -348,14 +365,11 @@ async def complete_connection(
             raise ValueError("WhatsApp Embedded Signup debe devolver waba_id")
         await _upsert_asset(
             db,
-            broker_id=broker_id,
-            connection_id=connection.id,
+            connection=connection,
             asset_type="waba",
             channel="whatsapp",
             external_id=waba_id,
             display_name=principal_name,
-            owner_type="broker",
-            owner_user_id=None,
             capabilities=["messaging", "templates"],
         )
         phones = []
@@ -370,15 +384,12 @@ async def complete_connection(
         for phone in phones:
             await _upsert_asset(
                 db,
-                broker_id=broker_id,
-                connection_id=connection.id,
+                connection=connection,
                 asset_type="whatsapp_phone",
                 channel="whatsapp",
                 external_id=str(phone["id"]),
                 parent_external_id=str(waba_id),
                 display_name=phone.get("verified_name") or phone.get("display_phone_number"),
-                owner_type="broker",
-                owner_user_id=None,
                 capabilities=["messaging", "templates"],
                 metadata=phone,
             )
@@ -393,14 +404,11 @@ async def complete_connection(
                 page_capabilities.extend(["ads", "leadgen"])
             page_asset = await _upsert_asset(
                 db,
-                broker_id=broker_id,
-                connection_id=connection.id,
+                connection=connection,
                 asset_type="facebook_page",
                 channel="facebook",
                 external_id=str(page["id"]),
                 display_name=page.get("name"),
-                owner_type=owner_type,
-                owner_user_id=user_id if owner_type == "executive" else None,
                 capabilities=page_capabilities,
                 access_token=page.get("access_token"),
             )
@@ -432,15 +440,12 @@ async def complete_connection(
             if ig.get("id") and owner_type == "broker":
                 await _upsert_asset(
                     db,
-                    broker_id=broker_id,
-                    connection_id=connection.id,
+                    connection=connection,
                     asset_type="instagram_account",
                     channel="instagram",
                     external_id=str(ig["id"]),
                     parent_external_id=str(page["id"]),
                     display_name=ig.get("username") or f"Instagram de {page.get('name') or page['id']}",
-                    owner_type="broker",
-                    owner_user_id=None,
                     capabilities=["messaging", "ads"],
                 )
         if channel == "business":
@@ -452,14 +457,11 @@ async def complete_connection(
             for account in ad_accounts:
                 account_asset = await _upsert_asset(
                     db,
-                    broker_id=broker_id,
-                    connection_id=connection.id,
+                    connection=connection,
                     asset_type="ad_account",
                     channel=None,
                     external_id=str(account["id"]),
                     display_name=account.get("name"),
-                    owner_type="broker",
-                    owner_user_id=None,
                     capabilities=["ads", "insights", "leadgen"],
                     metadata=account,
                 )
@@ -472,15 +474,12 @@ async def complete_connection(
             for dataset in await discover_conversion_datasets(graph, ad_accounts):
                 await _upsert_asset(
                     db,
-                    broker_id=broker_id,
-                    connection_id=connection.id,
+                    connection=connection,
                     asset_type="pixel",
                     channel=None,
                     external_id=dataset["id"],
                     parent_external_id=dataset["ad_account_id"],
                     display_name=dataset["name"],
-                    owner_type="broker",
-                    owner_user_id=None,
                     capabilities=["conversions"],
                     metadata={
                         "ad_account_id": dataset["ad_account_id"],

@@ -95,6 +95,8 @@ def test_public_meta_schemas_never_expose_credentials():
 def test_meta_configuration_status_exposes_presence_without_values(monkeypatch):
     monkeypatch.setattr(settings, "META_APP_ID", "app-id-secret")
     monkeypatch.setattr(settings, "META_APP_SECRET", "app-secret-value")
+    monkeypatch.setattr(settings, "META_INSTAGRAM_APP_ID", "instagram-app-id")
+    monkeypatch.setattr(settings, "META_INSTAGRAM_APP_SECRET", "instagram-app-secret")
     monkeypatch.setattr(settings, "META_WEBHOOK_VERIFY_TOKEN", "verify-secret")
     monkeypatch.setattr(settings, "META_OAUTH_REDIRECT_BASE_URL", "https://staging.example/api/v1/meta")
     monkeypatch.setattr(settings, "META_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID", "config-secret")
@@ -104,6 +106,7 @@ def test_meta_configuration_status_exposes_presence_without_values(monkeypatch):
 
     assert status == {
         "app_credentials": True,
+        "instagram_app_credentials": True,
         "webhook_verify_token": True,
         "oauth_redirect_configured": True,
         "oauth_redirect_https": True,
@@ -112,6 +115,7 @@ def test_meta_configuration_status_exposes_presence_without_values(monkeypatch):
     }
     serialized = repr(status)
     assert "app-secret-value" not in serialized
+    assert "instagram-app-secret" not in serialized
     assert "verify-secret" not in serialized
     assert "encryption-secret" not in serialized
 

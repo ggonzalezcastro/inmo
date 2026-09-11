@@ -99,7 +99,9 @@ class MetaGraphClient:
                 or parsed.password is not None
                 or port not in {None, 443}
             ):
-                raise ValueError("Meta Graph pagination URL must use an approved Meta Graph host")
+                raise ValueError(
+                    "Meta Graph URL must use graph.facebook.com or graph.instagram.com"
+                )
             return path
         return f"{self.base_url}/{self.api_version}/{path.lstrip('/')}"
 

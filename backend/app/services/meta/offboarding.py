@@ -44,7 +44,7 @@ class MetaExecutiveOffboardingService:
             update(MetaAsset)
             .where(
                 MetaAsset.broker_id == broker_id,
-                MetaAsset.owner_type == "executive",
+                MetaAsset.owner_type.in_(("user", "executive")),
                 MetaAsset.owner_user_id == user.id,
             )
             .values(status="paused", is_default=False)

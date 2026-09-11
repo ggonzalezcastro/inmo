@@ -22,7 +22,7 @@ export interface MetaHealth {
 export interface MetaConnection {
   id: number
   broker_id: number
-  owner_type: 'broker' | 'executive'
+  owner_type: 'broker' | 'user'
   owner_user_id: number | null
   connected_by_user_id: number | null
   auth_mode: string
@@ -48,7 +48,7 @@ export interface MetaAsset {
   external_id: string
   parent_external_id: string | null
   display_name: string | null
-  owner_type: 'broker' | 'executive'
+  owner_type: 'broker' | 'user'
   owner_user_id: number | null
   assigned_user_id: number | null
   capabilities: string[]
