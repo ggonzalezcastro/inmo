@@ -94,6 +94,10 @@ class Settings(BaseSettings):
     # Meta platform (multi-tenant WhatsApp, Instagram, Messenger and Ads)
     META_APP_ID: str = os.getenv("META_APP_ID", "")
     META_APP_SECRET: str = os.getenv("META_APP_SECRET", "")
+    # Instagram Login has its own application identifier and secret in Meta.
+    # They are distinct from the parent Meta Business App credentials.
+    META_INSTAGRAM_APP_ID: str = os.getenv("META_INSTAGRAM_APP_ID", "")
+    META_INSTAGRAM_APP_SECRET: str = os.getenv("META_INSTAGRAM_APP_SECRET", "")
     META_GRAPH_API_VERSION: str = os.getenv("META_GRAPH_API_VERSION", "v26.0")
     META_WEBHOOK_VERIFY_TOKEN: str = os.getenv(
         "META_WEBHOOK_VERIFY_TOKEN", WHATSAPP_VERIFY_TOKEN
@@ -189,7 +193,7 @@ class Settings(BaseSettings):
     BLAND_API_KEY: str = os.getenv("BLAND_API_KEY", "")
     RETELL_API_KEY: str = os.getenv("RETELL_API_KEY", "")
 
-    # ── Transbank Webpay Plus ────────────────────────────────────────────────
+    # ── Transbank Webpay Plus ───────────────────────────────────────────────
     # Per-broker credentials live in broker_payment_configs (see BrokerPaymentConfig).
     # These are ONLY the shared INTEGRATION (test) fallback used when a broker has
     # not configured its own credentials. They are Transbank's public integration
